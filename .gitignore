@@ -1,0 +1,27 @@
+# Secrets — never commit these
+.env
+credentials.json
+token.json
+*.key
+*.pem
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.coverage
+htmlcov/
+dist/
+*.egg-info/
+
+# uv
+.venv/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Match artifacts (regenerated per run)
+logs/
+results/

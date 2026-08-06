@@ -1,0 +1,438 @@
+# Architecture Plan — Thief Peer
+
+**Status:** DRAFT — pending approval before TODO.md / per-stage PRDs / code
+**Package name:** `thief_peer`
+**Companion doc:** `docs/PRD.md` (approved) — this document must not contradict
+its scope, acceptance criteria, or milestones.
+
+---
+
+## 1. Module / Directory Layout
+
+```
+thief-peer/                                # this repo root (separate from teammate's Cop repo)
+├── main.py                                # thin launcher -> thief_peer.cli:main()
+├── pyproject.toml                         # uv, ruff (E,F,W,I,N,UP,B,C4,SIM), pytest-cov fail_under=85
+├── uv.lock
+├── .env-example                           # GMAIL_*, ANTHROPIC_API_KEY dummy placeholders
+├── .gitignore                             # .env, credentials.json, token.json, *.key, *.pem, logs/, results/
+├── README.md                              # academic report (Ch.9 mandatory sections)
+├── src/thief_peer/
+│   ├── __init__.py
+│   ├── __main__.py                        # `uv run python -m thief_peer ...`
+│   ├── cli.py                             # argument parsing ONLY -> calls ThiefSdk, zero logic
+│   ├── constants.py                       # Direction(N/S/E/W), MoveType, NONCE_BYTES, protocol strings
+│   ├── exceptions.py                      # ConfigError, CryptoError, SimulationError, ProviderError
+│   ├── sdk/
+│   │   ├── __init__.py
+│   │   └── sdk.py                         # ThiefSdk — THE single entry point (run(), replay())
+│   ├── domain/                            # pure game logic — no I/O, no LLM, no network
+│   │   ├── board.py                       # Board: legal_moves (N/S/E/W/STAY), Manhattan distance
+│   │   ├── own_state.py                   # OwnGameState: my position, visited trail, known barriers
+│   │   ├── scent.py                       # ScentField: emit (5x5, center 0.9), absorb, decay (rho=0.10)
+│   │   ├── belief.py                      # BeliefGrid: Bayesian update from scent+hints, diffuse()
+│   │   ├── rules.py                       # capture-on-barrier / no-legal-move / survival checks
+│   │   ├── crypto.py                      # canonical_json, CommitReveal, audit_records() — see §5
+│   │   ├── negotiation.py                 # shared-config signature exchange (reuses CommitReveal)
+│   │   ├── protocol.py                    # TurnMessage / AuditPayload / ControlMessage dataclasses
+│   │   └── game_ids.py                    # deterministic game_id / game_uid derivation
+│   ├── strategy/                          # THE graded differentiator — pure Python, NEVER the LLM
+│   │   ├── brain_base.py                  # BrainBase, Decision dataclass, resolve_brain() factory
+│   │   ├── fleeing_brain.py               # ThiefBrain(BrainBase): maximize distance from belief peak
+│   │   ├── trash_talk.py                  # hint+verdict orchestration, throttling, fallback-to-template
+│   │   └── talk_providers.py              # template / ollama / claude_api / claude_cli adapters
+│   ├── peer/                              # the turn-taking protocol — ONE peer, no shared process
+│   │   ├── runtime.py                     # PeerRuntime: negotiate -> turn loop -> audit
+│   │   ├── turn_fsm.py                    # explicit turn state machine + illegal-transition rejection
+│   │   ├── turn_handler.py                # apply incoming Cop TurnMessage
+│   │   ├── turn_sender.py                 # build Decision -> seal -> TurnMessage -> send
+│   │   ├── sealing.py                     # payload builders, REQUIRED_TERMS fail-fast validation
+│   │   ├── handshake.py                   # Step-0 declaration exchange before move 1
+│   │   └── summary.py                     # per-match summary for report + GUI
+│   ├── infra/                             # adapters to the outside world
+│   │   ├── mcp_server.py                  # FastMCP: negotiate/receive_turn/submit_audit/receive_control
+│   │   ├── mcp_client.py                  # McpTransport: calls the Cop's MCP tools
+│   │   ├── llm_provider.py                # ollama/claude_api/claude_cli — banter ONLY, never move
+│   │   └── email_sender.py                # Gmail API/OAuth2, structured JSON only, via Gatekeeper
+│   ├── report/
+│   │   ├── artifact_schemas.py            # schema_version, field docs
+│   │   ├── artifacts.py                   # build_declaration / build_config / build_log / build_result
+│   │   ├── artifact_helpers.py            # canonical_sha256, filenames
+│   │   └── report_writer.py               # assembles + hands result JSON to email_sender
+│   ├── shared/                            # cross-cutting infra
+│   │   ├── config.py                      # ConfigManager: game.json (shared) + game.toml (private)
+│   │   ├── gatekeeper.py                  # ApiGatekeeper.execute() — the ONE doorway for Gmail+LLM
+│   │   ├── rate_limiter.py                # token bucket + FIFO queue + DOS/loop detector
+│   │   ├── sysinfo.py                     # collect_spec(): OS/CPU/RAM/GPU-VRAM
+│   │   ├── watchdog.py                    # watchdog_check(): whole-system heartbeat monitor (PRD_5)
+│   │   └── version.py                     # CODE_VERSION
+│   └── gui/                               # presentation ONLY — reads PeerRuntime.view(), no logic
+│       ├── window.py                      # Tkinter root: turn banner + board canvas + belief heatmap
+│       ├── board_view.py                  # renders OWN truth only — never the Cop's real position
+│       ├── turn_banner.py                 # renders turn_fsm state
+│       └── replay_view.py                 # steps a saved log, re-verifies hashes live
+├── config/thief/
+│   ├── game.json                          # SHARED, signed, byte-identical with the Cop's copy
+│   ├── game.toml                          # PRIVATE: port, opponent URL, strategy/LLM selectors, email
+│   └── rate_limits.json                   # Gatekeeper limits (never hardcoded)
+├── data/                                  # match-log fixtures for replay tests
+├── results/                               # emitted JSON artifacts per match (gitignored contents)
+├── assets/                                # GUI icons, doc images
+├── notebooks/                             # optional analysis of match logs
+├── docs/
+│   ├── PRD.md  PLAN.md  TODO.md
+│   └── PRD_1_base_logic.md ... PRD_7_reporting_shell.md
+└── tests/
+    ├── unit/                              # one file per src module, happy + error path, >=85% cov
+    └── integration/                       # two-peer localhost/public-URL full-match tests
+```
+
+**Deviation from the mandated generic skeleton, justified:** the guidelines'
+flat `services/` folder is replaced with five purpose-built packages (`domain/`,
+`strategy/`, `peer/`, `infra/`, `report/`). A P2P turn-based game has clearly
+distinct concerns — pure rules, the pluggable decision policy, the turn protocol
+state machine, external adapters, and reporting — and collapsing them into one
+folder would either blow the 150-line-per-file cap into monster files or produce
+an unlabelled pile of same-folder modules. `sdk/` and `shared/` are kept exactly
+as mandated.
+
+---
+
+## 2. C4 — System Context
+
+```
+                         +----------------------------+
+                         |          GitHub             |
+                         | (this repo's commit hash;    |
+                         |  read, not called, for the   |
+                         |  Step-0 declaration)         |
+                         +--------------^---------------+
+                                        | commit hash read at startup
++---------------+  operates (GUI/CLI) +-+------------------------+  MCP over tunnel   +---------------+
+|  Human         |-------------------->|                          |<------------------>|  Cop Peer      |
+|  Operator      |                     |       THIEF PEER          |  TurnMessage,       | (separate,     |
+|  (this student)|                     |  (this system: MCP        |  Negotiation,       |  independent   |
++---------------+                     |  server + MCP client,     |  AuditPayload,      |  repo/process) |
+                                        |  own SDK, own GUI)         |  ControlMessage     +---------------+
+                                        +---+------------------+---+
+                          optional LLM only  |                  |  structured JSON report
+                          (banter text)      |                  |  (via Gatekeeper, OAuth2)
+                                             v                  v
+                         +---------------------+      +------------------+
+                         |  LLM Provider         |      |   Gmail API       |
+                         |  (Ollama / Claude API |      | (OAuth2, fixed    |
+                         |  / Claude CLI) —       |      |  recipient)       |
+                         |  NEVER decides the move|      +------------------+
+                         +---------------------+
+
+                         +---------------------+
+                         |  Tunnel (ngrok /       |  exposes THIEF PEER's own MCP server
+                         |  Localtonet)           |  publicly so the Cop peer (different
+                         +---------------------+  machine) can reach it — transparent, no state.
+```
+
+**Key point:** there is no box in the middle brokering the match — Thief and Cop
+talk directly, peer-to-peer, over MCP; the tunnel is transparent transport only.
+
+---
+
+## 3. C4 — Container / Component (internal call graph)
+
+```
++-------------------------- Presentation (NO logic) --------------------------+
+|   cli.py          gui/window.py, board_view.py, turn_banner.py, replay_view.py |
++------------------------------------+-----------------------------------------+
+                                     | calls only
+                                     v
+                          +------------------------+
+                          |   sdk/sdk.py            |  <-- SINGLE entry point (SDK mandate)
+                          |   class ThiefSdk         |
+                          |   .run() / .replay()     |
+                          +-----------+-------------+
+                                      | builds & drives
+                                      v
+                          +------------------------+
+                          |  peer/runtime.py         |
+                          |  PeerRuntime              |
+                          +--+----------+---------+--+
+              uses           |          |         |            uses
+        +---------------------+         |         +---------------------+
+        v                               v                               v
++----------------+           +--------------------+          +------------------------+
+| peer/turn_fsm.py|           | peer/handshake.py,  |          | peer/turn_handler.py,   |
+| (state machine,  |           | peer/sealing.py      |          | peer/turn_sender.py      |
+| illegal-         |<----------| (Step-0, commit-      |--------->| (apply/produce           |
+| transition        |          | reveal payload builders)|          | TurnMessage)              |
+| rejection)         |          +---------+-----------+          +-----+--------------------+
++----------------+                       |                            |
+                    +----------------------+                  +---------+---------+
+                    v                       v                  v                    v
+         +----------------+      +----------------+  +-----------------+  +----------------------+
+         | domain/crypto.py|      | domain/          |  | strategy/         |  | domain/board.py,      |
+         | domain/          |      | game_ids.py       |  | brain_base.py,    |  | own_state.py, scent.py|
+         | negotiation.py   |      |                   |  | fleeing_brain.py, |  | belief.py, rules.py    |
+         +----------------+      +----------------+  | trash_talk.py     |  +----------------------+
+                                                        +--------+---------+
+                                                                 | optional, banter only
+                                                                 v
+                                                        +----------------------+
+                                                        | infra/llm_provider.py |
+                                                        |  (via Gatekeeper)       |
+                                                        +----------------------+
+
+  PeerRuntime also drives, at the boundary:
+        v                                             v
++---------------------+                     +-----------------------------+
+| infra/mcp_server.py   |                     | report/artifacts.py,          |
+| infra/mcp_client.py    |<-- wire protocol --| report_writer.py               |
+| (McpTransport)          |    domain/protocol |---> infra/email_sender.py      |
++---------------------+    .py                +-----------------------------+
+                                                (via Gatekeeper)
+
+  Cross-cutting, called from everywhere that needs it, never bypassed:
++-----------------------------------------------------------------------+
+| shared/config.py (ConfigManager)   shared/gatekeeper.py (ApiGatekeeper) |
+| shared/rate_limiter.py             shared/sysinfo.py  shared/version.py |
++-----------------------------------------------------------------------+
+```
+
+**Call-direction rule enforced:** `GUI/CLI -> SDK -> PeerRuntime -> {domain,
+strategy, peer/*, infra, report} -> shared`. Nothing in `domain/` or `strategy/`
+imports from `infra/`, `gui/`, or `report/`. `infra/llm_provider.py` and
+`infra/email_sender.py` are only ever invoked through `shared/gatekeeper.py`.
+
+---
+
+## 4. Architectural Decision Records
+
+**ADR-1 — Strategy is a hard module boundary; the LLM never crosses it into the move.**
+*Decision:* `strategy/brain_base.py` exposes exactly one crossing point, the
+`Decision` dataclass (`move_type`, `direction`, `hint`, `verdict`, `reasoning`).
+`PeerRuntime` never calls an LLM provider directly — only `BrainBase.decide()`
+does, and only for the `hint`/`verdict` half of `Decision`, after the move half
+is already fixed by pure Python (`_pick_move`).
+*Rationale:* the book's Ch.6 hard rule (move is pure Python, never LLM) is a
+*scoring* requirement, not a style choice — a leaky boundary would let a slow/
+failed LLM stall or bias moves, and would make grading the algorithm vs. the
+prompt ambiguous.
+*Rejected alternative:* a single combined "reply" object that may or may not
+touch an LLM depending on a flag — rejected because it reintroduces exactly the
+temptation the book forbids and makes `_pick_move` untestable without stubbing
+an LLM.
+
+**ADR-2 — Turn state is an explicit finite-state machine with illegal-transition rejection.**
+*Decision:* `peer/turn_fsm.py` owns an explicit state set (`NEGOTIATING ->
+WAITING_FOR_COP -> THINKING -> COMMITTING -> AWAITING_REVEAL -> VERIFYING ->
+(loop)`, plus `PAUSED`/`STOPPED`/`TECHNICAL_LOSS`) and every transition is
+checked against an allow-table; illegal transitions raise immediately rather
+than silently overwriting state.
+*Rationale:* book Ch.8 — in a fully decentralized 2-peer game there is no
+referee to catch a desync; if both peers believe it's their turn (or neither
+does), the match deadlocks forever with nothing to intervene. An explicit FSM
+with rejection turns a silent hang into a loud, logged, recoverable error.
+*Rejected alternative:* ad hoc booleans (`is_my_turn`, `awaiting_reply`)
+scattered across `PeerRuntime` — this is exactly what produces the race
+conditions the book calls out, and isn't independently unit-testable.
+
+**ADR-3 — Commit-Reveal canonicalization follows the book's exact formula, not the reference repo's variant.**
+*Decision:* every sealed payload is hashed **exactly as specified in book Ch.5,
+§5.3.1**: the Nonce is one field *inside* a single canonical JSON object
+together with State/Move/Intent, then hashed as one blob:
+```python
+payload = json.dumps({"state": state, "move": move, "intent": intent, "nonce": nonce},
+                      sort_keys=True, separators=(",", ":"))
+h_commit = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+```
+*Rationale:* the Cop peer we'll play against — our teammate's, and any other
+team's in the league — is a separate, independently-built codebase whose authors
+read the same book. At the mutual audit, the opponent must recompute our commit
+hash from our revealed `(payload, nonce)` and get an identical digest; the exact
+canonicalization algorithm is therefore a cross-team interoperability contract,
+not an implementation detail. The lecturer's sample repo actually hashes
+`canonical_json(payload_without_nonce) + "|" + nonce` (nonce appended after the
+JSON, not embedded in it) — a *different* wire format. Its own README states
+"where this repo differs from the book, the book and its binding parameter table
+win," so we follow the book's literal formula, which is also what's independently
+useful: any other team who read the book carefully (rather than copying the
+sample repo's internal choice) will implement the same formula we do.
+*Rejected alternative:* mirror the sample repo's `payload|nonce` format instead
+— rejected because it risks silent audit failures against Cop peers built by
+other teams who followed the book's text instead of the repo's source.
+
+**ADR-4 — One shared `ApiGatekeeper`, not per-module rate limiting.**
+*Decision:* `shared/gatekeeper.py` is the only code path allowed to call
+`infra/email_sender.py` or `infra/llm_provider.py`; it owns rate limiting (from
+`config/thief/rate_limits.json`, never hardcoded), FIFO queuing on overflow,
+retry-on-transient-failure, per-call logging, a token-bucket limiter, and a
+DOS/infinite-loop detector protecting the Gmail account from a runaway bug.
+*Rationale:* book Ch.9 explicitly names a Gatekeeper -> RateLimiter ->
+DOS-detector chain as mandatory; the engineering standard separately forbids
+scattered ad hoc rate-limit checks. A single chokepoint is the only way to
+*guarantee*, not just hope, nothing bypasses it.
+*Rejected alternative:* a `@rate_limited` decorator applied per call site —
+rejected because decorators duplicate limiter state per call site unless
+carefully shared, and it's easy to forget to decorate a new call site later.
+
+**ADR-5 — Config is split by *who must agree*, not by file-format convenience.**
+*Decision:* `config/thief/game.json` holds only terms both peers must match
+byte-for-byte (board size, scent constants, move set, scoring, survival
+threshold) and is verified via the negotiation signature exchange (ADR-6) before
+any port opens; `config/thief/game.toml` holds everything purely local (my MCP
+port, the Cop's URL, which strategy/LLM class to load, my email settings) and is
+never transmitted, hashed, or compared. `ConfigManager` loads both, merges into
+one dotted-key namespace (`board.size`, `scent.decay_rate`, ...), and fails fast
+(`ConfigError`) at startup if a required shared term is missing — before any
+socket opens.
+*Rationale:* direct requirement from the engineering standard (no hardcoded
+values, secrets/local-config never leak into a signed artifact); fail-fast
+before network I/O turns a mid-game crash into an instant local error.
+*Rejected alternative:* one config file with per-key `shared: true/false`
+metadata — rejected because a single file is trivially easy to accidentally
+transmit or commit whole, leaking `opponent_url`/local settings into the signed
+artifact; two files/two `.gitignore` rules enforce the boundary at the
+filesystem level, not just by convention.
+
+**ADR-6 — The commit-reveal primitive is reused, unmodified, for the pre-game negotiation signature.**
+*Decision:* `domain/negotiation.py` calls the *same* `CommitReveal.commit_of()`
+used for per-step sealing (ADR-3) rather than inventing a separate signing
+mechanism: each peer computes `commit_of(my_terms, my_nonce)`, sends
+`(terms, nonce, commit)`, and the receiver recomputes the hash *and* asserts
+`their.terms == my.terms` — a mismatched config is caught before move 1, and the
+exchange doubles as live proof both processes loaded byte-identical shared
+config.
+*Rationale:* DRY — one hashing primitive, one audited implementation, reused for
+two structurally identical purposes (commit to X, later prove you committed to X).
+*Rejected alternative:* a real asymmetric signature scheme (e.g. Ed25519
+keypairs) — disproportionate; the goal is "prove both sides loaded the same
+file," which a shared-then-compared commit already achieves without
+key-distribution complexity the book's crypto scope doesn't call for.
+
+**ADR-7 — Strategy and LLM-provider choice are pluggable via a dotted-path config selector.**
+*Decision:* `strategy/brain_base.py:resolve_brain(config, llm, rng)` reads an
+optional `[strategy] thief_class = "my_pkg.module:ClassName"` from the private
+TOML, dynamically imports it, asserts it subclasses `BrainBase`, and defaults to
+the shipped `ThiefBrain` when unset; `talk_providers.py` resolves its provider
+the same way from `[trash_talk] provider = "..."`.
+*Rationale:* this is the graded differentiator (PRD §3.5) — it must be swappable
+without editing engine files, and "no magic values" forbids hardcoding a
+strategy class name inside `PeerRuntime`.
+*Rejected alternative:* constructor injection only — kept as a secondary
+supported path for tests, but not primary, since the config selector is what
+keeps GUI/CLI logic-free while still user-configurable without a code change.
+
+**ADR-8 — True position never crosses the wire or the GUI boundary.**
+*Decision:* `domain/protocol.py`'s `TurnMessage` carries `scent_grid` and `hint`,
+never a `position` field; `gui/board_view.py` is architecturally unable to
+render the Cop's position because `PeerRuntime.view()` (the only thing the GUI
+may read) never includes it.
+*Rationale:* book Ch.7's hard "must never leak the opponent's real position"
+rule; enforcing this only at the GUI-rendering layer would still leave the true
+position readable in a wire message or saved log line. Pushing the guarantee
+down to "the field literally does not exist in the transmitted/logged struct"
+makes partial observability protocol-level and unit-testable (assert
+`"position" not in TurnMessage.to_dict()` for our own outgoing message).
+*Rejected alternative:* transmit position but instruct the GUI not to draw it —
+rejected because it relies on every future GUI/replay code path remembering not
+to use a field that's right there in the data.
+
+---
+
+## 5. API / Interface Contracts (Thief repo <-> Cop repo interoperability)
+
+These must be reproduced identically (or at minimum, behavior-identically) in
+the independently-built Cop repo — get these wrong and negotiation/audit fails
+even with two individually-correct implementations.
+
+**Canonicalization + Commit-Reveal (book Ch.5 §5.3.1, exact formula — see ADR-3):**
+```python
+payload   = json.dumps({"state": state, "move": move, "intent": intent, "nonce": nonce},
+                        sort_keys=True, separators=(",", ":"))
+h_commit  = hashlib.sha256(payload.encode("utf-8")).hexdigest()
+nonce     = secrets.token_hex(16)          # `secrets` module, NEVER `random`
+# verify(): recompute payload from revealed fields, compare via secrets.compare_digest()
+```
+
+**`Decision` (internal, strategy -> peer boundary — Thief-repo only, not on the wire):**
+| field | type | meaning |
+|---|---|---|
+| `move_type` | `MOVE` \| `HOLD` | Thief never emits `BARRIER` (Cop-only mechanic) |
+| `direction` | `N`\|`S`\|`E`\|`W`\|`None` | `None` iff `move_type == HOLD` |
+| `hint` | `str` | <= `hint_max_words` (from shared `game.json`) |
+| `verdict` | `"truth"` \| `"lie"` | self-declared honesty of `hint`, sealed & audited |
+| `reasoning` | `str` | one-line rationale, sealed into the audit record |
+| `response_seconds` | `float` | banter latency, logged |
+
+**`TurnMessage` (on the wire, MCP `receive_turn` tool argument):**
+```json
+{
+  "step": 7, "sender": "thief",
+  "hint": "<natural language, may lie, word-capped>",
+  "scent_grid": {"3,4": 0.9, "3,5": 0.7},
+  "commit": "sha256 hex, nonce withheld until audit",
+  "timestamp": "ISO-8601",
+  "claim_response": {"claim": [2, 3], "caught": true},
+  "win_claim": {"type": "survival"}
+}
+```
+No `position` field ever (ADR-8).
+
+**MCP tool names/signatures (must match exactly on both peers):**
+```
+negotiate(message: dict) -> {"ok": bool}
+receive_turn(message: dict) -> {"ok": bool}
+submit_audit(payload: dict) -> {"ok": bool}
+receive_control(message: dict) -> {"ok": bool}   # optional GUI control channel
+```
+
+**`AuditPayload`:**
+```json
+{"sender": "thief", "result_claim": "survival",
+ "records": [{"payload": {"state": "...", "move": "...", "intent": "...", "nonce": "..."},
+              "commit": "..."}]}
+```
+
+**Step-0 declaration (sealed, sent before move 1):**
+```json
+{"step": 0, "type": "system_spec",
+ "spec": {"os": "...", "cpu": "...", "ram_gb": 32, "gpu": "...", "vram_gb": 12},
+ "model": "...", "code_version": "1.00", "github_commit_hash": "<sha1 of HEAD>",
+ "group_name": "..."}
+```
+
+**Shared `game.json` required terms (fail-fast if any missing):** `grid_size`,
+`thief_start`, `cop_start`, `move_set` (must be exactly `["N","S","E","W","STAY"]`),
+`max_moves`, `survival_threshold`, scoring block, `pheromone_center_intensity`
+(0.9), `pheromone_decay` (0.10), `pheromone_grid_size` (5), `hint_max_words`. All
+values loaded from the Mandatory Parameters Table (Appendix ו), respecting each
+parameter's constant/minimum/negotiable status — never hardcoded/invented.
+
+**4 JSON report artifacts (schema-level, per match):**
+1. **declaration** — `game_id`, `game_uid`, timestamps, `num_sub_games`,
+   `groups.{group_1,group_2}{identity, repos, mcp_servers, spec, llm_model}`
+2. **config** — the shared terms verbatim + `config_sha256` + `config_name`
+3. **log** — per-sub-game `records[]` (`{payload, nonce, commit}`),
+   `audit{passed, verified_steps, failed_steps}`, mutual-agreement signature
+4. **result** — aggregate outcome across sub-games, `final_result{winner_group,
+   tokens_total_series}`, mutual-agreement signature
+
+**Gmail report:** the `result` artifact (at minimum) sent as a **structured JSON
+attachment** — plain-text body is explicitly forbidden — to the fixed recipient
+in `config/thief/game.toml [email]`, routed through `ApiGatekeeper`.
+
+---
+
+## 6. Consistency Check Against PRD.md
+
+- Milestones in `PRD.md` §6 (7-stage table) match the module layout above 1:1 —
+  no stage introduces a module not accounted for here.
+- Non-goals in `PRD.md` §2.3 (no LLM-driven moves, no shared code with Cop, RL
+  not required) are all enforced architecturally here (ADR-1, ADR-7, separate
+  repo with zero shared modules).
+- Acceptance criteria in `PRD.md` §2.2 map to: public-URL reachability (§1
+  layout + Stage 5), Commit-Reveal/audit (ADR-3/ADR-6), belief map driving
+  decisions (ADR-1 + `strategy/fleeing_brain.py`), GUI/Replay `Verified OK`
+  (ADR-8 + `gui/replay_view.py`), Gmail JSON reporting (ADR-4 + `report/`).
+
+**Next steps after this PLAN.md is approved:** `docs/TODO.md` (task breakdown)
+→ then the 7 per-stage PRD files, one at a time, each implemented and tested
+before the next begins.
