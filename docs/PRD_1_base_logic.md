@@ -90,7 +90,7 @@ a single Python process with no external dependencies.
 | `__init__` | `size: int`, `barriers: set[tuple[int,int]]` | — | validates `size > 0`; stores barriers as an immutable frozenset |
 | `in_bounds(cell)` | `(r,c)` | `bool` | `0 <= r < size and 0 <= c < size` |
 | `is_barrier(cell)` | `(r,c)` | `bool` | membership check |
-| `legal_moves(position, barriers)` | current cell, current barrier set | `list[tuple[Direction, tuple[int,int]]]` | applies `DELTAS`, filters by `in_bounds` + not-a-barrier; **always includes STAY** as a legal option |
+| `legal_moves(position, barriers)` | current cell, current barrier set | `list[tuple[Direction \| None, tuple[int,int]]]` | applies `DELTAS`, filters by `in_bounds` + not-a-barrier; **always includes STAY**, represented as `(None, position)` — `Direction` itself stays strictly the 4 orthogonal members (§4's type-level no-diagonals guarantee), so STAY is `None`, not a 5th enum member |
 | `distance(a, b)` | two cells | `int` | Manhattan distance `abs(a.r-b.r) + abs(a.c-b.c)` |
 
 **Why Manhattan, not Euclidean:** matches orthogonal-only movement exactly —
@@ -153,8 +153,13 @@ targeting — Stage 3/4 will reuse this method, not reimplement it.)
 
 ## 5. Acceptance Criteria & Test Scenarios
 
-- [ ] `Board(size=7, barriers=set())` — a Thief at a corner has exactly 3 legal
-      `MOVE` options + `STAY`; a Thief at the center has 4 + `STAY`.
+- [ ] `Board(size=7, barriers=set())` — a Thief at a **true corner** (e.g.
+      `(0,0)`) has exactly **2** legal `MOVE` directions (the two in-bounds
+      ones) + `STAY` (3 total); a Thief at the center has 4 directions +
+      `STAY` (5 total). *(Corrected during implementation — the original
+      draft of this line said "3 legal MOVE options" for a corner, which
+      doesn't match grid geometry; a true corner only has 2 in-bounds
+      orthogonal neighbors.)*
 - [ ] A barrier adjacent to the Thief removes exactly that one direction from
       `legal_moves`, no others.
 - [ ] `distance((0,0), (3,4)) == 7` (Manhattan, not `5` which would be Euclidean-ish).
@@ -167,9 +172,14 @@ targeting — Stage 3/4 will reuse this method, not reimplement it.)
       exactly on the Thief's current cell — not an adjacent cell.
 - [ ] `has_survived` is `False` at `step_count == survival_threshold - 1` and
       `True` at `step_count == survival_threshold`.
-- [ ] All values (`grid_size`, `survival_threshold`, etc.) are read from
-      `config/thief/game.json` in tests via a test fixture config — **no
-      hardcoded 7s or 35s inside `board.py`/`rules.py` themselves.**
+- [ ] `board.py`/`rules.py` contain **zero hardcoded magic numbers** — every
+      size/threshold is a constructor or function parameter, sourced by the
+      caller (tests pass explicit fixture values directly; wiring these from
+      the actual shared `game.json` happens later, since that loader isn't
+      built until Stage 4 — see `PRD_2` §2.3/`PRD_4`. *(Corrected during
+      implementation: this line originally said values are read from
+      `config/thief/game.json` in Stage 1 tests, which isn't possible yet —
+      Stage 1's config loader is private-TOML-only.)*
 - [ ] `uv run pytest tests/unit -k "board or own_state or rules" --cov` ≥ 85%
       coverage on these three modules; `uv run ruff check` clean.
 
