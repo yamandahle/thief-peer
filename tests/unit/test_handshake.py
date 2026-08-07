@@ -1,0 +1,70 @@
+"""peer/handshake.py tests (PRD_6 §2.5, §3). Exercised against a stub
+transport that behaves like a real, independently-configured opponent peer
+-- proving the negotiation-then-Step-0 sequence genuinely works two-sided,
+not just that each half works in isolation. A real MCP-backed transport is
+wired in once `PeerRuntime` exists (later stage)."""
+
+import pytest
+
+from thief_peer.domain.negotiation import Negotiation, canonical_terms
+from thief_peer.exceptions import ConfigError
+from thief_peer.peer.handshake import run_handshake
+from thief_peer.peer.sealing import sealed_spec_record
+from thief_peer.shared.config import ConfigManager
+
+_GAME_JSON = """
+{
+  "board_and_agents": {"grid_size": 7, "num_agents": 2, "axis_origin_corner": "top-left",
+                        "axis_start_index": 0, "thief_start": [3, 3], "cop_start": [0, 0]},
+  "world": {"map_area": "New York", "hint_max_words": 15},
+  "movement_and_barriers": {"move_set": ["N", "S", "E", "W", "STAY"], "max_barriers": 14,
+                             "max_moves": 35, "survival_threshold": 35},
+  "scoring": {"capture_cop": 20, "capture_thief": 5, "survival_cop": 5, "survival_thief": 10,
+              "tie_score": 2, "technical_loss": 0},
+  "pheromones": {"pheromone_center_intensity": 0.9, "pheromone_decay": 0.10, "pheromone_grid_size": 5}
+}
+"""
+
+
+def _config(tmp_path, name="game", grid_size=7):
+    toml_path = tmp_path / f"{name}.toml"
+    toml_path.write_text("[network]\nmy_port = 8802\n", encoding="utf-8")
+    json_path = tmp_path / f"{name}.json"
+    json_path.write_text(_GAME_JSON.replace('"grid_size": 7', f'"grid_size": {grid_size}'), encoding="utf-8")
+    return ConfigManager(toml_path, json_path)
+
+
+class _StubPeerTransport:
+    """Stands in for a real, independently-configured opponent peer: it
+    has its own config and responds to negotiate/receive_control with its
+    own genuinely-computed signatures, exactly as a real Cop process would."""
+
+    def __init__(self, their_config: ConfigManager, their_group_name: str):
+        self._their_config = their_config
+        self._their_group_name = their_group_name
+
+    def call(self, tool_name: str, payload: dict) -> dict:
+        if tool_name == "negotiate":
+            return Negotiation.signed(canonical_terms(self._their_config))
+        if tool_name == "receive_control" and payload.get("type") == "step0":
+            return {"record": sealed_spec_record(self._their_group_name)}
+        raise ValueError(f"unexpected tool call: {tool_name}")
+
+
+def test_run_handshake_returns_the_opponents_verified_step0_record(tmp_path):
+    my_config = _config(tmp_path, "mine")
+    their_config = _config(tmp_path, "theirs")
+    transport = _StubPeerTransport(their_config, their_group_name="Cop-Team")
+
+    their_record = run_handshake(my_config, transport, group_name="Thief-Team")
+
+    assert their_record["payload"]["group_name"] == "Cop-Team"
+
+
+def test_run_handshake_raises_on_a_terms_mismatch_before_any_step0_exchange(tmp_path):
+    my_config = _config(tmp_path, "mine", grid_size=7)
+    their_config = _config(tmp_path, "theirs", grid_size=9)  # deliberately different
+    transport = _StubPeerTransport(their_config, their_group_name="Cop-Team")
+
+    with pytest.raises(ConfigError, match="grid_size"):
+        run_handshake(my_config, transport, group_name="Thief-Team")

@@ -7,8 +7,14 @@ import socket
 
 import pytest
 
+from thief_peer.domain.crypto import CommitReveal
 from thief_peer.exceptions import TransportError
-from thief_peer.infra.mcp_server import _ping_handler, build_server, wait_until_ready
+from thief_peer.infra.mcp_server import (
+    _ping_handler,
+    _submit_audit_handler,
+    build_server,
+    wait_until_ready,
+)
 
 
 def test_ping_handler_echoes_payload_with_pong_true():
@@ -19,6 +25,39 @@ def test_ping_handler_echoes_payload_with_pong_true():
 def test_ping_handler_rejects_non_dict_payload():
     with pytest.raises(TypeError):
         _ping_handler("not a dict")  # type: ignore[arg-type]
+
+
+def _sealed_record(state="s", move="N", intent="truth"):
+    payload = {"state": state, "move": move, "intent": intent}
+    sealed = CommitReveal.seal(payload)
+    return {"payload": {**payload, "nonce": sealed["nonce"]}, "commit": sealed["commit"]}
+
+
+def test_submit_audit_handler_passes_a_clean_log():
+    records = [_sealed_record(state=f"s{i}") for i in range(3)]
+    result = _submit_audit_handler({"sender": "thief", "records": records})
+
+    assert result == {"passed": True, "verified_steps": 3, "failed_steps": []}
+
+
+def test_submit_audit_handler_catches_a_tampered_record():
+    records = [_sealed_record(state=f"s{i}") for i in range(3)]
+    records[1]["payload"]["move"] = "S"  # tampered after sealing
+
+    result = _submit_audit_handler({"sender": "thief", "records": records})
+
+    assert result["passed"] is False
+    assert result["failed_steps"] == [1]
+
+
+def test_submit_audit_handler_rejects_a_payload_without_records():
+    with pytest.raises(TypeError):
+        _submit_audit_handler({"sender": "thief"})
+
+
+def test_submit_audit_handler_rejects_non_dict_payload():
+    with pytest.raises(TypeError):
+        _submit_audit_handler("not a dict")  # type: ignore[arg-type]
 
 
 def test_build_server_returns_an_app_bound_to_the_requested_port(unused_tcp_port):

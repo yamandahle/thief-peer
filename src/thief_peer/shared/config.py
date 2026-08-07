@@ -1,9 +1,12 @@
-"""ConfigManager v0 — private-only TOML loader with a dotted-key `.get()`
-API (PRD_1 §3). The shared, signed `game.json` overlay is deliberately
-deferred to Stage 4 (PRD_2 §2.3, PRD_4) — this stage's peer never needs
-game content, only its own local settings, per `PLAN.md` ADR-5's config split.
+"""ConfigManager — private TOML loader with an optional shared `game.json`
+overlay, merged into one dotted-key namespace (`PLAN.md` ADR-5). Deferred
+since Stage 1 until a stage actually needed shared game-content terms;
+Stage 6's negotiation is that stage. On a key collision the JSON value
+wins — it's signed and shared, the private TOML must never be able to
+quietly "weaken" a term both sides agreed to.
 """
 
+import json
 import tomllib
 from pathlib import Path
 from typing import Any
@@ -12,12 +15,16 @@ from thief_peer.exceptions import ConfigError
 
 
 class ConfigManager:
-    def __init__(self, toml_path: str | Path):
+    def __init__(self, toml_path: str | Path, json_path: str | Path | None = None):
         self._path = Path(toml_path)
-        self._data = self._load(self._path)
+        data = self._load_toml(self._path)
+        if json_path is not None:
+            json_data = self._load_json(Path(json_path))
+            data = _deep_merge(data, json_data)
+        self._data = data
 
     @staticmethod
-    def _load(path: Path) -> dict:
+    def _load_toml(path: Path) -> dict:
         try:
             with path.open("rb") as f:
                 return tomllib.load(f)
@@ -25,6 +32,16 @@ class ConfigManager:
             raise ConfigError(f"Missing config file: {path}") from exc
         except tomllib.TOMLDecodeError as exc:
             raise ConfigError(f"Invalid TOML in {path}: {exc}") from exc
+
+    @staticmethod
+    def _load_json(path: Path) -> dict:
+        try:
+            with path.open("r", encoding="utf-8") as f:
+                return json.load(f)
+        except FileNotFoundError as exc:
+            raise ConfigError(f"Missing config file: {path}") from exc
+        except json.JSONDecodeError as exc:
+            raise ConfigError(f"Invalid JSON in {path}: {exc}") from exc
 
     def get(self, dotted_key: str, default: Any = None) -> Any:
         node: Any = self._data
@@ -45,3 +62,13 @@ class ConfigManager:
                 f"Required config key '{dotted_key}' missing from {self._path}"
             )
         return value
+
+
+def _deep_merge(base: dict, override: dict) -> dict:
+    merged = dict(base)
+    for key, value in override.items():
+        if key in merged and isinstance(merged[key], dict) and isinstance(value, dict):
+            merged[key] = _deep_merge(merged[key], value)
+        else:
+            merged[key] = value
+    return merged

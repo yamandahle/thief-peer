@@ -1,0 +1,98 @@
+"""domain/negotiation.py tests (PRD_6 §3, §5; PLAN.md ADR-6). canonical_terms
+projects our locally-named config into a fixed, documented wire vocabulary
+-- interoperability with an independently-built Cop repo doesn't depend on
+them using our internal game.json key names, only on both sides producing
+the same *values* for this documented set of wire-level keys."""
+
+import pytest
+
+from thief_peer.domain.crypto import CommitReveal
+from thief_peer.domain.negotiation import CANONICAL_TERM_KEYS, Negotiation, canonical_terms
+from thief_peer.exceptions import ConfigError
+from thief_peer.shared.config import ConfigManager
+
+_GAME_JSON = """
+{
+  "board_and_agents": {"grid_size": 7, "num_agents": 2, "axis_origin_corner": "top-left",
+                        "axis_start_index": 0, "thief_start": [3, 3], "cop_start": [0, 0]},
+  "world": {"map_area": "New York", "hint_max_words": 15},
+  "movement_and_barriers": {"move_set": ["N", "S", "E", "W", "STAY"], "max_barriers": 14,
+                             "max_moves": 35, "survival_threshold": 35},
+  "scoring": {"capture_cop": 20, "capture_thief": 5, "survival_cop": 5, "survival_thief": 10,
+              "tie_score": 2, "technical_loss": 0},
+  "pheromones": {"pheromone_center_intensity": 0.9, "pheromone_decay": 0.10, "pheromone_grid_size": 5}
+}
+"""
+
+
+def _config(tmp_path):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text("[network]\nmy_port = 8802\n", encoding="utf-8")
+    json_path = tmp_path / "game.json"
+    json_path.write_text(_GAME_JSON, encoding="utf-8")
+    return ConfigManager(toml_path, json_path)
+
+
+def test_canonical_terms_covers_every_documented_wire_key(tmp_path):
+    terms = canonical_terms(_config(tmp_path))
+    assert set(terms) == set(CANONICAL_TERM_KEYS)
+
+
+def test_canonical_terms_reads_the_real_values(tmp_path):
+    terms = canonical_terms(_config(tmp_path))
+    assert terms["grid_size"] == 7
+    assert terms["scent_decay_rate"] == 0.10
+    assert terms["hint_word_limit"] == 15
+
+
+def test_canonical_terms_fails_fast_if_a_required_term_is_missing(tmp_path):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text("[network]\nmy_port = 8802\n", encoding="utf-8")
+    json_path = tmp_path / "game.json"
+    json_path.write_text('{"board_and_agents": {"grid_size": 7}}', encoding="utf-8")
+    config = ConfigManager(toml_path, json_path)
+
+    with pytest.raises(ConfigError):
+        canonical_terms(config)
+
+
+def test_signed_produces_a_verifiable_commit(tmp_path):
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms)
+
+    assert CommitReveal.verify(terms, signed["nonce"], signed["commit"]) is True
+
+
+def test_verify_peer_accepts_matching_terms(tmp_path):
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms)
+
+    Negotiation.verify_peer(signed["terms"], signed["nonce"], signed["commit"], terms)
+
+
+def test_verify_peer_rejects_a_tampered_commit(tmp_path):
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms)
+    tampered_terms = {**signed["terms"], "grid_size": 99}
+
+    with pytest.raises(ConfigError, match="tamper"):
+        Negotiation.verify_peer(tampered_terms, signed["nonce"], signed["commit"], terms)
+
+
+def test_verify_peer_rejects_a_single_mismatched_field_and_names_it(tmp_path):
+    my_terms = canonical_terms(_config(tmp_path))
+    their_terms = dict(my_terms)
+    their_terms["grid_size"] = 9  # single differing value
+    signed = Negotiation.signed(their_terms)
+
+    with pytest.raises(ConfigError, match="grid_size"):
+        Negotiation.verify_peer(signed["terms"], signed["nonce"], signed["commit"], my_terms)
+
+
+def test_verify_peer_accepts_even_if_local_key_names_would_have_differed(tmp_path):
+    # The whole point of canonicalization: two independently-named local
+    # schemas produce the SAME wire vocabulary, so this call has no idea
+    # (and doesn't need to) what either side privately calls these fields.
+    terms = canonical_terms(_config(tmp_path))
+    assert "board_and_agents.grid_size" not in terms  # wire key, not our local dotted path
+    assert "grid_size" in terms

@@ -1,7 +1,9 @@
-"""FastMCP server (PRD_2 §2.1, §3): this peer's inbound half. Exposes tools
-the Cop's client calls. Stage 2 only exposes `ping`, a stand-in for the real
-`receive_turn` tool that lands in Stage 4/6 — its job here is just to prove
-the server+client round trip works over the P2P topology (no judge process).
+"""FastMCP server (PRD_2 §2.1, §3; extended PRD_6 §3): this peer's inbound
+half. Exposes tools the Cop's client calls. `ping` is Stage 2's stand-in for
+the real `receive_turn` tool (still arriving in a later stage); `submit_audit`
+(Stage 6) is real -- it cross-verifies the *caller's* revealed log against
+their own earlier commits, never a peer self-verifying its own history
+(PRD_6 §2.3: the audit's entire value comes from the other side checking).
 """
 
 import socket
@@ -9,6 +11,7 @@ import time
 
 from fastmcp import FastMCP
 
+from thief_peer.domain.crypto import audit_records
 from thief_peer.exceptions import TransportError
 
 
@@ -35,6 +38,16 @@ def _ping_handler(payload: dict) -> dict:
     return {"pong": True, "received": payload}
 
 
+def _submit_audit_handler(payload: dict) -> dict:
+    """Cross-verification only (PRD_6 §2.3): we are the *receiver* here,
+    re-verifying the caller's own revealed log against the commits they
+    already sent during play -- never a peer self-verifying its own
+    history, which would be logically vacuous for a genuine cheater."""
+    if not isinstance(payload, dict) or "records" not in payload:
+        raise TypeError("submit_audit payload must be a dict with a 'records' list")
+    return audit_records(payload["records"])
+
+
 def build_server(port: int, host: str = "0.0.0.0") -> FastMCP:
     _ensure_port_free(host, port)
 
@@ -43,6 +56,10 @@ def build_server(port: int, host: str = "0.0.0.0") -> FastMCP:
     @mcp.tool
     def ping(payload: dict) -> dict:
         return _ping_handler(payload)
+
+    @mcp.tool
+    def submit_audit(payload: dict) -> dict:
+        return _submit_audit_handler(payload)
 
     return mcp
 

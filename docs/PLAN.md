@@ -292,35 +292,42 @@ transmit or commit whole, leaking `opponent_url`/local settings into the signed
 artifact; two files/two `.gitignore` rules enforce the boundary at the
 filesystem level, not just by convention.
 
-**ADR-6 — The commit-reveal primitive is reused, unmodified, for the pre-game negotiation signature — over a canonical, book-ordered value list, not our internal config schema.**
+**ADR-6 — The commit-reveal primitive is reused, unmodified, for the pre-game negotiation signature — over a canonical, named wire vocabulary, not our internal config schema.**
 *Decision:* `domain/negotiation.py` calls the *same* `CommitReveal.commit_of()`
 used for per-step sealing (ADR-3) rather than inventing a separate signing
 mechanism: each peer computes `commit_of(my_terms, my_nonce)`, sends
 `(terms, nonce, commit)`, and the receiver recomputes the hash and compares.
 Critically, `my_terms` is **not** our internal `game.json`/`ConfigManager` dict
 serialized as-is — it's built by `negotiation.canonical_terms(config)`, which
-projects our locally-named values into a fixed positional list ordered exactly
-as the Mandatory Parameters Table (Appendix ו) lists them in the book (grid
-size, num agents, ..., scent center intensity, scent decay, scent field size,
-hint word limit, ...). Both peers derive this same canonical shape from the
-same book table independently — no cross-repo agreement on JSON key spelling
-is required, only that both sides read the same Appendix ו. `their.terms ==
-my.terms` is then a comparison of two canonical value lists, not two arbitrarily-
-named dicts.
-*Rationale:* an earlier draft of this ADR hashed our own `game.json` dict
-verbatim, which meant the Cop repo's negotiation would only match ours if it
-happened to use byte-identical JSON key names for every shared parameter — the
-book's Appendix ו mandates the *values* and their status (constant/minimum/
-negotiable), never a specific field-naming convention, so requiring that was an
-unintentional, self-imposed coupling between two supposedly independent repos.
-Canonicalizing by table position instead of by key name fixes this unilaterally,
-without needing the Cop team to rename anything on their side. DRY still holds:
-one hashing primitive, reused for both per-step sealing and this exchange.
+projects our locally-named values into a small, fixed, **named** dict
+(`CANONICAL_TERM_KEYS`: `grid_size`, `num_agents`, ..., `scent_center_intensity`,
+`scent_decay_rate`, `scent_field_size`, `hint_word_limit`, ...) covering exactly
+the Mandatory Parameters Table's (Appendix ו) terms. Both peers only need to
+agree on *this one documented wire vocabulary* for the `negotiate()` payload —
+each is free to name its own internal `game.json`/`ConfigManager` schema
+however it likes, same as `TurnMessage`'s field names already need cross-repo
+agreement (§5) without constraining either side's internal code. `verify_peer`
+compares these named dicts key-by-key, so a mismatch names the exact field that
+differs (`"Negotiated terms mismatch on 'grid_size': mine=7 theirs=9"`), not
+just "something doesn't match."
+*Rationale:* two earlier drafts of this ADR each had a real problem, caught in
+turn: the first hashed our own `game.json` dict verbatim, coupling the Cop
+repo's negotiation success to using byte-identical *internal* JSON key names —
+a self-imposed coupling the book's Appendix ו never asked for (it mandates
+values and status, never a field-naming convention). The second draft fixed
+that by canonicalizing to a bare positional list ordered by the book's own
+table rows — this removed the internal-schema coupling, but lost the ability
+to name which field mismatched (a list index isn't self-describing the way a
+dict key is), which `verify_peer`'s own acceptance criteria need. The
+named-dict design here keeps the first fix's benefit (no internal-schema
+coupling) while restoring readable mismatch diagnostics. DRY still holds
+throughout: one hashing primitive, reused for both per-step sealing and this
+exchange.
 *Rejected alternative:* a real asymmetric signature scheme (e.g. Ed25519
 keypairs) — disproportionate; the goal is "prove both sides loaded matching
-values," which a shared-then-compared commit over a canonical value list already
-achieves without key-distribution complexity the book's crypto scope doesn't
-call for.
+values," which a shared-then-compared commit over a canonical named dict
+already achieves without key-distribution complexity the book's crypto scope
+doesn't call for.
 
 **ADR-7 — Strategy and LLM-provider choice are pluggable via a dotted-path config selector.**
 *Decision:* `strategy/brain_base.py:resolve_brain(config, llm, rng)` reads an
@@ -424,18 +431,24 @@ These are *our* local field names (`config/thief/game.json`'s own schema) — th
 Cop repo is free to name its equivalents differently; see ADR-6 for how
 `negotiate()` reconciles the two without requiring identical key names.
 
-**`negotiate()` payload (see ADR-6) — canonical, not our raw `game.json`:**
+**`negotiate()` payload (see ADR-6) — canonical named dict, not our raw `game.json`:**
 ```json
-{"terms": [7, 2, 0, 0, "top-left", [3,3], [0,0], "New York", 15,
-           ["N","S","E","W","STAY"], 14, 35, 35,
-           20, 5, 5, 10, 2, 0,
-           0.9, 0.10, 5],
+{"terms": {"grid_size": 7, "num_agents": 2, "axis_origin_corner": "top-left",
+           "axis_start_index": 0, "thief_start": [3, 3], "cop_start": [0, 0],
+           "map_area": "New York", "hint_word_limit": 15,
+           "move_set": ["N", "S", "E", "W", "STAY"], "max_barriers": 14,
+           "max_moves": 35, "survival_threshold": 35,
+           "capture_reward_cop": 20, "capture_reward_thief": 5,
+           "survival_reward_cop": 5, "survival_reward_thief": 10,
+           "tie_score": 2, "technical_loss": 0,
+           "scent_center_intensity": 0.9, "scent_decay_rate": 0.10,
+           "scent_field_size": 5},
  "nonce": "...", "commit": "sha256 hex"}
 ```
-Value order is fixed by the Mandatory Parameters Table (Appendix ו) row order —
-`negotiation.canonical_terms(config)` builds this list from our own
-`ConfigManager`; the receiver does the same from theirs and compares lists, not
-raw JSON dicts.
+Key set and names are fixed by `negotiation.CANONICAL_TERM_KEYS` —
+`negotiation.canonical_terms(config)` builds this dict from our own
+`ConfigManager`; the receiver does the same from theirs and `verify_peer`
+compares key-by-key, naming the exact field on any mismatch.
 
 **4 JSON report artifacts (schema-level, per match):**
 1. **declaration** — `game_id`, `game_uid`, timestamps, `num_sub_games`,

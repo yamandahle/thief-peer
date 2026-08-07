@@ -59,3 +59,48 @@ def test_require_raises_config_error_when_missing(tmp_path):
     config = ConfigManager(toml_path)
     with pytest.raises(ConfigError, match="network.opponent_url"):
         config.require("network.opponent_url")
+
+
+def _write_json(path, content: str):
+    path.write_text(content, encoding="utf-8")
+    return path
+
+
+def test_json_overlay_merges_shared_terms_into_the_same_namespace(tmp_path):
+    toml_path = _write_toml(tmp_path / "game.toml", "[network]\nmy_port = 8802\n")
+    json_path = _write_json(
+        tmp_path / "game.json", '{"board_and_agents": {"grid_size": 7}}'
+    )
+    config = ConfigManager(toml_path, json_path)
+
+    assert config.get("board_and_agents.grid_size") == 7
+    assert config.get("network.my_port") == 8802
+
+
+def test_json_shared_terms_win_over_a_same_named_toml_key(tmp_path):
+    # ADR-5: game.json is signed and shared; the private game.toml must
+    # never be able to quietly "weaken" a term both sides agreed to.
+    toml_path = _write_toml(tmp_path / "game.toml", "[world]\nmap_area = \"private-value\"\n")
+    json_path = _write_json(tmp_path / "game.json", '{"world": {"map_area": "New York"}}')
+    config = ConfigManager(toml_path, json_path)
+
+    assert config.get("world.map_area") == "New York"
+
+
+def test_json_overlay_is_optional_and_defaults_to_toml_only(tmp_path):
+    toml_path = _write_toml(tmp_path / "game.toml", "[network]\nmy_port = 8802\n")
+    config = ConfigManager(toml_path)
+    assert config.get("board_and_agents.grid_size") is None
+
+
+def test_missing_json_file_raises_config_error(tmp_path):
+    toml_path = _write_toml(tmp_path / "game.toml", "[network]\nmy_port = 8802\n")
+    with pytest.raises(ConfigError):
+        ConfigManager(toml_path, tmp_path / "does_not_exist.json")
+
+
+def test_invalid_json_raises_config_error(tmp_path):
+    toml_path = _write_toml(tmp_path / "game.toml", "[network]\nmy_port = 8802\n")
+    json_path = _write_json(tmp_path / "game.json", "{not valid json")
+    with pytest.raises(ConfigError):
+        ConfigManager(toml_path, json_path)
