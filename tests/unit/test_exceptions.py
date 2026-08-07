@@ -9,18 +9,21 @@ from thief_peer.exceptions import (
     CryptoError,
     ProviderError,
     SimulationError,
+    TransportError,
 )
 
 
 @pytest.mark.parametrize(
-    "exc_type", [ConfigError, CryptoError, SimulationError, ProviderError]
+    "exc_type",
+    [ConfigError, CryptoError, SimulationError, ProviderError, TransportError],
 )
 def test_each_exception_is_a_distinct_exception_subclass(exc_type):
     assert issubclass(exc_type, Exception)
 
 
 @pytest.mark.parametrize(
-    "exc_type", [ConfigError, CryptoError, SimulationError, ProviderError]
+    "exc_type",
+    [ConfigError, CryptoError, SimulationError, ProviderError, TransportError],
 )
 def test_each_exception_carries_its_message(exc_type):
     with pytest.raises(exc_type, match="boom"):
@@ -33,3 +36,4 @@ def test_exceptions_are_siblings_not_related_by_inheritance():
     assert not issubclass(SimulationError, ConfigError)
     assert not issubclass(ConfigError, SimulationError)
     assert not issubclass(CryptoError, ProviderError)
+    assert not issubclass(TransportError, SimulationError)

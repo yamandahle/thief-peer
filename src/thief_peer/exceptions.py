@@ -18,3 +18,8 @@ class SimulationError(Exception):
 
 class ProviderError(Exception):
     """An LLM/external provider call failed (Stage 4)."""
+
+
+class TransportError(Exception):
+    """A network/MCP transport operation failed: port already in use,
+    opponent unreachable, or connection dropped (Stage 2+)."""

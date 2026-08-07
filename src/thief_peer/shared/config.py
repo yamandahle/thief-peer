@@ -33,3 +33,15 @@ class ConfigManager:
                 return default
             node = node[part]
         return node
+
+    def require(self, dotted_key: str) -> Any:
+        """Like `get`, but fails fast (PRD_2 §2.3) instead of silently
+        returning a default — for keys a networked command cannot run
+        without, e.g. `network.my_port`."""
+        missing = object()
+        value = self.get(dotted_key, missing)
+        if value is missing:
+            raise ConfigError(
+                f"Required config key '{dotted_key}' missing from {self._path}"
+            )
+        return value

@@ -46,3 +46,16 @@ def test_get_on_partial_path_that_is_not_a_dict_returns_default(tmp_path):
     toml_path = _write_toml(tmp_path / "game.toml", "[network]\nmy_port = 8802\n")
     config = ConfigManager(toml_path)
     assert config.get("network.my_port.deeper", "default") == "default"
+
+
+def test_require_returns_value_when_present(tmp_path):
+    toml_path = _write_toml(tmp_path / "game.toml", "[network]\nmy_port = 8802\n")
+    config = ConfigManager(toml_path)
+    assert config.require("network.my_port") == 8802
+
+
+def test_require_raises_config_error_when_missing(tmp_path):
+    toml_path = _write_toml(tmp_path / "game.toml", "[network]\nmy_port = 8802\n")
+    config = ConfigManager(toml_path)
+    with pytest.raises(ConfigError, match="network.opponent_url"):
+        config.require("network.opponent_url")

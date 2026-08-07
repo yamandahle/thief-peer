@@ -76,13 +76,13 @@ harder to refactor out once the CLI has grown.
 |---|---|
 | `build_server(port: int) -> FastMCP` | constructs a FastMCP app bound to `0.0.0.0:<port>` (bind-all so a later tunnel can reach it; still only *tested* via localhost this stage) |
 | `@mcp.tool def ping(payload: dict) -> dict` | validates `payload` has expected keys; echoes back `{"pong": True, "received": payload}`; this is the Stage-2 stand-in for the real `receive_turn` tool that arrives in Stage 4/6 |
-| Startup | must fail fast with an actionable error (not a bare traceback) if the configured port is already in use — check *before* attempting to bind |
+| Startup | must fail fast with a `TransportError` (new exception type, added during implementation — keeps the taxonomy clean: network/transport failures distinct from `SimulationError`'s game-rule invariants) naming the port, if it's already in use — check *before* attempting to bind |
 
 ### `infra/mcp_client.py` — class `McpTransport`
 | Method | Input | Output | Behavior |
 |---|---|---|---|
 | `__init__(opponent_url: str)` | opponent's base URL, from private config | — | stores URL, does not connect yet (lazy) |
-| `call(tool_name: str, payload: dict) -> dict` | tool name + JSON-serializable payload | the tool's JSON response | opens an MCP client connection, invokes the named tool, returns the result; raises a clear, typed error (not a bare exception) on connection failure |
+| `call(tool_name: str, payload: dict) -> dict` | tool name + JSON-serializable payload | the tool's JSON response | opens an MCP client connection, invokes the named tool, returns the result; raises `TransportError` (not a bare exception) on connection failure |
 
 ### `shared/config.py` (extension over Stage 1's v0)
 - Adds `network.my_port` (int) and `network.opponent_url` (str) as **required
