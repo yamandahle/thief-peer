@@ -14,7 +14,7 @@ stage, matching the corresponding `PRD_<n>_<name>.md` 1:1:
 | 1 — Base logic | [`TODO_1_base_logic.md`](TODO_1_base_logic.md) | Ch.3 | ✅ done |
 | 2 — FastMCP infra (localhost) | [`TODO_2_mcp_infra.md`](TODO_2_mcp_infra.md) | Ch.2 | ✅ done |
 | 3 — Blind strategy module | [`TODO_3_strategy.md`](TODO_3_strategy.md) | Ch.6 | ✅ done |
-| 4 — Language + scent | [`TODO_4_language_scent.md`](TODO_4_language_scent.md) | Ch.4/6 | not started |
+| 4 — Language + scent | [`TODO_4_language_scent.md`](TODO_4_language_scent.md) | Ch.4/6 | ✅ done |
 | 5 — Public URL + tunnel | [`TODO_5_cloud_tunnel.md`](TODO_5_cloud_tunnel.md) | Ch.2 | not started |
 | 6 — Commit-Reveal + Step-0 | [`TODO_6_security.md`](TODO_6_security.md) | Ch.5 | not started |
 | 7 — Reporting shell | [`TODO_7_reporting_shell.md`](TODO_7_reporting_shell.md) | Ch.9/7/App.א | not started |

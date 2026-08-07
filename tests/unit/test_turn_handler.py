@@ -1,21 +1,23 @@
-"""TurnHandler v0 tests (TODO_3): applies a scripted incoming "cop position"
-feed, single-process self-play. ScriptedBelief is this stage's stand-in for
-domain/belief.py:BeliefGrid (arriving Stage 4) -- it exposes the same
-as_matrix()/most_likely() interface ThiefBrain's scoring already targets."""
+"""TurnHandler tests (TODO_3 v0, rewired in Stage 4/TODO_4 to the real
+BeliefGrid). Each turn: diffuse (the opponent moved somewhere since last
+observation) then observe_scent (fold in what they just reported), then let
+the brain decide against the real, full probability distribution -- no
+Stage-3 ScriptedBelief shortcut remains in the move path (PRD_4 §2.4, §5)."""
 
 from thief_peer.constants import MoveType
+from thief_peer.domain.belief import BeliefGrid
 from thief_peer.domain.board import Board
 from thief_peer.domain.own_state import OwnGameState
-from thief_peer.peer.turn_handler import ScriptedBelief, TurnHandler, run_scripted_match
+from thief_peer.peer.turn_handler import TurnHandler, run_scripted_match
 from thief_peer.strategy.fleeing_brain import ThiefBrain
 
 
-def test_scripted_belief_puts_all_mass_on_the_target_cell():
-    belief = ScriptedBelief(target=(2, 3), board_size=5)
-    assert belief.most_likely() == (2, 3)
-    matrix = belief.as_matrix()
-    assert matrix[2][3] == 1.0
-    assert sum(sum(row) for row in matrix) == 1.0
+def test_turn_handler_owns_a_real_belief_grid():
+    board = Board(size=5, barriers=set())
+    state = OwnGameState(position=(2, 2))
+    handler = TurnHandler(board, state, ThiefBrain())
+
+    assert isinstance(handler.belief, BeliefGrid)
 
 
 def test_turn_handler_play_turn_moves_the_state_and_returns_a_decision():
@@ -23,7 +25,7 @@ def test_turn_handler_play_turn_moves_the_state_and_returns_a_decision():
     state = OwnGameState(position=(2, 2))
     handler = TurnHandler(board, state, ThiefBrain())
 
-    decision = handler.play_turn(believed_cop_position=(0, 0))
+    decision = handler.play_turn(opponent_scent_snapshot={"0,0": 0.9})
 
     assert decision.move_type in (MoveType.MOVE, MoveType.HOLD)
     if decision.move_type == MoveType.MOVE:
@@ -31,12 +33,24 @@ def test_turn_handler_play_turn_moves_the_state_and_returns_a_decision():
         assert state.step_count == 1
 
 
-def test_run_scripted_match_plays_one_turn_per_scripted_position():
+def test_play_turn_folds_the_scent_snapshot_into_the_belief_grid():
+    board = Board(size=7, barriers=set())
+    state = OwnGameState(position=(3, 3))
+    handler = TurnHandler(board, state, ThiefBrain())
+
+    handler.play_turn(opponent_scent_snapshot={"6,6": 0.9, "6,5": 0.62, "5,6": 0.62})
+
+    # belief should now lean toward the reported (scent-supported) region
+    likely = handler.belief.most_likely()
+    assert likely[0] >= 4 and likely[1] >= 4
+
+
+def test_run_scripted_match_plays_one_turn_per_scripted_scent_snapshot():
     board = Board(size=5, barriers=set())
     state = OwnGameState(position=(2, 2))
-    cop_positions = [(0, 0), (0, 1), (0, 2)]
+    scent_feed = [{"0,0": 0.9}, {"0,1": 0.62}, {"0,2": 0.42}]
 
-    decisions = run_scripted_match(board, state, ThiefBrain(), cop_positions)
+    decisions = run_scripted_match(board, state, ThiefBrain(), scent_feed)
 
     assert len(decisions) == 3
     assert state.step_count == 3

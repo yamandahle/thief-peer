@@ -288,3 +288,16 @@ move path still never calls an LLM.
   distribution, not just the peak; worth updating `TODO.md`'s wording to
   match when next touched, so a future reader doesn't get misled by the
   narrower original phrasing.
+- **Found during integration testing, not a wiring bug — a limit of the
+  book's simple reweighting update:** `observe_scent()` reweights against
+  each turn's *cumulative* scent snapshot (§2.3), not an incremental delta.
+  Over many consecutive turns on a short, contiguous trail, early strong
+  reinforcement compounds and can outweigh evidence for where the opponent
+  has since moved on to — verified empirically (informed vs. a diffuse-only
+  control) tracking is clean and unambiguous for the first ~3 turns, then
+  degrades. Not a numbered acceptance criterion here (none requires
+  multi-turn tracking), so not fixed in this stage; worth a real fix later
+  (e.g. discount the belief matrix's own accumulated weight over time, or
+  reweight from the *incremental* scent delta instead of the raw cumulative
+  snapshot) if match-length testing in a later stage exposes it as a real
+  problem rather than a theoretical one.
