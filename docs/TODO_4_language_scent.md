@@ -3,8 +3,9 @@
 See `PRD_4_language_scent.md` for full rationale. Book: Ch.4/6.
 PRD milestone: "Scent map updates turn-by-turn; hint emitted every step (true or lie)."
 
-- [ ] `domain/scent.py`: `ScentField.deposit()` (5x5 radial, center=0.9),
-      `decay_all()` (rho=0.10), `absorb()`
+- [ ] `domain/scent.py`: `ScentField.advance(mover_cell)` — one atomic
+      decay-then-add step over the fixed Figure-4 5x5 kernel (rho=0.10),
+      `absorb()` (overwrite, not merge — see `PRD_4` §4)
 - [ ] `domain/belief.py`: `BeliefGrid` uniform init, `observe_scent()`,
       `diffuse()`, `most_likely()`
 - [ ] `domain/belief.py`: add `as_matrix()` (full distribution) alongside

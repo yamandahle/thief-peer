@@ -29,7 +29,7 @@ thief-peer/                                # this repo root (separate from teamm
 │   ├── domain/                            # pure game logic — no I/O, no LLM, no network
 │   │   ├── board.py                       # Board: legal_moves (N/S/E/W/STAY), Manhattan distance
 │   │   ├── own_state.py                   # OwnGameState: my position, visited trail, known barriers
-│   │   ├── scent.py                       # ScentField: emit (5x5, center 0.9), absorb, decay (rho=0.10)
+│   │   ├── scent.py                       # ScentField: advance() (5x5 kernel + decay, one atomic step), absorb
 │   │   ├── belief.py                      # BeliefGrid: Bayesian update from scent+hints, diffuse()
 │   │   ├── rules.py                       # capture-on-barrier / no-legal-move / survival checks
 │   │   ├── crypto.py                      # canonical_json, CommitReveal, audit_records() — see §5
@@ -292,20 +292,35 @@ transmit or commit whole, leaking `opponent_url`/local settings into the signed
 artifact; two files/two `.gitignore` rules enforce the boundary at the
 filesystem level, not just by convention.
 
-**ADR-6 — The commit-reveal primitive is reused, unmodified, for the pre-game negotiation signature.**
+**ADR-6 — The commit-reveal primitive is reused, unmodified, for the pre-game negotiation signature — over a canonical, book-ordered value list, not our internal config schema.**
 *Decision:* `domain/negotiation.py` calls the *same* `CommitReveal.commit_of()`
 used for per-step sealing (ADR-3) rather than inventing a separate signing
 mechanism: each peer computes `commit_of(my_terms, my_nonce)`, sends
-`(terms, nonce, commit)`, and the receiver recomputes the hash *and* asserts
-`their.terms == my.terms` — a mismatched config is caught before move 1, and the
-exchange doubles as live proof both processes loaded byte-identical shared
-config.
-*Rationale:* DRY — one hashing primitive, one audited implementation, reused for
-two structurally identical purposes (commit to X, later prove you committed to X).
+`(terms, nonce, commit)`, and the receiver recomputes the hash and compares.
+Critically, `my_terms` is **not** our internal `game.json`/`ConfigManager` dict
+serialized as-is — it's built by `negotiation.canonical_terms(config)`, which
+projects our locally-named values into a fixed positional list ordered exactly
+as the Mandatory Parameters Table (Appendix ו) lists them in the book (grid
+size, num agents, ..., scent center intensity, scent decay, scent field size,
+hint word limit, ...). Both peers derive this same canonical shape from the
+same book table independently — no cross-repo agreement on JSON key spelling
+is required, only that both sides read the same Appendix ו. `their.terms ==
+my.terms` is then a comparison of two canonical value lists, not two arbitrarily-
+named dicts.
+*Rationale:* an earlier draft of this ADR hashed our own `game.json` dict
+verbatim, which meant the Cop repo's negotiation would only match ours if it
+happened to use byte-identical JSON key names for every shared parameter — the
+book's Appendix ו mandates the *values* and their status (constant/minimum/
+negotiable), never a specific field-naming convention, so requiring that was an
+unintentional, self-imposed coupling between two supposedly independent repos.
+Canonicalizing by table position instead of by key name fixes this unilaterally,
+without needing the Cop team to rename anything on their side. DRY still holds:
+one hashing primitive, reused for both per-step sealing and this exchange.
 *Rejected alternative:* a real asymmetric signature scheme (e.g. Ed25519
-keypairs) — disproportionate; the goal is "prove both sides loaded the same
-file," which a shared-then-compared commit already achieves without
-key-distribution complexity the book's crypto scope doesn't call for.
+keypairs) — disproportionate; the goal is "prove both sides loaded matching
+values," which a shared-then-compared commit over a canonical value list already
+achieves without key-distribution complexity the book's crypto scope doesn't
+call for.
 
 **ADR-7 — Strategy and LLM-provider choice are pluggable via a dotted-path config selector.**
 *Decision:* `strategy/brain_base.py:resolve_brain(config, llm, rng)` reads an
@@ -405,6 +420,22 @@ receive_control(message: dict) -> {"ok": bool}   # optional GUI control channel
 (0.9), `pheromone_decay` (0.10), `pheromone_grid_size` (5), `hint_max_words`. All
 values loaded from the Mandatory Parameters Table (Appendix ו), respecting each
 parameter's constant/minimum/negotiable status — never hardcoded/invented.
+These are *our* local field names (`config/thief/game.json`'s own schema) — the
+Cop repo is free to name its equivalents differently; see ADR-6 for how
+`negotiate()` reconciles the two without requiring identical key names.
+
+**`negotiate()` payload (see ADR-6) — canonical, not our raw `game.json`:**
+```json
+{"terms": [7, 2, 0, 0, "top-left", [3,3], [0,0], "New York", 15,
+           ["N","S","E","W","STAY"], 14, 35, 35,
+           20, 5, 5, 10, 2, 0,
+           0.9, 0.10, 5],
+ "nonce": "...", "commit": "sha256 hex"}
+```
+Value order is fixed by the Mandatory Parameters Table (Appendix ו) row order —
+`negotiation.canonical_terms(config)` builds this list from our own
+`ConfigManager`; the receiver does the same from theirs and compares lists, not
+raw JSON dicts.
 
 **4 JSON report artifacts (schema-level, per match):**
 1. **declaration** — `game_id`, `game_uid`, timestamps, `num_sub_games`,

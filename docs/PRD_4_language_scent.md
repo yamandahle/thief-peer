@@ -31,7 +31,7 @@ system — never the move (already enforced architecturally since Stage 3,
 
 ## 2. Detailed Description
 
-### 2.1 Scent emission & decay (book Ch.4.3, exact formula — mandatory, constant)
+### 2.1 Scent emission & decay (book Ch.4.3, exact formula + Figure 4 kernel — mandatory, constant)
 
 ```
 τij(t+1) = max(0, (1−ρ)·τij(t) + Δτij)
@@ -41,16 +41,42 @@ system — never the move (already enforced architecturally since Stage 3,
 - `ρ` (decay rate) = **0.10** — status: **constant** (Appendix ו). Deliberately
   slow: retains ~90% per full turn, so the field is a short *replay* of
   recent movement, not a single snapshot (book Ch.4.4).
-- `Δτij`: new emission this turn — **0.9** at the mover's own cell (status:
-  **constant**), falling off *radially* within a **5×5** field (status:
-  **constant**), 0 beyond that radius.
-- `max(0, ·)`: clamps to zero — intensity is never negative.
+- `Δτij`: new emission this turn, a **fixed 5×5 radial kernel** centered on
+  the mover's own cell (book Ch.4.3, Figure 4 — reproduced exactly, not
+  approximated):
 
-All three numeric constants (`0.9`, `0.10`, `5×5`) are **constant**-status
+  | | -2 | -1 | 0 | +1 | +2 |
+  |---|---|---|---|---|---|
+  | **-2** | 0.04 | 0.14 | 0.20 | 0.14 | 0.04 |
+  | **-1** | 0.14 | 0.42 | 0.62 | 0.42 | 0.14 |
+  | **0**  | 0.20 | 0.62 | 0.90 | 0.62 | 0.20 |
+  | **+1** | 0.14 | 0.42 | 0.62 | 0.42 | 0.14 |
+  | **+2** | 0.04 | 0.14 | 0.20 | 0.14 | 0.04 |
+
+  0 beyond that radius. Every cell in this table is **constant**-status —
+  not just the center (0.9) and the radius (5×5) as an earlier draft of this
+  PRD implied.
+- `max(0, ·)`: clamps to zero — intensity is never negative.
+- **Composition is additive, in one atomic per-turn step** — decay the whole
+  field by `(1−ρ)`, *then add* this turn's fresh kernel deposit, exactly as
+  the formula reads left to right. This is **not** a max-merge: a cell that
+  already holds decayed history from two turns ago and now also falls under
+  this turn's fresh kernel gets `(1−ρ)·history + kernel_value`, not
+  `max(history, kernel_value)`. `ScentField` therefore exposes one method,
+  `advance(mover_cell)`, that performs decay-then-add as a single step —
+  never two separate `deposit()`/`decay_all()` calls a caller could invoke
+  out of order or skip (see §4 for why the earlier max-merge design was
+  wrong and how this was caught).
+
+All kernel values, `ρ` (0.10), and the 5×5 radius are **constant**-status
 per the Mandatory Parameters Table — zero flexibility, not even by mutual
-agreement between teams. They must be read from the shared `game.json`
-(`pheromone_center_intensity`, `pheromone_decay`, `pheromone_grid_size`),
-never hardcoded, even though their values happen to be fixed.
+agreement between teams. The three headline numbers (`0.9`, `0.10`, `5×5`)
+must be read from the shared `game.json` (`pheromone_center_intensity`,
+`pheromone_decay`, `pheromone_grid_size`); the kernel's *relative shape* is
+stored as a fixed constant in `domain/scent.py` and scaled by
+`pheromone_center_intensity` at construction (so a config-driven center
+intensity still produces a config-driven kernel, never a hardcoded 0.9,
+even though the illustrative figure and our config agree on that value).
 
 ### 2.2 What crosses the wire (ties to `PLAN.md` ADR-8)
 Only the **scent field snapshot** (`{"r,c": intensity}`, sparse — zero
@@ -128,10 +154,9 @@ the computation rather than duplicating it.
 ### `domain/scent.py` — class `ScentField`
 | Method | Input | Output | Behavior |
 |---|---|---|---|
-| `deposit(center, intensity)` | mover's cell, `0.9` | — | radial emission per §2.1 formula within the 5×5 field, merged into the field by **max**, not overwrite (a cell touched by two turns' radii keeps the stronger reading) |
-| `decay_all()` | — | — | applies `(1-ρ)` to every cell, clamped to zero — called once per full turn (both sides moved) |
-| `absorb(cells)` | received `{"r,c": intensity}` from opponent | — | merges into the locally-tracked field for the *opponent's* scent, max-merge as above |
-| `snapshot()` | — | `{"r,c": intensity}` (sparse, zero entries omitted) | for the outgoing `TurnMessage` |
+| `advance(mover_cell)` | mover's own cell | — | **one atomic step** per §2.1: decay every cell by `(1-ρ)`, then add the fixed 5×5 kernel (Figure 4) centered on `mover_cell`, clamp to zero. Replaces the earlier separate `deposit()`/`decay_all()` pair (see §4) — called once per full turn, for this peer's own trail only |
+| `absorb(cells)` | received `{"r,c": intensity}` from opponent | — | **overwrites** (not merges) the locally-held snapshot of the *opponent's* scent with whatever they just sent — we don't independently simulate their trail, we only ever hold their latest self-reported snapshot |
+| `snapshot()` | — | `{"r,c": intensity}` (sparse, zero entries omitted) | for the outgoing `TurnMessage`, from `advance()`'s own field |
 
 ### `domain/belief.py` — class `BeliefGrid`
 | Method | Input | Output | Behavior |
@@ -166,11 +191,24 @@ the computation rather than duplicating it.
 
 ## 4. Limitations, Constraints, Alternatives Considered
 
-- **Why max-merge, not overwrite, for scent deposits/absorption:** a cell
-  can legitimately receive contributions from two different recent turns'
-  emission radii; taking the max preserves the strongest (most recent-ish)
-  signal without an explicit timestamp per cell, keeping the field a single
-  flat structure rather than a time-indexed one.
+- **Why `advance()` is one atomic method, not separate `deposit()`/
+  `decay_all()` calls (corrected from an earlier draft of this PRD):** the
+  original design merged fresh deposits into the field by `max()`, reasoning
+  that a cell could "legitimately receive contributions from two different
+  recent turns' radii." That's not what the book's formula does — Ch.4.3's
+  `τ(t+1) = max(0, (1−ρ)·τ(t) + Δτ)` is additive, and rule 23 is **[FATAL]**
+  specifically on a decay-formula deviation. Two separate methods also let a
+  caller invoke `deposit()` twice without `decay_all()` in between, or the
+  reverse order, silently drifting from the formula in a way a single
+  `advance(mover_cell)` call can't. Caught by directly re-reading Ch.4.3 and
+  Figure 4 rather than trusting an earlier paraphrase of the formula.
+- **Why `absorb()` overwrites rather than max-merges the opponent's snapshot:**
+  the received `{"r,c": intensity}` already *is* the opponent's own
+  `advance()`-computed cumulative field for that turn — it already reflects
+  their own decay+kernel history, not a single fresh point deposit. Merging
+  it against our stale, previous copy via `max()` would keep an outdated
+  reading anywhere their trail has genuinely decayed since their last
+  message; overwriting keeps us honest to what they just told us.
 - **Why `observe_scent` doesn't fold the hint in as a second Bayesian
   observation:** the book is explicit that scent is unfakeable ground truth
   and a hint is "a claim to be tested against it, never trusted standalone"
@@ -202,11 +240,16 @@ the computation rather than duplicating it.
 
 ## 5. Acceptance Criteria & Test Scenarios
 
-- [ ] `ScentField.deposit` at a center cell produces exactly the radial
-      falloff values from the book's worked figure (Ch.4.3) for a 5×5 field
-      centered at 0.9 — hand-verified against the book's own numeric example.
-- [ ] `decay_all()` applied `n` times to a single deposit matches
-      `0.9 * (1-0.10)^n` at the center cell, within floating-point tolerance.
+- [ ] `ScentField.advance(mover_cell)` on an empty field produces exactly the
+      Figure 4 kernel values (0.90/0.62/0.42/0.20/0.14/0.04) — hand-verified
+      against the book's own numeric table, not just the center value.
+- [ ] `advance()` called `n` times at the *same* cell, with no other calls in
+      between, matches `0.9 * (1-0.10)^0 + 0.9 * sum((1-0.10)^k for k in
+      range(n))`-style accumulation at the center cell (i.e. the additive
+      recurrence, not a flat re-deposit) — within floating-point tolerance.
+      A regression test also asserts this does **not** equal a max-merge
+      result, so a future refactor can't silently reintroduce the bug this
+      PRD corrected.
 - [ ] `BeliefGrid.diffuse()` conserves total probability mass (`sum(matrix)
       == 1.0 ± epsilon`) before and after diffusion.
 - [ ] `BeliefGrid.as_matrix()` is available and used by `ThiefBrain`'s
