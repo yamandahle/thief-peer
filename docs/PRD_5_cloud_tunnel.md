@@ -171,10 +171,12 @@ students over the internet" scenario.
 ## Open items carried over
 - The Stage-1 "stuck = captured" rule ambiguity (`PRD_1_base_logic.md` §4)
   remains unresolved — not touched here, must be settled before Stage 6.
-- `shared/watchdog.py` is a **new module not in `PLAN.md`'s original layout**
-  (§2.3) — `PLAN.md` §1's module list should be updated to include it under
-  `shared/` the next time that file is revisited, so the two documents stay
-  in sync.
+- ~~`shared/watchdog.py` is a new module not in `PLAN.md`'s original
+  layout...~~ **Already resolved** — `PLAN.md` §1's module list already
+  lists `shared/watchdog.py` (added when this PRD was first drafted, per
+  its own earlier fix). This bullet was stale by the time Stage 5 was
+  actually implemented; corrected here rather than left misleading a future
+  reader into thinking `PLAN.md` still needed updating.
 - The Watchdog's heartbeat *producer* side depends on `peer/runtime.py`,
   which isn't fully built until later stages — this PRD builds the checker
   and its unit tests now, but full end-to-end wiring (real heartbeat updates

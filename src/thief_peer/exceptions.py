@@ -23,3 +23,10 @@ class ProviderError(Exception):
 class TransportError(Exception):
     """A network/MCP transport operation failed: port already in use,
     opponent unreachable, or connection dropped (Stage 2+)."""
+
+
+class DeadlineExceededError(Exception):
+    """An MCP call (including any retries) exceeded response_timeout_sec
+    (Stage 5) -- distinct from TransportError so the turn FSM can resolve
+    this specific case straight to TECHNICAL_LOSS rather than retrying
+    something that has already run out of time."""
