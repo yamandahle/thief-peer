@@ -17,7 +17,7 @@ stage, matching the corresponding `PRD_<n>_<name>.md` 1:1:
 | 4 — Language + scent | [`TODO_4_language_scent.md`](TODO_4_language_scent.md) | Ch.4/6 | ✅ done |
 | 5 — Public URL + tunnel | [`TODO_5_cloud_tunnel.md`](TODO_5_cloud_tunnel.md) | Ch.2 | ⚠️ code done, manual tunnel run outstanding |
 | 6 — Commit-Reveal + Step-0 | [`TODO_6_security.md`](TODO_6_security.md) | Ch.5 | ✅ done |
-| 7 — Reporting shell | [`TODO_7_reporting_shell.md`](TODO_7_reporting_shell.md) | Ch.9/7/App.א | not started |
+| 7 — Reporting shell | [`TODO_7_reporting_shell.md`](TODO_7_reporting_shell.md) | Ch.9/7/App.א | ⚠️ components done, PeerRuntime/live-match wiring + manual Gmail/GUI steps outstanding |
 
 Update each file's own `Status:` line as work progresses (e.g. `not started`
 → `in progress` → `done`); update the table above to match whenever a

@@ -9,6 +9,7 @@ from thief_peer.exceptions import (
     CryptoError,
     DeadlineExceededError,
     ProviderError,
+    RateLimitedError,
     SimulationError,
     TransportError,
 )
@@ -20,6 +21,7 @@ ALL_EXCEPTIONS = [
     ProviderError,
     TransportError,
     DeadlineExceededError,
+    RateLimitedError,
 ]
 
 
@@ -43,3 +45,5 @@ def test_exceptions_are_siblings_not_related_by_inheritance():
     assert not issubclass(TransportError, SimulationError)
     assert not issubclass(DeadlineExceededError, TransportError)
     assert not issubclass(TransportError, DeadlineExceededError)
+    assert not issubclass(RateLimitedError, TransportError)
+    assert not issubclass(RateLimitedError, ProviderError)

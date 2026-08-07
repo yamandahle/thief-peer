@@ -1,0 +1,45 @@
+"""Gmail reporting (PRD_7 §2.5, §3; Appendix א). A structured JSON report
+is always sent as a MIME **attachment**, never inlined as a plain-text body
+-- the book explicitly rejects plain-text bodies outright, zero score for
+that game, even a JSON-*formatted* body still counts as "plain text" from
+the API's perspective. Scope restricted to `gmail.send` only (least
+privilege) -- this module never reads or modifies mail, only sends.
+This module is never called directly by `report/report_writer.py`; only
+through `shared/gatekeeper.py`'s `ApiGatekeeper.execute()` (PLAN.md ADR-4).
+"""
+
+import base64
+import json
+from email.mime.application import MIMEApplication
+from email.mime.multipart import MIMEMultipart
+from email.mime.text import MIMEText
+
+SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
+
+
+def get_service(token_path: str = "token.json"):
+    """One-time browser consent already completed (Appendix א §1.5) leaves
+    `token_path` reusable for unattended sending afterward."""
+    from google.oauth2.credentials import Credentials
+    from googleapiclient.discovery import build
+
+    creds = Credentials.from_authorized_user_file(token_path, SCOPES)
+    return build("gmail", "v1", credentials=creds)
+
+
+def build_message(recipient: str, subject: str, report: dict) -> MIMEMultipart:
+    message = MIMEMultipart()
+    message["to"] = recipient
+    message["subject"] = subject
+    message.attach(MIMEText("Structured match report attached as JSON.", "plain"))
+
+    attachment = MIMEApplication(json.dumps(report, indent=2).encode("utf-8"), _subtype="json")
+    attachment.add_header("Content-Disposition", "attachment", filename="report.json")
+    message.attach(attachment)
+    return message
+
+
+def send_report(service, recipient: str, report: dict, subject: str = "Police-Thief match report") -> dict:
+    message = build_message(recipient, subject, report)
+    raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
+    return service.users().messages().send(userId="me", body={"raw": raw}).execute()

@@ -30,3 +30,10 @@ class DeadlineExceededError(Exception):
     (Stage 5) -- distinct from TransportError so the turn FSM can resolve
     this specific case straight to TECHNICAL_LOSS rather than retrying
     something that has already run out of time."""
+
+
+class RateLimitedError(Exception):
+    """A wrapped API call hit an HTTP 429 (Too Many Requests) (Stage 7).
+    Callers passed to ApiGatekeeper.execute() raise this specific type on a
+    429 so the Gatekeeper can back off deliberately, distinct from other
+    transient failures which only get retried once."""

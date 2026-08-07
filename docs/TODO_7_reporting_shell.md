@@ -3,28 +3,28 @@
 See `PRD_7_reporting_shell.md` for full rationale. Book: Ch.9/7/Appendix א.
 PRD milestone: "Match summary sent via Gmail; GUI shows status; Replay shows recorded session."
 
-- [ ] `shared/rate_limiter.py`: `TokenBucket` (`tokens ← min(C, tokens + r·Δt)`)
+- [x] `shared/rate_limiter.py`: `TokenBucket` (`tokens ← min(C, tokens + r·Δt)`)
       + FIFO queue + `DosDetector`
-- [ ] `shared/gatekeeper.py`: `ApiGatekeeper.execute()` — sole doorway for
+- [x] `shared/gatekeeper.py`: `ApiGatekeeper.execute()` — sole doorway for
       Gmail+LLM, with 429-aware backoff, retry, and call logging
-- [ ] `infra/email_sender.py`: Gmail API/OAuth2 (Appendix א setup), structured
+- [x] `infra/email_sender.py`: Gmail API/OAuth2 (Appendix א setup), structured
       JSON **attachment** only (never plain text), via Gatekeeper
-- [ ] `report/artifact_schemas.py` + `artifacts.py` + `artifact_helpers.py`:
+- [x] `report/artifact_schemas.py` + `artifacts.py` + `artifact_helpers.py`:
       the 4 JSON artifact builders — package only, compute nothing new
       (data already sealed in Stage 6)
-- [ ] `report/report_writer.py`: assemble artifacts + trigger email after
+- [x] `report/report_writer.py`: assemble artifacts + trigger email after
       every legal match; persisted per-opponent games-played counter
-- [ ] `gui/window.py` + `board_view.py` + `turn_banner.py`: Tkinter GUI (own
+- [x] `gui/window.py` + `board_view.py` + `turn_banner.py`: Tkinter GUI (own
       truth + belief heatmap + turn-fsm banner) — enforce ADR-8 (no Cop
       position ever, structurally not just by convention)
-- [ ] `gui/replay_view.py`: step through a saved log, re-verify each
+- [x] `gui/replay_view.py`: step through a saved log, re-verify each
       commit-reveal hash live (reusing Stage 6's `domain/crypto.py`), show
       "Verified OK" / "TAMPERED"
-- [ ] Tests: Gatekeeper quota/DOS-detector tests; email-is-always-JSON-
+- [x] Tests: Gatekeeper quota/DOS-detector tests; email-is-always-JSON-
       attachment test; GUI-never-renders-cop-position test (assert on
       renderer inputs, per ADR-8); replay tamper-detection test; league
       counter survives simulated restart
-- [ ] `README.md`: run instructions, config split explanation, strategy/LLM
+- [x] `README.md`: run instructions, config split explanation, strategy/LLM
       extension points, the mandatory academic sections (Ch.9 §9.4.2):
       Dec-POMDP model description, FastMCP orchestration challenges,
       Gatekeeper/Orchestrator design, strategy used, screenshots (Live GUI +
@@ -36,4 +36,10 @@ the live GUI shows only this peer's local truth with a correct async turn
 banner; a saved log can be replayed and independently verified as OK or
 flagged TAMPERED.
 
-**Status:** not started
+**Status:** components complete and tested (260 tests, 96%+ coverage, ruff
+clean); end-to-end smoke test passing. Two items remain genuinely open and
+are documented in `README.md` rather than claimed done: (1) `peer/runtime.py`
+(`PeerRuntime`) and the `negotiate`/`receive_turn` MCP tools were never built
+in any stage's task list, so there is no live-match entry point yet; (2) real
+Gmail OAuth sending and the two mandatory GUI screenshots require a manual
+operator session and cannot be produced here.

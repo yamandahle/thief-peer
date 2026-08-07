@@ -221,11 +221,16 @@ temptation the book forbids and makes `_pick_move` untestable without stubbing
 an LLM.
 
 **ADR-2 — Turn state is an explicit finite-state machine with illegal-transition rejection.**
-*Decision:* `peer/turn_fsm.py` owns an explicit state set (`NEGOTIATING ->
-WAITING_FOR_COP -> THINKING -> COMMITTING -> AWAITING_REVEAL -> VERIFYING ->
-(loop)`, plus `PAUSED`/`STOPPED`/`TECHNICAL_LOSS`) and every transition is
-checked against an allow-table; illegal transitions raise immediately rather
-than silently overwriting state.
+*Decision:* `peer/turn_fsm.py` owns an explicit state set (`WAITING_FOR_OPPONENT
+-> COMPUTING_MOVE -> COMMITTING -> AWAITING_REVEAL -> VERIFYING -> (loop)`,
+plus `TECHNICAL_LOSS`) and every transition is checked against an
+allow-table; illegal transitions raise immediately rather than silently
+overwriting state. (Corrected here, Stage 7: an earlier draft of this ADR
+used a different name for the same two states — `WAITING_FOR_COP`/`THINKING`
+— than `PRD_7_reporting_shell.md` §2.2 later committed to for the turn
+banner's own state names; since `peer/turn_fsm.py` itself was never actually
+built before this stage's GUI needed to reference these names, this was
+caught and fixed here rather than shipping two docs that disagree.)
 *Rationale:* book Ch.8 — in a fully decentralized 2-peer game there is no
 referee to catch a desync; if both peers believe it's their turn (or neither
 does), the match deadlocks forever with nothing to intervene. An explicit FSM
