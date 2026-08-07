@@ -115,16 +115,16 @@ None of this touches the LLM. All four additions are pure functions of
 | Item | Behavior |
 |---|---|
 | `class Decision` (dataclass) | `move_type: MoveType`, `direction: Direction \| None`, `hint: str`, `verdict: str`, `reasoning: str`, `response_seconds: float` — matches `PLAN.md` §5 exactly; Thief never produces `move_type == BARRIER` |
-| `class BrainBase` | `decide(state, belief, opponent_hint, ...) -> Decision`: computes the move via `_pick_move` (pure Python, always) first, then delegates only `hint`/`verdict`/`reasoning` to the trash-talk layer (Stage 4). Never calls an LLM provider itself. |
+| `class BrainBase` | `decide(state, board, belief, opponent_hint="") -> Decision`: computes `board.legal_moves(...)` then the move via `_pick_move` (pure Python, always) first, then delegates only `hint`/`verdict`/`reasoning` to the trash-talk layer (Stage 4). Never calls an LLM provider itself. (**`board` added to the signature during implementation** -- `decide()` needs it to compute the legal-move list it hands to `_pick_move`; `opponent_hint` stays unused until Stage 4.) |
 | `_pick_move(moves, state, belief)` | abstract — subclasses implement the actual policy |
 | `resolve_brain(config, llm, rng) -> BrainBase` | dotted-path factory reading `[strategy] thief_class` from the private TOML (`PLAN.md` ADR-7); defaults to `ThiefBrain` if unset; fails fast (`TypeError`) if the target doesn't subclass `BrainBase` |
 
 ### `strategy/fleeing_brain.py` — class `ThiefBrain(BrainBase)`
 | Method | Input | Output | Behavior |
 |---|---|---|---|
-| `_pick_move(moves, state, belief)` | legal `(Direction, cell)` list, `OwnGameState`, `BeliefGrid` | chosen `(Direction, cell)` | implements the 4-part scoring in §2.3: mobility score + expected-distance score, combined by weighted sum; ties broken by least-recently-visited |
+| `_pick_move(moves, state, belief, board)` | legal `(Direction, cell)` list, `OwnGameState`, `BeliefGrid`, `Board` | chosen `(Direction, cell)` | implements the scoring in §2.3: `expected_distance + mobility_score + lookahead_score`, combined by weighted sum (mobility weighted highest, since only a genuine dead end -- a large mobility gap, not a marginal one -- should outweigh a small distance edge); ties broken by least-recently-visited (**`board` added to the signature during implementation** -- `_mobility_score`/`_lookahead_score` both need it, so `_pick_move` must have it too) |
 | `_mobility_score(cell, board, barriers)` | candidate cell | `int` | count of legal moves from that cell (helper, unit-testable alone) |
-| `_expected_distance(cell, belief)` | candidate cell, belief grid | `float` | `sum(belief(s) * board.distance(cell, s) for s in board)` (helper, unit-testable alone) |
+| `_expected_distance(cell, belief, board)` | candidate cell, belief grid | `float` | `sum(belief(s) * board.distance(cell, s) for s in board)` (helper, unit-testable alone; **`board` added to the signature during implementation** -- the formula itself calls `board.distance`) |
 | `_lookahead_score(cell, belief, board)` | candidate cell | `float` | worst-case distance after simulating the Cop's best 1-ply response (helper, unit-testable alone) |
 
 Each helper is a small, independently-testable pure function — matches the
