@@ -19,7 +19,7 @@ from thief_peer.domain.board import Board
 from thief_peer.domain.own_state import OwnGameState
 from thief_peer.domain.scent import ScentField
 from thief_peer.infra.mcp_client import McpTransport
-from thief_peer.infra.mcp_server import build_server, wait_until_ready
+from thief_peer.infra.mcp_server import NullPeerContext, build_server, wait_until_ready
 from thief_peer.peer.turn_handler import TurnHandler
 from thief_peer.strategy.fleeing_brain import ThiefBrain
 
@@ -35,7 +35,7 @@ def _free_port() -> int:
 @pytest.fixture
 def opponent_feed_server():
     port = _free_port()
-    app = build_server(port)
+    app = build_server(port, NullPeerContext())
     thread = threading.Thread(
         target=app.run,
         kwargs={

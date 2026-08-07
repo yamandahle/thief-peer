@@ -18,6 +18,13 @@ stage, matching the corresponding `PRD_<n>_<name>.md` 1:1:
 | 5 — Public URL + tunnel | [`TODO_5_cloud_tunnel.md`](TODO_5_cloud_tunnel.md) | Ch.2 | ⚠️ code done, manual tunnel run outstanding |
 | 6 — Commit-Reveal + Step-0 | [`TODO_6_security.md`](TODO_6_security.md) | Ch.5 | ✅ done |
 | 7 — Reporting shell | [`TODO_7_reporting_shell.md`](TODO_7_reporting_shell.md) | Ch.9/7/App.א | ⚠️ components done, PeerRuntime/live-match wiring + manual Gmail/GUI steps outstanding |
+| 8 — PeerRuntime + live-match MCP tools | [`TODO_8_peer_runtime.md`](TODO_8_peer_runtime.md) | Ch.5 §5.3.2/Ch.8/Ch.6 §6.2 | ✅ done |
+
+Stage 8 is not part of the original 7-stage plan from `PRD.md` §6 — it's a
+genuine gap found after Stage 7 shipped (`PeerRuntime` was named throughout
+`PLAN.md`'s architecture but no stage's TODO ever claimed it as a task; see
+`README.md`'s "Known gap" note and `PRD_8_peer_runtime.md` §2.1). Once it's
+done, Stage 7's "PeerRuntime/live-match wiring" caveat above is resolved.
 
 Update each file's own `Status:` line as work progresses (e.g. `not started`
 → `in progress` → `done`); update the table above to match whenever a
@@ -25,7 +32,7 @@ stage's status changes, so this index stays a reliable at-a-glance summary.
 
 ---
 
-## After Stage 7 — submission readiness (not a build stage, a final pass)
+## After Stage 8 — submission readiness (not a build stage, a final pass)
 - [ ] Re-run the full pre-submission checklist from `PRD.md` §2.2 / book Ch.11
 - [ ] Play ≥ 2 league matches against distinct opponent groups (teammate's Cop
       repo counts as one; need ≥1 more from the wider class league)

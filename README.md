@@ -7,28 +7,22 @@ project's mandatory "full environment separation" rule.
 
 ## Status
 
-All 7 planned stages (`docs/PRD_1`…`docs/PRD_7`) have their components built
-and individually tested: 260 tests, 96%+ line coverage (`gui/*` excluded from
-the coverage gate per `pyproject.toml`), ruff-clean. An end-to-end smoke test
-(`tests/integration/test_end_to_end_smoke.py`) wires a scripted match through
-board/brain/belief → Commit-Reveal sealing → the four report artifacts →
-the rate-limited Gatekeeper → a stubbed Gmail send, and proves they compose
-correctly.
+All 8 stages (`docs/PRD_1`…`docs/PRD_8`) are built and tested: 332 tests,
+96%+ line coverage (`gui/*` excluded from the coverage gate per
+`pyproject.toml`), ruff-clean. `peer/runtime.py`'s `PeerRuntime` is the real
+live-match orchestrator — `cli.py run --group-name ... --config ...` drives
+handshake → every round's commit/reveal → the end-of-match mutual audit →
+a Gmail report, automatically. `tests/integration/test_live_match.py` proves
+this with two real `PeerRuntime` instances, each with its own live FastMCP
+server, playing a full match to completion over real localhost sockets.
 
-**Known gap — no live-match entry point yet.** `docs/PLAN.md`'s own
-architecture names `peer/runtime.py` (`PeerRuntime`) as the orchestrator that
-should wire negotiation → the turn loop → sealing/audit → reporting into one
-continuously-running match, driven by `cli.py run` / the GUI. That class was
-never actually built — every stage's `TODO_<n>.md` deferred it forward as
-"arriving once `PeerRuntime` exists," and no stage ever claimed it as its own
-task, so it fell through. The MCP server currently only exposes `ping` and
-`submit_audit`; the real `negotiate` / `receive_turn` tools it would need for
-a genuine match against the Cop peer are not wired either. The CLI's only
-subcommand today is `smoke-test` (a single `ping` round-trip). Building
-`PeerRuntime` and the missing MCP tools is necessary follow-up work before
-this peer can play an actual game — it is not part of Stage 7's scope as
-originally task-listed, and is flagged here rather than silently left for a
-grader to discover.
+**Known limitation.** This repo has no Cop-peer implementation (the Cop is a
+separate, independently-built repo per the book's "zero shared code" rule),
+so the live-match proof above is necessarily two Thief `PeerRuntime`
+instances pointed at each other — real proof the protocol/orchestration
+machinery works end to end, not a claim of having tested against actual Cop
+gameplay logic. Playing a real match against the teammate's Cop repo is
+listed below as a manual step.
 
 ## What this is
 
@@ -54,6 +48,8 @@ Each of the 7 build stages has its own `docs/PRD_<n>_<name>.md` (design) and
 5. Public URL + tunnel reachability
 6. Commit-Reveal crypto sealing + Step-0 hardware declaration
 7. Reporting shell (Gmail+OAuth, live GUI, replay simulator)
+8. `PeerRuntime` + the live-match MCP tools (`docs/PRD_8_peer_runtime.md` —
+   a gap found after Stage 7 shipped, not part of the original 7-stage plan)
 
 ## Running it
 
@@ -62,15 +58,19 @@ uv sync                                   # install dependencies
 uv run pytest --cov=thief_peer            # full test suite + coverage gate (85%)
 uv run ruff check .                       # lint
 uv run python -m thief_peer smoke-test --config <path-to-your-game.toml>
+uv run python -m thief_peer run --group-name "Your-Team-Name" \
+    --config <your-private-game.toml> --shared-config <shared-game.json>
 ```
 
-The `smoke-test` subcommand starts this peer's FastMCP server and pings a
-configured `network.opponent_url` — it does **not** play a match (see the
-gap noted above). It requires a private `game.toml` you create yourself,
-minimally providing `network.my_port` and `network.opponent_url`
-(`ConfigManager`, `docs/PLAN.md` ADR-5). No sample `config/` directory ships
-in this repo yet, since nothing consumes a full config until `PeerRuntime`
-exists.
+`run` drives a full live match against `network.opponent_url` to completion.
+`smoke-test` is a lighter diagnostic (a single `ping` round-trip). Both need
+a private `game.toml` you create yourself (`network.my_port`,
+`network.opponent_url`, `email.recipient`); `run` additionally needs a
+shared `game.json` with the Mandatory Parameters Table's values (`ConfigManager`,
+`docs/PLAN.md` ADR-5) — see `tests/integration/test_live_match.py` for a
+complete worked example of both files' shape. No sample `config/` directory
+ships in this repo, since its contents are necessarily specific to whichever
+match/opponent you're configuring for.
 
 ## Config split
 
@@ -161,5 +161,8 @@ desktop session and is a manual step; see below._
 - **The two mandatory submission screenshots** (Live GUI belief heatmap,
   Replay "Verified OK" stamp) — the Tkinter GUI's rendered appearance can
   only be confirmed by actually running it on a visible desktop.
-- **Building and exercising `PeerRuntime`** against a real, independently
-  running Cop peer — the gap described above.
+- **Playing a real match against the teammate's independently-built Cop
+  repo** — `PeerRuntime` is built and proven against a second real instance
+  of itself (see "Known limitation" above), but a genuine cross-repo match
+  needs their process actually running, on their machine or a shared
+  tunnel, which isn't something this repo can simulate or fake.

@@ -28,3 +28,28 @@ def test_smoke_test_subcommand_delegates_to_sdk_and_prints_result(
     assert exit_code == 0
     printed = json.loads(capsys.readouterr().out)
     assert printed == {"pong": True, "received": {"smoke_test": True}}
+
+
+def test_run_subcommand_delegates_to_sdk_with_the_group_name_and_prints_result(
+    tmp_path, monkeypatch, capsys
+):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        '[network]\nmy_port = 8803\nopponent_url = "http://127.0.0.1:8803/mcp"\n',
+        encoding="utf-8",
+    )
+
+    captured = {}
+
+    def fake_run(self, group_name):
+        captured["group_name"] = group_name
+        return {"final_result": {"winner_group": "Thief-Team"}}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.ThiefSdk.run", fake_run)
+
+    exit_code = main(["--config", str(toml_path), "run", "--group-name", "Thief-Team"])
+
+    assert exit_code == 0
+    assert captured["group_name"] == "Thief-Team"
+    printed = json.loads(capsys.readouterr().out)
+    assert printed == {"final_result": {"winner_group": "Thief-Team"}}

@@ -34,7 +34,7 @@ thief-peer/                                # this repo root (separate from teamm
 │   │   ├── rules.py                       # capture-on-barrier / no-legal-move / survival checks
 │   │   ├── crypto.py                      # canonical_json, CommitReveal, audit_records() — see §5
 │   │   ├── negotiation.py                 # shared-config signature exchange (reuses CommitReveal)
-│   │   ├── protocol.py                    # TurnMessage / AuditPayload / ControlMessage dataclasses
+│   │   ├── protocol.py                    # build_commit_message/build_reveal_message/build_audit_payload (dict builders, not dataclasses -- Stage 8 correction, matches sealing.py/negotiation.py's existing convention)
 │   │   └── game_ids.py                    # deterministic game_id / game_uid derivation
 │   ├── strategy/                          # THE graded differentiator — pure Python, NEVER the LLM
 │   │   ├── brain_base.py                  # BrainBase, Decision dataclass, resolve_brain() factory
@@ -230,7 +230,11 @@ used a different name for the same two states — `WAITING_FOR_COP`/`THINKING`
 — than `PRD_7_reporting_shell.md` §2.2 later committed to for the turn
 banner's own state names; since `peer/turn_fsm.py` itself was never actually
 built before this stage's GUI needed to reference these names, this was
-caught and fixed here rather than shipping two docs that disagree.)
+caught and fixed here rather than shipping two docs that disagree. Stage 8
+finally builds `peer/turn_fsm.py` itself, and confirmed this state set and
+allow-table directly against the book's own literal Python transition table,
+Ch.8 p.63 — `PRD_8_peer_runtime.md` §2.4 — rather than continuing to rely on
+a paraphrase; the two matched exactly.)
 *Rationale:* book Ch.8 — in a fully decentralized 2-peer game there is no
 referee to catch a desync; if both peers believe it's their turn (or neither
 does), the match deadlocks forever with nothing to intervene. An explicit FSM
@@ -389,27 +393,53 @@ nonce     = secrets.token_hex(16)          # `secrets` module, NEVER `random`
 | `reasoning` | `str` | one-line rationale, sealed into the audit record |
 | `response_seconds` | `float` | banter latency, logged |
 
-**`TurnMessage` (on the wire, MCP `receive_turn` tool argument):**
+**Corrected in Stage 8** (`PRD_8_peer_runtime.md` §2.2): the book's Figure 6
+(Ch.5 p.51) is explicit that Commit and Reveal are two *separate* messages,
+both sides participating at each stage — bundling the hash and the revealed
+content into one envelope (as an earlier draft of this section did) would
+defeat the "you locked your move before you saw mine" guarantee the whole
+mechanism exists for. Replaces the single `TurnMessage` below with two wire
+shapes, both built by `domain/protocol.py`'s functions (plain dict builders,
+matching `sealing.py`/`negotiation.py`'s existing convention — not
+dataclasses):
+
+**`commit_move` payload (MCP tool argument):**
+```json
+{"step": 7, "sender": "thief", "h_commit": "sha256 hex"}
+```
+Carries only the hash — never the move, intent, hint, or scent. The book's
+"Acknowledge" step is folded into this call's own synchronous MCP response
+(`{"ok": true}` = receipt confirmed, lock-in complete) rather than a separate
+tool — see `PRD_8` §2.3 for why this doesn't weaken the guarantee.
+
+**`reveal_move` payload (MCP tool argument, sent only after both sides have
+committed for this step):**
 ```json
 {
   "step": 7, "sender": "thief",
   "hint": "<natural language, may lie, word-capped>",
   "scent_grid": {"3,4": 0.9, "3,5": 0.7},
-  "commit": "sha256 hex, nonce withheld until audit",
-  "timestamp": "ISO-8601",
-  "claim_response": {"claim": [2, 3], "caught": true},
-  "win_claim": {"type": "survival"}
+  "move": "N", "intent": "truth"
 }
 ```
-No `position` field ever (ADR-8).
+`move`/`intent` are revealed in the clear now (they were already locked
+behind `h_commit` before either side saw the other's); the `nonce` is
+**never** included here — withheld until the end-of-match `submit_audit`
+exchange (Stage 6, unchanged). No `position` field ever, in either message
+(ADR-8).
 
 **MCP tool names/signatures (must match exactly on both peers):**
 ```
-negotiate(message: dict) -> {"ok": bool}
-receive_turn(message: dict) -> {"ok": bool}
-submit_audit(payload: dict) -> {"ok": bool}
-receive_control(message: dict) -> {"ok": bool}   # optional GUI control channel
+negotiate(message: dict) -> {"terms": dict, "nonce": str, "commit": str}
+receive_control(message: dict) -> {"record": dict}   # Step-0 declaration exchange
+commit_move(payload: dict) -> {"ok": bool}            # hash only; response = Acknowledge
+reveal_move(payload: dict) -> {"ok": bool}             # move+hint, nonce withheld
+submit_audit(payload: dict) -> {"passed": bool, "verified_steps": int, "failed_steps": list[int]}
 ```
+(`negotiate`/`receive_control`'s actual return shapes were also corrected
+here in Stage 8 to match what `peer/handshake.py`'s already-built
+`run_handshake` genuinely requires — the original `{"ok": bool}` sketch for
+every tool was never accurate for these two.)
 
 **`AuditPayload`:**
 ```json

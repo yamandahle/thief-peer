@@ -1,14 +1,18 @@
-"""ThiefSdk (PRD_2 §2.4): the single entry point business logic sits behind
-(SDK mandate) — `cli.py` never touches `infra`/`domain` directly. Stage 2
-gives it just `smoke_test()`, a diagnostic method deleted once Stage 3's
-real `run()` game loop replaces it.
+"""ThiefSdk (PRD_2 §2.4; PRD_8 §3): the single entry point business logic
+sits behind (SDK mandate) -- `cli.py` never touches `infra`/`domain`/`peer`
+directly. `smoke_test()` is a diagnostic single-ping round trip; `run()`
+builds the real Gatekeeper/Gmail service from config (ADR-4: never call
+Gmail directly, only through the Gatekeeper) and drives a full match via
+`PeerRuntime`.
 """
 
-import threading
-
+from thief_peer.infra import email_sender
 from thief_peer.infra.mcp_client import McpTransport
-from thief_peer.infra.mcp_server import build_server, wait_until_ready
+from thief_peer.infra.mcp_server import NullPeerContext, build_server, run_server_in_background
+from thief_peer.peer.runtime import PeerRuntime
 from thief_peer.shared.config import ConfigManager
+from thief_peer.shared.gatekeeper import ApiGatekeeper
+from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
 
 
 class ThiefSdk:
@@ -19,20 +23,26 @@ class ThiefSdk:
         port = self._config.require("network.my_port")
         opponent_url = self._config.require("network.opponent_url")
 
-        app = build_server(port)
-        thread = threading.Thread(
-            target=app.run,
-            kwargs={
-                "transport": "http",
-                "host": "0.0.0.0",
-                "port": port,
-                "show_banner": False,
-                "log_level": "warning",
-            },
-            daemon=True,
-        )
-        thread.start()
-        wait_until_ready(port)
+        app = build_server(port, NullPeerContext())
+        run_server_in_background(app, port)
 
         transport = McpTransport(opponent_url)
         return transport.call("ping", {"payload": {"smoke_test": True}})
+
+    def run(self, group_name: str) -> dict:
+        gatekeeper = ApiGatekeeper(
+            token_bucket=TokenBucket(
+                capacity=self._config.get("rate_limits.token_bucket_capacity", 5),
+                refill_rate=self._config.get("rate_limits.token_bucket_refill_rate", 1.0),
+            ),
+            dos_detector=DosDetector(
+                max_calls=self._config.get("rate_limits.dos_max_calls", 100),
+                window_seconds=self._config.get("rate_limits.dos_window_seconds", 60),
+            ),
+            queue=RequestQueue(max_depth=self._config.get("rate_limits.queue_max_depth", 10)),
+        )
+        service = email_sender.get_service(self._config.get("email.token_path", "token.json"))
+        recipient = self._config.require("email.recipient")
+
+        runtime = PeerRuntime(self._config, group_name, gatekeeper, service, recipient)
+        return runtime.run()

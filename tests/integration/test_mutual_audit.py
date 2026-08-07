@@ -12,7 +12,7 @@ import pytest
 
 from thief_peer.domain.crypto import CommitReveal
 from thief_peer.infra.mcp_client import McpTransport
-from thief_peer.infra.mcp_server import build_server, wait_until_ready
+from thief_peer.infra.mcp_server import NullPeerContext, build_server, wait_until_ready
 
 
 def _free_port() -> int:
@@ -24,7 +24,7 @@ def _free_port() -> int:
 @pytest.fixture
 def opponent_server():
     port = _free_port()
-    app = build_server(port)
+    app = build_server(port, NullPeerContext())
     thread = threading.Thread(
         target=app.run,
         kwargs={
