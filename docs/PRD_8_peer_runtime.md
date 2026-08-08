@@ -338,3 +338,67 @@ ever actually depended on it existing. Closed the actual test gap with
 "-m", "thief_peer", "--help"], ...)` call -- the first test in this repo
 that invokes the package the same way a real user does, not through a
 function import.
+
+## Addendum 4 — watchdog wiring, `repos`/`is_counted` reporting fields
+(post-Stage-8, remaining items from the same compliance re-audit)
+
+**Rule 7 (watchdog).** `shared/watchdog.py::watchdog_check` was built and
+unit-tested since Stage 5, but its own docstring already admitted the
+heartbeat *producer* side "belongs to `peer/runtime.py`, arriving in a
+later stage" -- that stage never came. Closed by `peer/heartbeat_monitor.py`'s
+`HeartbeatMonitor`: a background daemon thread polling `watchdog_check`
+against a heartbeat `PeerRuntime.run()`'s round loop updates via `.beat()`
+after every round. New `watchdog_timeout_sec` constructor param (default
+180s, matching the book's own worked example) -- deliberately **not**
+added to the shared `game.json`/`CANONICAL_TERM_KEYS`, unlike an earlier
+draft of this addendum considered: a peer's own liveness timeout is a
+private, local concern (how patient it is with *itself* freezing), not
+something the opponent needs to agree to, exactly the same reasoning
+`round_deadline_sec` already used since Stage 8. This also resolves the
+earlier "genuinely open" question (`README.md`'s interop section, and the
+letter sent for the Cop-team comparison) about whether
+`network_and_league`/`rate_limiter_gatekeeper` belong in the signed shared
+config: **resolved now, not open** -- these are private per-peer
+operational knobs, not cross-peer-agreed facts; the book's own worked
+example groups them into one JSON file for presentation convenience, not
+because a mismatch there breaks the game the way a `grid_size` mismatch
+would.
+
+**A genuine, pre-existing bug found while building this fix's own tests:**
+two `test_watchdog.py` tests from Stage 5
+(`test_watchdog_check_returns_shutdown_when_heartbeat_is_stale`,
+`test_watchdog_check_is_a_strict_boundary_not_off_by_one`) called the real
+`watchdog_check()` with a stale heartbeat and never mocked
+`persist_state()`/`controlled_shutdown()` -- silently writing a real
+`logs/watchdog_state.json` into the repo directory on *every single test
+run* since Stage 5. Gitignored, so never a commit risk, but genuine local
+pollution that went unnoticed because nothing had reason to check for a
+stray `logs/` directory until this fix's own new tests made that check
+routine. Fixed by mocking both in each, matching the pattern the sibling
+test in the same file already used correctly.
+
+**Rule 49 (`repos` field).** Report artifacts carried no repo-URL
+information at all. `config/thief/game.toml` gains a `[repos]` section
+(`thief`/`cop` keys, matching the Cop repo's own already-established
+naming convention exactly, filled in with this project's two real repo
+URLs); `PeerRuntime.repos` loads it (`config.get("repos", {})`, optional --
+never required, so it doesn't force every existing config fixture to
+declare one); `finalize_match` includes it as `groups.group_1.repos`.
+Deliberately only this peer's own known repos, never invented for
+`group_2` (the opponent) -- there is still no wire channel to learn theirs,
+the same honest limitation the Cop repo's own
+`orchestrator_end_of_game.py` docstring documents about its own equivalent
+gap.
+
+**Rule 52 (counted vs. warm-up games).** `LeagueCounter` incremented
+unconditionally on every `write_and_send` call, with no way to mark a
+match as an uncounted warm-up/test run -- risking the persisted
+per-opponent count silently inflating past what a real league match
+actually played (relevant to rules 37/38's accurate-declaration
+requirement). Added `is_counted: bool = True` through the whole chain
+(`report_writer.write_and_send` -> `finalize_match` -> `PeerRuntime.__init__`
+-> `ThiefSdk.run()`/`run_with_gui()` -> `cli.py run --warmup`, which sets
+it `False`). When `False`, `write_and_send` reads the counter's current
+value instead of incrementing it, so the declared count never inflates.
+Matches the Cop repo's own `EndOfGameMixin.report_game(..., is_counted:
+bool, ...)` precedent, which reaches the same design independently.

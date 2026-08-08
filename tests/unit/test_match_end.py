@@ -168,3 +168,46 @@ def test_being_caught_lying_by_the_opponent_overrides_the_natural_winner(tmp_pat
     assert result["audit"]["self_audited_by_opponent"]["passed"] is False
     assert result["audit"]["passed"] is False
     assert result["final_result"]["winner_group"] == "Thief-Team-B"
+
+
+def test_repos_are_included_in_group_1s_own_entry_when_supplied(tmp_path, monkeypatch):
+    """Rule 49 ("four links in both teams' JSON"): report this peer's own
+    known repo URLs -- never invented for the opponent's side, which has no
+    wire channel to learn (same honest limitation the Cop repo's own
+    orchestrator_end_of_game.py docstring documents)."""
+    repos = {"thief": "https://github.com/yamandahle/thief-peer", "cop": "https://github.com/x/y"}
+
+    result = _finalize(tmp_path, monkeypatch, repos=repos)
+
+    assert result["groups"]["group_1"]["repos"] == repos
+    assert "repos" not in result["groups"]["group_2"]
+
+
+def test_repos_defaults_to_empty_when_not_supplied(tmp_path, monkeypatch):
+    result = _finalize(tmp_path, monkeypatch)
+
+    assert result["groups"]["group_1"]["repos"] == {}
+
+
+def test_is_counted_is_passed_through_to_write_and_send(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "thief_peer.peer.match_end.write_and_send",
+        lambda *args, **kwargs: captured.update(kwargs),
+    )
+
+    _finalize(tmp_path, monkeypatch, is_counted=False)
+
+    assert captured["is_counted"] is False
+
+
+def test_is_counted_defaults_to_true(tmp_path, monkeypatch):
+    captured = {}
+    monkeypatch.setattr(
+        "thief_peer.peer.match_end.write_and_send",
+        lambda *args, **kwargs: captured.update(kwargs),
+    )
+
+    _finalize(tmp_path, monkeypatch)
+
+    assert captured["is_counted"] is True

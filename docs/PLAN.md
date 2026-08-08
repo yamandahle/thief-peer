@@ -41,15 +41,26 @@ thief-peer/                                # this repo root (separate from teamm
 │   │   ├── trash_talk.py                  # hint+verdict orchestration, throttling, fallback-to-template
 │   │   └── talk_providers.py              # template / ollama / claude_api / claude_cli adapters
 │   ├── peer/                              # the turn-taking protocol — ONE peer, no shared process
-│   │   ├── runtime.py                     # PeerRuntime: negotiate -> turn loop -> audit
-│   │   ├── turn_fsm.py                    # explicit turn state machine + illegal-transition rejection
-│   │   ├── turn_handler.py                # apply incoming Cop TurnMessage
-│   │   ├── turn_sender.py                 # build Decision -> seal -> TurnMessage -> send
+│   │   ├── runtime.py                     # PeerRuntime: negotiate -> turn loop -> audit (Stage 8)
+│   │   ├── runtime_setup.py               # game-component construction, split out of runtime.py (Stage 8)
+│   │   ├── runtime_context.py             # infra/mcp_server.py context handlers, split out of runtime.py (Stage 8)
+│   │   ├── round_loop.py                  # one commit/reveal round, split out of runtime.py (Stage 8)
+│   │   ├── round_exchange.py              # thread-safe mailbox bridging the MCP server thread and the main loop (Stage 8)
+│   │   ├── match_end.py                   # end-of-match mutual audit + report, split out of runtime.py (Stage 8)
+│   │   ├── heartbeat_monitor.py           # rule-7 watchdog's heartbeat producer + background checker (post-Stage-8 fix)
+│   │   ├── turn_fsm.py                    # explicit turn state machine + illegal-transition rejection (book's literal table, Stage 8)
+│   │   ├── turn_handler.py                # belief+brain decision, applies the move locally (Stage 3/4)
+│   │   ├── turn_sender.py                 # build commit/reveal messages -> send (Stage 8)
 │   │   ├── sealing.py                     # payload builders, REQUIRED_TERMS fail-fast validation
-│   │   ├── handshake.py                   # Step-0 declaration exchange before move 1
-│   │   └── summary.py                     # per-match summary for report + GUI
+│   │   └── handshake.py                   # negotiate + Step-0 declaration exchange before move 1
+│   │       # (summary.py was sketched here originally but never built --
+│   │       # PeerRuntime.view() (for the GUI) and the finalize_match() report
+│   │       # payload ended up covering that need directly, no separate module
+│   │       # required; removed from this diagram rather than backfilled)
 │   ├── infra/                             # adapters to the outside world
-│   │   ├── mcp_server.py                  # FastMCP: negotiate/commit_move/reveal_move/submit_audit/receive_control (corrected list, Stage 8 -- see PRD_8)
+│   │   ├── mcp_server.py                  # FastMCP tool routing: negotiate/receive_control/commit_move/reveal_move/submit_audit/get_revealed_records/receive_barrier_declaration/receive_capture_claim, each a one-line context.handle_* delegation
+│   │   ├── null_peer_context.py           # NullPeerContext, split out of mcp_server.py (post-Stage-8 fix)
+│   │   ├── server_lifecycle.py            # run_server_in_background/wait_until_ready, split out of mcp_server.py (post-Stage-8 fix)
 │   │   ├── mcp_client.py                  # McpTransport: calls the Cop's MCP tools
 │   │   ├── llm_provider.py                # ollama/claude_api/claude_cli — banter ONLY, never move
 │   │   ├── email_sender.py                # Gmail API, structured JSON only, via Gatekeeper -- assumes a valid token already exists

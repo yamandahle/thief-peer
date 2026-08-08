@@ -349,6 +349,76 @@ def test_handle_receive_control_returns_my_own_step0_record(tmp_path):
     assert response["record"]["payload"]["group_name"] == "Thief-Team"
 
 
+def test_heartbeat_monitor_beats_during_a_real_match_and_stops_after(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8918)
+    their_config = _config(tmp_path, "theirs", port=8919)
+    from thief_peer.shared.gatekeeper import ApiGatekeeper
+    from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+
+    gatekeeper = ApiGatekeeper(
+        token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
+        dos_detector=DosDetector(max_calls=100, window_seconds=60),
+        queue=RequestQueue(max_depth=5),
+    )
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=gatekeeper,
+        email_service=_FakeGmailService(),
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+        round_deadline_sec=2.0,
+    )
+    opponent = _CooperativeStubOpponent(runtime, their_config, their_group_name="Cop-Team")
+    runtime.transport = opponent
+    heartbeat_before_run = runtime.heartbeat.last_heartbeat
+
+    runtime.run()
+
+    assert runtime.heartbeat.last_heartbeat > heartbeat_before_run
+    assert runtime.heartbeat.triggered is False
+
+
+def test_repos_load_from_the_private_configs_repos_section(tmp_path):
+    toml_path = tmp_path / "mine.toml"
+    toml_path.write_text(
+        '[network]\nmy_port = 8920\n'
+        '[repos]\nthief = "https://github.com/yamandahle/thief-peer"\n'
+        'cop = "https://github.com/Nagham1023/yamanagh-cop"\n',
+        encoding="utf-8",
+    )
+    json_path = tmp_path / "mine.json"
+    json_path.write_text(_GAME_JSON, encoding="utf-8")
+    config = ConfigManager(toml_path, json_path)
+    runtime = PeerRuntime(
+        config=config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+
+    assert runtime.repos == {
+        "thief": "https://github.com/yamandahle/thief-peer",
+        "cop": "https://github.com/Nagham1023/yamanagh-cop",
+    }
+
+
+def test_repos_defaults_to_empty_dict_when_no_repos_section(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8921)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+
+    assert runtime.repos == {}
+
+
 def test_view_never_exposes_an_opponent_position_field(tmp_path):
     my_config = _config(tmp_path, "mine", port=8906)
     runtime = PeerRuntime(

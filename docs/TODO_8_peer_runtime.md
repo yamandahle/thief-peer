@@ -68,11 +68,15 @@ automatically.
 sockets: handshake, every round's commit/reveal, a *genuinely mutual*
 audit on both sides (each peer actively pulls and verifies the other's
 revealed log via `get_revealed_records`, not just submits itself), and
-matching `game_uid`s in both sides' report output. Capture-by-barrier
-detection (rules 21/22/46) also closed post-shipment, and `python -m
-thief_peer` (misnamed `main.py` instead of `__main__.py` since Stage 2,
-found only when the user actually ran it) now genuinely works — see the
-PRD's three addenda. 364 unit+integration tests passing, 97.1% coverage,
+matching `game_uid`s in both sides' report output. Also closed
+post-shipment (see the PRD's four addenda): capture-by-barrier detection
+(rules 21/22/46); `python -m thief_peer` never actually working (misnamed
+`main.py` instead of `__main__.py` since Stage 2, found only when the user
+actually ran it); the rule-7 watchdog's heartbeat producer
+(`peer/heartbeat_monitor.py`, plus two pre-existing Stage-5 tests that
+silently wrote a real `logs/watchdog_state.json` on every run, found and
+fixed in the same pass); `repos` (rule 49) and `is_counted` (rule 52) in
+the match report. 378 unit+integration tests passing, 97.2% coverage,
 ruff clean, every new/changed file at or under 150 lines.
 
 **Status:** done

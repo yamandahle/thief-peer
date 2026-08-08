@@ -13,7 +13,14 @@ def test_watchdog_check_returns_alive_when_heartbeat_is_recent():
     assert result == "ALIVE"
 
 
-def test_watchdog_check_returns_shutdown_when_heartbeat_is_stale():
+def test_watchdog_check_returns_shutdown_when_heartbeat_is_stale(monkeypatch):
+    # Pre-existing bug found in a later compliance re-audit: this test never
+    # mocked persist_state()/controlled_shutdown(), so it silently wrote a
+    # real logs/watchdog_state.json into the repo on every run since Stage 5
+    # -- gitignored, so never a commit risk, but real local pollution that
+    # went unnoticed until something started actually checking for it.
+    monkeypatch.setattr(watchdog, "persist_state", lambda: None)
+    monkeypatch.setattr(watchdog, "controlled_shutdown", lambda: None)
     stale_heartbeat = time.time() - 120
     result = watchdog.watchdog_check(last_heartbeat=stale_heartbeat, timeout_sec=60)
     assert result == "SHUTDOWN"
@@ -21,7 +28,11 @@ def test_watchdog_check_returns_shutdown_when_heartbeat_is_stale():
 
 def test_watchdog_check_is_a_strict_boundary_not_off_by_one(monkeypatch):
     # Exactly at the threshold must not trip -- only *exceeding* it does
-    # (PRD_5 §3: "if now - last_heartbeat > timeout_sec").
+    # (PRD_5 §3: "if now - last_heartbeat > timeout_sec"). Also unmocked
+    # for persist_state/controlled_shutdown until the same re-audit that
+    # found the sibling test above -- same real-file-write bug.
+    monkeypatch.setattr(watchdog, "persist_state", lambda: None)
+    monkeypatch.setattr(watchdog, "controlled_shutdown", lambda: None)
     now = 1_000_000.0
     monkeypatch.setattr(watchdog.time, "time", lambda: now)
     assert watchdog.watchdog_check(last_heartbeat=now - 60, timeout_sec=60) == "ALIVE"

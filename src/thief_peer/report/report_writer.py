@@ -4,7 +4,11 @@ every legal match, unconditionally. `LeagueCounter` persists the
 per-opponent games-played count across separate match invocations (PRD_7
 §2.7) -- lying about this count is an explicit disqualification-level
 offense if caught, so it must survive a process restart, not just live in
-memory.
+memory. `is_counted` (rule 52 fix, found in a compliance re-audit) gates
+whether *this specific* match actually increments that counter -- uncounted
+warm-up/test games are explicitly permitted by the book, but must never
+silently inflate the persisted count a real league match's declaration
+relies on being accurate (rules 37/38).
 """
 
 import json
@@ -45,9 +49,13 @@ def write_and_send(
     recipient: str,
     results_dir: str | Path = "results",
     league_counter: LeagueCounter | None = None,
+    is_counted: bool = True,
 ) -> dict:
     counter = league_counter or LeagueCounter()
-    games_played = counter.record_game(match_result["opponent_group_id"])
+    if is_counted:
+        games_played = counter.record_game(match_result["opponent_group_id"])
+    else:
+        games_played = counter.games_played_against(match_result["opponent_group_id"])
 
     declaration = build_declaration(
         game_id=match_result["game_id"],

@@ -126,6 +126,34 @@ def test_run_with_gui_builds_a_window_and_live_session_and_returns_its_result(
     assert isinstance(captured["session_window"], _FakeWindow)
 
 
+def test_run_passes_is_counted_through_to_peer_runtime(tmp_path, monkeypatch):
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+    config = _make_config(tmp_path, port)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = {}
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured["is_counted"] = kwargs.get("is_counted")
+
+        def run(self):
+            return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    ThiefSdk(config).run("Thief-Team", is_counted=False)
+
+    assert captured["is_counted"] is False
+
+
 def test_auth_gmail_delegates_to_gmail_auth_with_the_configs_token_path(tmp_path, monkeypatch):
     toml_path = tmp_path / "game.toml"
     toml_path.write_text(

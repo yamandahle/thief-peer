@@ -65,6 +65,8 @@ def finalize_match(
     results_dir,
     sub_game_number: int,
     num_sub_games: int,
+    repos: dict | None = None,
+    is_counted: bool = True,
 ) -> dict:
     game_id = derive_game_id(*sorted([group_name, opponent_group_name]))
     game_uid = derive_game_uid(game_id, sub_game_number)
@@ -108,7 +110,10 @@ def finalize_match(
         "num_sub_games": num_sub_games,
         "opponent_group_id": opponent_group_name,
         "groups": {
-            "group_1": {"identity": group_name},
+            # Rule 49 ("four links in both teams' JSON"): only this peer's
+            # own known repos -- the opponent's are genuinely unknowable
+            # over this wire (no channel exists), never invented.
+            "group_1": {"identity": group_name, "repos": repos or {}},
             "group_2": {"identity": opponent_group_name},
         },
         "shared_terms": canonical_terms(config),
@@ -118,6 +123,20 @@ def finalize_match(
         "final_result": final_result,
     }
     league_counter = LeagueCounter(Path(results_dir) / "league_counter.json")
-    write_and_send(match_result, gatekeeper, email_service, recipient, results_dir, league_counter)
+    write_and_send(
+        match_result,
+        gatekeeper,
+        email_service,
+        recipient,
+        results_dir,
+        league_counter,
+        is_counted=is_counted,
+    )
 
-    return {"game_id": game_id, "game_uid": game_uid, "audit": audit, "final_result": final_result}
+    return {
+        "game_id": game_id,
+        "game_uid": game_uid,
+        "audit": audit,
+        "final_result": final_result,
+        "groups": match_result["groups"],
+    }

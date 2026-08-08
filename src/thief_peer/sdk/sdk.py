@@ -10,7 +10,10 @@ the GUI and `PeerRuntime.view()` both existed but nothing connected them).
 `smoke_test()` never require Tkinter to be usable. `auth_gmail()` is the
 one-time OAuth2 bootstrap (Appendix א §1.5) that produces the token file
 `run()`/`run_with_gui()` assume already exists -- a separate, explicit step
-a human runs once, never invoked automatically mid-match.
+a human runs once, never invoked automatically mid-match. `is_counted`
+(rule 52 fix) defaults to `True` (a real league match); pass `False` for a
+warm-up/test run so `report_writer`'s per-opponent league counter never
+gets silently inflated.
 """
 
 from thief_peer.infra import email_sender, gmail_auth
@@ -36,14 +39,14 @@ class ThiefSdk:
         transport = McpTransport(opponent_url)
         return transport.call("ping", {"payload": {"smoke_test": True}})
 
-    def run(self, group_name: str) -> dict:
-        return self._build_runtime(group_name).run()
+    def run(self, group_name: str, is_counted: bool = True) -> dict:
+        return self._build_runtime(group_name, is_counted).run()
 
-    def run_with_gui(self, group_name: str) -> dict:
+    def run_with_gui(self, group_name: str, is_counted: bool = True) -> dict:
         from thief_peer.gui.live_session import LiveSession
         from thief_peer.gui.window import PeerWindow
 
-        runtime = self._build_runtime(group_name)
+        runtime = self._build_runtime(group_name, is_counted)
         session = LiveSession(runtime, PeerWindow())
         session.start()
         return session.match_result
@@ -52,7 +55,7 @@ class ThiefSdk:
         token_path = self._config.get("email.token_path", "token.json")
         return str(gmail_auth.ensure_token(credentials_path, token_path))
 
-    def _build_runtime(self, group_name: str) -> PeerRuntime:
+    def _build_runtime(self, group_name: str, is_counted: bool = True) -> PeerRuntime:
         gatekeeper = ApiGatekeeper(
             token_bucket=TokenBucket(
                 capacity=self._config.get("rate_limits.token_bucket_capacity", 5),
@@ -66,4 +69,6 @@ class ThiefSdk:
         )
         service = email_sender.get_service(self._config.get("email.token_path", "token.json"))
         recipient = self._config.require("email.recipient")
-        return PeerRuntime(self._config, group_name, gatekeeper, service, recipient)
+        return PeerRuntime(
+            self._config, group_name, gatekeeper, service, recipient, is_counted=is_counted
+        )

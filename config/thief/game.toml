@@ -19,6 +19,13 @@ recipient = "yamandahle@gmail.com"
 # flow (Appendix א) -- gitignored, never commit the real file.
 token_path = "token.json"
 
+# This team's own known repo URLs (rule 49: "four links in both teams'
+# JSON"). Never the opponent's -- there's no wire channel to learn theirs,
+# and this repo never invents one (peer/runtime.py::PeerRuntime.repos).
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
+
 # Optional: [strategy] thief_class = "pkg.module:ClassName" to swap in a
 # different BrainBase subclass (ADR-7); omitted here to use the shipped
 # ThiefBrain (strategy/fleeing_brain.py).

@@ -7,7 +7,7 @@ project's mandatory "full environment separation" rule.
 
 ## Status
 
-All 8 stages (`docs/PRD_1`…`docs/PRD_8`) are built and tested: 364 tests,
+All 8 stages (`docs/PRD_1`…`docs/PRD_8`) are built and tested: 378 tests,
 96%+ line coverage (`gui/*` excluded from the coverage gate per
 `pyproject.toml`), ruff-clean. `peer/runtime.py`'s `PeerRuntime` is the real
 live-match orchestrator — `cli.py run --group-name ... --config ...` drives
@@ -78,8 +78,11 @@ Add `--gui` to watch it live in a Tkinter window (belief heatmap + turn
 banner, `gui/live_session.py`) instead of running headless — the match runs
 on a background thread while the window polls `PeerRuntime.view()`; closing
 the window ends the session (the match itself keeps running to completion
-regardless, same as headless mode). `smoke-test` is a lighter diagnostic (a
-single `ping` round-trip).
+regardless, same as headless mode). Add `--warmup` for a test/practice
+match that should **not** count toward the per-opponent league counter
+(rule 52 — uncounted warm-up games are permitted, but must never inflate
+the persisted count a real match's report declares). `smoke-test` is a
+lighter diagnostic (a single `ping` round-trip).
 
 Real starter files ship at `config/thief/game.toml` (private) and
 `config/thief/game.json` (shared, Appendix ו's default values). Before a

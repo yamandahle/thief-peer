@@ -3,10 +3,11 @@ negotiate -> the per-round commit/reveal loop -> end-of-match audit ->
 report, entirely by reusing Stages 1-7's already-built pieces (TurnHandler,
 handshake, sealing, negotiation, report_writer) -- no new game logic here,
 only wiring. Game-component construction, the round loop, the
-`infra/mcp_server.py` context handlers, and the end-of-match sequence live
-in `peer/runtime_setup.py`, `peer/round_loop.py`, `peer/runtime_context.py`,
-and `peer/match_end.py` respectively, kept out of this class to stay under
-this codebase's file-length convention. `verdict` is left at `Decision`'s
+`infra/mcp_server.py` context handlers, the end-of-match sequence, and the
+rule-7 watchdog's heartbeat producer live in `peer/runtime_setup.py`,
+`peer/round_loop.py`, `peer/runtime_context.py`, `peer/match_end.py`, and
+`peer/heartbeat_monitor.py` respectively, kept out of this class to stay
+under this codebase's file-length convention. `verdict` is left at `Decision`'s
 "truth" default rather than wired to `strategy.trash_talk.choose_verdict` --
 that function needs an expected-distance figure `ThiefBrain` only computes
 as a private method; reaching into it (or duplicating its formula here) was
@@ -19,6 +20,7 @@ from thief_peer.domain.rules import has_survived, is_captured_by_stuck
 from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.infra.mcp_server import build_server, run_server_in_background
 from thief_peer.peer.handshake import run_handshake
+from thief_peer.peer.heartbeat_monitor import HeartbeatMonitor
 from thief_peer.peer.match_end import finalize_match
 from thief_peer.peer.round_exchange import RoundExchange
 from thief_peer.peer.round_loop import play_round
@@ -39,8 +41,10 @@ class PeerRuntime(PeerContextMixin):
         recipient: str,
         results_dir: str | Path = "results",
         round_deadline_sec: float = 30.0,
+        watchdog_timeout_sec: float = 180.0,
         sub_game_number: int = 1,
         num_sub_games: int = 1,
+        is_counted: bool = True,
     ):
         self.config = config
         self.group_name = group_name
@@ -51,6 +55,9 @@ class PeerRuntime(PeerContextMixin):
         self.round_deadline_sec = round_deadline_sec
         self.sub_game_number = sub_game_number
         self.num_sub_games = num_sub_games
+        self.is_counted = is_counted
+        self.repos = config.get("repos", {})
+        self.heartbeat = HeartbeatMonitor(timeout_sec=watchdog_timeout_sec)
 
         components = build_game_components(config)
         self.board = components.board
@@ -77,6 +84,7 @@ class PeerRuntime(PeerContextMixin):
 
     def run(self) -> dict:
         run_server_in_background(self.server_app, self.port)
+        self.heartbeat.start()
         their_step0 = run_handshake(self.config, self.transport, self.group_name)
         opponent_group_name = their_step0["payload"]["group_name"]
 
@@ -97,6 +105,7 @@ class PeerRuntime(PeerContextMixin):
                 self._last_opponent_scent,
             )
             self.records.append(record)
+            self.heartbeat.beat()
             if technical_loss:
                 end_reason = "technical_loss"
                 break
@@ -107,6 +116,7 @@ class PeerRuntime(PeerContextMixin):
                 end_reason = "captured"
                 break
 
+        self.heartbeat.stop()
         self._match_over = True
         return finalize_match(
             self.group_name,
@@ -121,6 +131,8 @@ class PeerRuntime(PeerContextMixin):
             self.results_dir,
             self.sub_game_number,
             self.num_sub_games,
+            self.repos,
+            self.is_counted,
         )
 
     def view(self):

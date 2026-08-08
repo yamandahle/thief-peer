@@ -19,6 +19,7 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--group-name", required=True)
     run_parser.add_argument("--gui", action="store_true")
+    run_parser.add_argument("--warmup", action="store_true")
     auth_parser = subparsers.add_parser("auth-gmail")
     auth_parser.add_argument("--credentials", default="credentials.json")
 
@@ -30,10 +31,11 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "smoke-test":
         print(json.dumps(sdk.smoke_test()))
     elif args.command == "run":
+        is_counted = not args.warmup
         if args.gui:
-            print(json.dumps(sdk.run_with_gui(args.group_name)))
+            print(json.dumps(sdk.run_with_gui(args.group_name, is_counted=is_counted)))
         else:
-            print(json.dumps(sdk.run(args.group_name)))
+            print(json.dumps(sdk.run(args.group_name, is_counted=is_counted)))
     elif args.command == "auth-gmail":
         print(json.dumps({"token_path": sdk.auth_gmail(args.credentials)}))
 

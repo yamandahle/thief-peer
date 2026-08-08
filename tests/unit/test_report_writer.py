@@ -121,6 +121,29 @@ def test_write_and_send_calls_the_gatekeeper_exactly_once_with_send_report(tmp_p
     assert args[1] == "grader@example.com"
 
 
+def test_write_and_send_does_not_increment_the_counter_for_an_uncounted_game(tmp_path):
+    """Rule 52: uncounted warm-up games are permitted, but must never
+    inflate the persisted per-opponent count a real league match relies on
+    (rules 37/38 -- the declared count must stay accurate)."""
+    gatekeeper = _SpyGatekeeper()
+    counter = LeagueCounter(tmp_path / "league.json")
+    counter.record_game("cop-team")  # one real, counted game already played
+
+    write_and_send(
+        _match_result(),
+        gatekeeper=gatekeeper,
+        email_service=object(),
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+        league_counter=counter,
+        is_counted=False,
+    )
+
+    assert counter.games_played_against("cop-team") == 1  # unchanged
+    declaration = json.loads((tmp_path / "results" / "declaration_a-vs-b.json").read_text())
+    assert declaration["games_played_against_opponent"] == 1
+
+
 def test_write_and_send_returns_the_four_assembled_artifacts(tmp_path):
     gatekeeper = _SpyGatekeeper()
     artifacts = write_and_send(
