@@ -267,3 +267,22 @@ manual step in between beyond starting the process itself.
   assumptions) should be corrected here and documented the same
   transparent way prior cross-repo mismatches were (see the PRD_4
   comparison precedent).
+
+## Addendum — mutual-audit fix (post-Stage-8, found during a compliance
+re-audit against the book's Appendix E)
+Rules 19/36 require the end-of-match audit to be genuinely mutual — each
+side actively verifies the other's revealed log, not just submits itself
+to be checked. `finalize_match` originally only ever called `submit_audit`
+on the opponent (getting audited BY them); it never pulled or verified the
+opponent's own revealed records. Fixed by adding `get_revealed_records`
+(§3's table, `mcp_server.py`/`runtime_context.py`) — answerable only once
+*this* peer has itself set `_match_over = True` (rule 18: nonce secret
+until game end) — and having `finalize_match` call it and run
+`domain/crypto.audit_records()` locally on the result. Either direction
+failing now overrides the natural game-outcome winner (rule 19: automatic,
+no appeal), not just logged passively. Proven for real by both directions
+in `tests/integration/test_live_match.py` (two live `PeerRuntime`
+instances genuinely auditing each other, not stubs). `peer/runtime.py`
+and `infra/mcp_server.py` were split further (`peer/runtime_context.py`,
+`infra/null_peer_context.py`) to absorb the new handler/tool without
+exceeding this codebase's 150-line-per-file convention.

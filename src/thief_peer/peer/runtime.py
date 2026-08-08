@@ -2,8 +2,9 @@
 negotiate -> the per-round commit/reveal loop -> end-of-match audit ->
 report, entirely by reusing Stages 1-7's already-built pieces (TurnHandler,
 handshake, sealing, negotiation, report_writer) -- no new game logic here,
-only wiring. Game-component construction, the round loop, and the
-end-of-match sequence live in `peer/runtime_setup.py`, `peer/round_loop.py`,
+only wiring. Game-component construction, the round loop, the
+`infra/mcp_server.py` context handlers, and the end-of-match sequence live
+in `peer/runtime_setup.py`, `peer/round_loop.py`, `peer/runtime_context.py`,
 and `peer/match_end.py` respectively, kept out of this class to stay under
 this codebase's file-length convention. `verdict` is left at `Decision`'s
 "truth" default rather than wired to `strategy.trash_talk.choose_verdict` --
@@ -14,23 +15,21 @@ judged out of proportion to this stage's actual scope. Flagged, not hidden.
 
 from pathlib import Path
 
-from thief_peer.domain.negotiation import Negotiation, canonical_terms
 from thief_peer.domain.rules import has_survived, is_captured_by_stuck
-from thief_peer.exceptions import SimulationError
 from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.infra.mcp_server import build_server, run_server_in_background
 from thief_peer.peer.handshake import run_handshake
 from thief_peer.peer.match_end import finalize_match
 from thief_peer.peer.round_exchange import RoundExchange
 from thief_peer.peer.round_loop import play_round
+from thief_peer.peer.runtime_context import PeerContextMixin
 from thief_peer.peer.runtime_setup import build_game_components
-from thief_peer.peer.sealing import sealed_spec_record
 from thief_peer.peer.turn_fsm import TurnFsm
 
 _SENDER = "thief"
 
 
-class PeerRuntime:
+class PeerRuntime(PeerContextMixin):
     def __init__(
         self,
         config,
@@ -66,29 +65,12 @@ class PeerRuntime:
         self.round_exchange = RoundExchange()
         self.records: list[dict] = []
         self._last_opponent_scent: dict[str, float] = {}
+        self._match_over = False
 
         self.port = config.require("network.my_port")
         self.opponent_url = config.get("network.opponent_url")
         self.server_app = build_server(self.port, self)
         self.transport = McpTransport(self.opponent_url) if self.opponent_url else None
-
-    # --- infra/mcp_server.py context handlers ---
-
-    def handle_negotiate(self, payload: dict) -> dict:
-        return Negotiation.signed(canonical_terms(self.config))
-
-    def handle_receive_control(self, payload: dict) -> dict:
-        if payload.get("type") == "step0":
-            return {"record": sealed_spec_record(self.group_name)}
-        raise SimulationError(f"Unsupported control message type: {payload.get('type')}")
-
-    def handle_commit_move(self, payload: dict) -> dict:
-        self.round_exchange.record_commit(payload["step"], payload["h_commit"])
-        return {"ok": True}
-
-    def handle_reveal_move(self, payload: dict) -> dict:
-        self.round_exchange.record_reveal(payload["step"], payload)
-        return {"ok": True}
 
     # --- match lifecycle ---
 
@@ -124,6 +106,7 @@ class PeerRuntime:
                 end_reason = "captured"
                 break
 
+        self._match_over = True
         return finalize_match(
             self.group_name,
             opponent_group_name,

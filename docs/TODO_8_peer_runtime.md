@@ -65,9 +65,11 @@ automatically.
 **Milestone met:** ✅ `tests/integration/test_live_match.py` — two real
 `PeerRuntime` instances, each with its own real FastMCP server and outbound
 `McpTransport`, play a full match to completion over live localhost
-sockets: handshake, every round's commit/reveal, a clean mutual audit on
-both sides, and matching `game_uid`s in both sides' report output. 332
-unit+integration tests passing, 96.3% coverage, ruff clean, every new/changed
-file at or under 150 lines.
+sockets: handshake, every round's commit/reveal, a *genuinely mutual*
+audit on both sides (each peer actively pulls and verifies the other's
+revealed log via `get_revealed_records`, not just submits itself — see the
+PRD's addendum), and matching `game_uid`s in both sides' report output.
+352 unit+integration tests passing, 96.5% coverage, ruff clean, every
+new/changed file at or under 150 lines.
 
 **Status:** done

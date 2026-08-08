@@ -1,20 +1,45 @@
-"""peer/match_end.py tests (PRD_8 §3). Pins the symmetric game_id fix found
-while building this stage's live-match integration test: two independently-
-built peers, each calling finalize_match with themselves as "group_name" and
-the other as "opponent_group_name", must land on the identical game_id."""
+"""peer/match_end.py tests (PRD_8 §3; post-Stage-8 mutual-audit fix).
 
+Pins the symmetric game_id fix found while building the Stage-8 live-match
+integration test (order-sensitive derive_game_id), and the mutual-audit fix
+found afterward: finalize_match used to only ever submit this peer's own
+records to the opponent's `submit_audit` (getting audited BY them) without
+ever pulling and auditing the opponent's own revealed log (auditing THEM) --
+rules 19/36 require both directions, not one. `opponent_audit` failing (this
+peer catches the opponent lying) or `self_audit` failing (the opponent
+catches this peer lying) must each override the natural game-outcome winner,
+per rule 19's "any hash mismatch = automatic 0 to the forging team"."""
+
+from thief_peer.domain.crypto import CommitReveal
 from thief_peer.peer.match_end import finalize_match
 
 
+def _sealed_record(state="s", move="N", intent="truth"):
+    payload = {"state": state, "move": move, "intent": intent}
+    sealed = CommitReveal.seal(payload)
+    return {"payload": {**payload, "nonce": sealed["nonce"]}, "commit": sealed["commit"]}
+
+
 class _SpyTransport:
+    def __init__(self, opponent_records=None, self_audit_result=None):
+        self._opponent_records = opponent_records if opponent_records is not None else []
+        self._self_audit_result = self_audit_result or {
+            "passed": True,
+            "verified_steps": 0,
+            "failed_steps": [],
+        }
+
     def call(self, tool_name, payload):
-        assert tool_name == "submit_audit"
-        return {"passed": True, "verified_steps": len(payload["payload"]["records"]), "failed_steps": []}
+        if tool_name == "submit_audit":
+            return self._self_audit_result
+        if tool_name == "get_revealed_records":
+            return {"records": self._opponent_records}
+        raise AssertionError(f"unexpected tool call: {tool_name}")
 
 
 class _ExplodingTransport:
     def call(self, tool_name, payload):
-        raise AssertionError("submit_audit must not be called on a technical loss")
+        raise AssertionError(f"{tool_name} must not be called on a technical loss")
 
 
 class _SpyGatekeeper:
@@ -97,4 +122,49 @@ def test_winner_is_opponent_on_technical_loss_and_audit_is_skipped(tmp_path, mon
 
 def test_winner_is_opponent_when_captured(tmp_path, monkeypatch):
     result = _finalize(tmp_path, monkeypatch, end_reason="captured")
+    assert result["final_result"]["winner_group"] == "Thief-Team-B"
+
+
+def test_actively_pulls_and_audits_the_opponents_own_revealed_records(tmp_path, monkeypatch):
+    """The core of the fix: finalize_match must call get_revealed_records
+    on the opponent and run a real local audit_records() over what comes
+    back -- not just submit its own records and stop there."""
+    opponent_records = [_sealed_record(state="s0"), _sealed_record(state="s1")]
+    transport = _SpyTransport(opponent_records=opponent_records)
+
+    result = _finalize(tmp_path, monkeypatch, end_reason="survived", transport=transport)
+
+    assert result["audit"]["opponent_audited_by_me"]["passed"] is True
+    assert result["audit"]["opponent_audited_by_me"]["verified_steps"] == 2
+    assert result["audit"]["self_audited_by_opponent"]["passed"] is True
+    assert result["audit"]["passed"] is True
+
+
+def test_catching_the_opponent_lying_overrides_the_natural_winner(tmp_path, monkeypatch):
+    tampered = _sealed_record(state="s0")
+    tampered["payload"]["move"] = "S"  # tampered after sealing
+    transport = _SpyTransport(opponent_records=[tampered])
+
+    # Natural game outcome says "captured" (opponent should win) -- but this
+    # peer independently caught the opponent's revealed log failing its own
+    # commit hash, which must win regardless (rule 19: automatic).
+    result = _finalize(tmp_path, monkeypatch, end_reason="captured", transport=transport)
+
+    assert result["audit"]["opponent_audited_by_me"]["passed"] is False
+    assert result["audit"]["passed"] is False
+    assert result["final_result"]["winner_group"] == "Thief-Team-A"
+
+
+def test_being_caught_lying_by_the_opponent_overrides_the_natural_winner(tmp_path, monkeypatch):
+    transport = _SpyTransport(
+        self_audit_result={"passed": False, "verified_steps": 3, "failed_steps": [1]}
+    )
+
+    # Natural game outcome says "survived" (this peer should win) -- but the
+    # opponent's own audit of this peer's log found a mismatch, which must
+    # cost this peer the win regardless (rule 19: automatic, no appeal).
+    result = _finalize(tmp_path, monkeypatch, end_reason="survived", transport=transport)
+
+    assert result["audit"]["self_audited_by_opponent"]["passed"] is False
+    assert result["audit"]["passed"] is False
     assert result["final_result"]["winner_group"] == "Thief-Team-B"

@@ -26,10 +26,23 @@ together instead of one hand-wired smoke test:
    real files, unlike the earlier hand-wired single-sided smoke test. Fixed
    by always constructing `LeagueCounter` from this match's own
    `results_dir`, so nothing here can ever write outside it.
+
+Found later, during a compliance re-audit against the book's Appendix E
+(rules 19/36 -- mutual log audit): this function only ever submitted this
+peer's own records to the opponent's `submit_audit` (getting audited BY
+them) and never pulled the opponent's own revealed log to audit THEM --
+the audit was one-directional, not mutual. Fixed by also calling the new
+`get_revealed_records` tool and running `audit_records()` locally on
+whatever comes back. Either direction failing overrides the natural
+game-outcome winner (rule 19: "any hash mismatch at audit = automatic 0 to
+the forging team," no appeal) -- catching the opponent lying wins
+regardless of `end_reason`, and (should it ever happen with correct code)
+being caught lying loses regardless of `end_reason` too.
 """
 
 from pathlib import Path
 
+from thief_peer.domain.crypto import audit_records
 from thief_peer.domain.game_ids import derive_game_id, derive_game_uid
 from thief_peer.domain.negotiation import canonical_terms
 from thief_peer.domain.protocol import build_audit_payload
@@ -57,13 +70,35 @@ def finalize_match(
     game_uid = derive_game_uid(game_id, sub_game_number)
     result_claim = "technical_loss" if end_reason == "technical_loss" else "survival"
 
+    _not_evaluated = {"passed": False, "verified_steps": 0, "failed_steps": []}
     if end_reason == "technical_loss":
-        audit = {"passed": False, "verified_steps": 0, "failed_steps": []}
+        self_audit = _not_evaluated
+        opponent_audit = _not_evaluated
     else:
+        # Get audited BY the opponent (submit our own revealed log to them).
         audit_payload = build_audit_payload(_SENDER, result_claim, records)
-        audit = transport.call("submit_audit", {"payload": audit_payload})
+        self_audit = transport.call("submit_audit", {"payload": audit_payload})
 
-    winner = opponent_group_name if end_reason in _WINNER_IS_OPPONENT else group_name
+        # Actively audit THEM: pull their revealed log and verify it
+        # ourselves, rather than only ever being the one getting checked.
+        their_records = transport.call("get_revealed_records", {"payload": {}})["records"]
+        opponent_audit = audit_records(their_records)
+
+    audit = {
+        "passed": self_audit["passed"] and opponent_audit["passed"],
+        "self_audited_by_opponent": self_audit,
+        "opponent_audited_by_me": opponent_audit,
+    }
+
+    audit_was_evaluated = end_reason != "technical_loss"
+    if audit_was_evaluated and not opponent_audit["passed"]:
+        winner = group_name  # caught the opponent forging -- automatic (rule 19)
+    elif audit_was_evaluated and not self_audit["passed"]:
+        winner = opponent_group_name  # the opponent caught us forging -- automatic
+    elif end_reason in _WINNER_IS_OPPONENT:
+        winner = opponent_group_name
+    else:
+        winner = group_name
     final_result = {"winner_group": winner, "tokens_total_series": 0}
 
     match_result = {

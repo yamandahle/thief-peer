@@ -103,6 +103,10 @@ class _SpyContext:
         self.calls.append(("reveal_move", payload))
         return {"ok": True}
 
+    def handle_get_revealed_records(self, payload):
+        self.calls.append(("get_revealed_records", payload))
+        return {"records": [{"payload": {"state": "s"}, "commit": "c"}]}
+
 
 @pytest.fixture
 def live_server_with_spy_context(unused_tcp_port):
@@ -170,6 +174,18 @@ def test_reveal_move_tool_delegates_to_context_and_returns_its_result(live_serve
     assert context.calls == [("reveal_move", sent)]
 
 
+def test_get_revealed_records_tool_delegates_to_context_and_returns_its_result(
+    live_server_with_spy_context,
+):
+    port, context = live_server_with_spy_context
+    transport = McpTransport(f"http://127.0.0.1:{port}/mcp")
+
+    result = transport.call("get_revealed_records", {"payload": {}})
+
+    assert result == {"records": [{"payload": {"state": "s"}, "commit": "c"}]}
+    assert context.calls == [("get_revealed_records", {})]
+
+
 def test_null_peer_context_raises_not_implemented_for_every_handler():
     context = NullPeerContext()
     for method_name in (
@@ -177,6 +193,7 @@ def test_null_peer_context_raises_not_implemented_for_every_handler():
         "handle_receive_control",
         "handle_commit_move",
         "handle_reveal_move",
+        "handle_get_revealed_records",
     ):
         with pytest.raises(NotImplementedError):
             getattr(context, method_name)({})

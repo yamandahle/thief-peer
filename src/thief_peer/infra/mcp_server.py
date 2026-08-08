@@ -6,6 +6,11 @@ its own history (PRD_6 §2.3). `negotiate`/`receive_control`/`commit_move`/
 `reveal_move` (Stage 8) are the real live-match tools -- each is a one-line
 delegation to `context.handle_*`, keeping this file pure routing; the
 context (normally `PeerRuntime` itself) owns all the actual state/logic.
+`get_revealed_records` (post-Stage-8 fix) is the other half of a genuinely
+*mutual* audit (rules 19/36): `submit_audit` lets the opponent audit us;
+this lets us actively pull the opponent's own revealed log to audit them,
+rather than only ever submitting ourselves and passively hoping they
+reciprocate.
 """
 
 import socket
@@ -16,6 +21,14 @@ from fastmcp import FastMCP
 
 from thief_peer.domain.crypto import audit_records
 from thief_peer.exceptions import TransportError
+from thief_peer.infra.null_peer_context import NullPeerContext
+
+__all__ = [
+    "NullPeerContext",
+    "build_server",
+    "run_server_in_background",
+    "wait_until_ready",
+]
 
 
 def _ensure_port_free(host: str, port: int) -> None:
@@ -51,25 +64,6 @@ def _submit_audit_handler(payload: dict) -> dict:
     return audit_records(payload["records"])
 
 
-class NullPeerContext:
-    """A context that structurally cannot answer the live-match tools --
-    for callers (the smoke-test diagnostic, ping/submit_audit-only tests)
-    that were never meant to play a real match and only need the older
-    tools. Fails loudly rather than silently no-opping if ever called."""
-
-    def handle_negotiate(self, payload: dict) -> dict:
-        raise NotImplementedError("NullPeerContext cannot negotiate a real match")
-
-    def handle_receive_control(self, payload: dict) -> dict:
-        raise NotImplementedError("NullPeerContext cannot exchange Step-0")
-
-    def handle_commit_move(self, payload: dict) -> dict:
-        raise NotImplementedError("NullPeerContext cannot receive a commit")
-
-    def handle_reveal_move(self, payload: dict) -> dict:
-        raise NotImplementedError("NullPeerContext cannot receive a reveal")
-
-
 def build_server(port: int, context, host: str = "0.0.0.0") -> FastMCP:
     _ensure_port_free(host, port)
 
@@ -102,6 +96,10 @@ def build_server(port: int, context, host: str = "0.0.0.0") -> FastMCP:
     @mcp.tool
     def reveal_move(payload: dict) -> dict:
         return context.handle_reveal_move(payload)
+
+    @mcp.tool
+    def get_revealed_records(payload: dict) -> dict:
+        return context.handle_get_revealed_records(payload)
 
     return mcp
 

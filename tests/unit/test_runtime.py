@@ -9,8 +9,11 @@ two-real-process proof is the separate integration test (PRD_8 §5)."""
 
 import json
 
+import pytest
+
 from thief_peer.domain.negotiation import Negotiation, canonical_terms
 from thief_peer.domain.rules import has_survived
+from thief_peer.exceptions import SimulationError
 from thief_peer.peer.runtime import PeerRuntime
 from thief_peer.peer.sealing import sealed_spec_record
 from thief_peer.shared.config import ConfigManager
@@ -82,6 +85,12 @@ class _CooperativeStubOpponent:
             from thief_peer.domain.crypto import audit_records
 
             return audit_records(payload["payload"]["records"])
+        if tool_name == "get_revealed_records":
+            # A cooperative opponent has its own clean, unrevealed-until-now
+            # log too -- an empty one is fine here, only the shape matters
+            # for this stub; the real audit-of-a-real-log path is proven by
+            # test_live_match.py's two real PeerRuntime instances.
+            return {"records": []}
         raise ValueError(f"unexpected tool call: {tool_name}")
 
 
@@ -137,6 +146,40 @@ def test_handle_commit_move_and_reveal_move_record_into_round_exchange(tmp_path)
 
     assert runtime.round_exchange.wait_for_commit(1, timeout=0.1) == "abc"
     assert runtime.round_exchange.wait_for_reveal(1, timeout=0.1)["move"] == "N"
+
+
+def test_handle_get_revealed_records_refuses_before_the_match_has_ended(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8908)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    runtime.records.append({"payload": {"state": "s", "nonce": "n"}, "commit": "c"})
+
+    with pytest.raises(SimulationError, match="not revealed"):
+        runtime.handle_get_revealed_records({})
+
+
+def test_handle_get_revealed_records_returns_them_once_the_match_has_ended(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8909)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    runtime.records.append({"payload": {"state": "s", "nonce": "n"}, "commit": "c"})
+    runtime._match_over = True
+
+    response = runtime.handle_get_revealed_records({})
+
+    assert response == {"records": runtime.records}
 
 
 def test_handle_negotiate_returns_my_own_signed_terms(tmp_path):

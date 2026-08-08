@@ -438,7 +438,17 @@ receive_control(message: dict) -> {"record": dict}   # Step-0 declaration exchan
 commit_move(payload: dict) -> {"ok": bool}            # hash only; response = Acknowledge
 reveal_move(payload: dict) -> {"ok": bool}             # move+hint, nonce withheld
 submit_audit(payload: dict) -> {"passed": bool, "verified_steps": int, "failed_steps": list[int]}
+get_revealed_records(payload: dict) -> {"records": list[dict]}   # added post-Stage-8, see below
 ```
+**`get_revealed_records`, added after Stage 8 shipped (rules 19/36 fix):**
+`finalize_match` originally only ever called `submit_audit` on the
+opponent (submitting this peer's own records to be audited by them) --
+genuinely one-directional, never auditing the opponent's own log. This
+tool is the other half: actively pull the opponent's full revealed log
+(only answerable once *that* peer has itself decided the match is over,
+per rule 18) and run `audit_records()` on it locally. See `PRD_8` §2.1's
+addendum and `peer/match_end.py`'s own docstring for the full story.
+
 (`negotiate`/`receive_control`'s actual return shapes were also corrected
 here in Stage 8 to match what `peer/handshake.py`'s already-built
 `run_handshake` genuinely requires — the original `{"ok": bool}` sketch for

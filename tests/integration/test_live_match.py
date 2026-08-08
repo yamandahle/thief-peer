@@ -107,6 +107,15 @@ def test_two_real_peer_runtimes_play_a_full_match_to_completion(tmp_path):
     assert results["b"]["audit"]["passed"] is True
     assert results["a"]["game_uid"] == results["b"]["game_uid"]
 
+    # Mutual audit (rules 19/36): each side must have both submitted itself
+    # for audit AND actively pulled + verified the other's revealed log --
+    # not just one direction. Real records from real get_revealed_records
+    # calls against each other, not stubs.
+    for result in (results["a"], results["b"]):
+        assert result["audit"]["self_audited_by_opponent"]["passed"] is True
+        assert result["audit"]["opponent_audited_by_me"]["passed"] is True
+        assert result["audit"]["opponent_audited_by_me"]["verified_steps"] >= 3
+
     assert runtime_a.turn_fsm.state == "WAITING_FOR_OPPONENT"
     assert runtime_b.turn_fsm.state == "WAITING_FOR_OPPONENT"
 
