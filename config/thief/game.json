@@ -1,0 +1,33 @@
+{
+  "board_and_agents": {
+    "grid_size": 7,
+    "num_agents": 2,
+    "axis_origin_corner": "top-left",
+    "axis_start_index": 0,
+    "thief_start": [3, 3],
+    "cop_start": [0, 0]
+  },
+  "world": {
+    "map_area": "New York",
+    "hint_max_words": 15
+  },
+  "movement_and_barriers": {
+    "move_set": ["N", "S", "E", "W", "STAY"],
+    "max_barriers": 14,
+    "max_moves": 35,
+    "survival_threshold": 35
+  },
+  "scoring": {
+    "capture_cop": 20,
+    "capture_thief": 5,
+    "survival_cop": 5,
+    "survival_thief": 10,
+    "tie_score": 2,
+    "technical_loss": 0
+  },
+  "pheromones": {
+    "pheromone_center_intensity": 0.9,
+    "pheromone_decay": 0.10,
+    "pheromone_grid_size": 5
+  }
+}

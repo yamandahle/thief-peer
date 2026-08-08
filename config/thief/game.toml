@@ -1,0 +1,34 @@
+# Private, local-only terms (PLAN.md ADR-5) -- never negotiated, never
+# hashed, never shared with the Cop peer. Fill in the two REQUIRED values
+# marked below before running `cli.py run`; everything else has a working
+# default in code and only needs changing if you want to tune it.
+
+[network]
+my_port = 8801
+# REQUIRED: the Cop peer's real, reachable MCP URL (localhost for a local
+# test against your own second instance; a tunnel/public URL for a real
+# match against an independently-running Cop process -- see PRD_5).
+opponent_url = "http://127.0.0.1:8802/mcp"
+
+[email]
+# REQUIRED: the real recipient for match reports (ApiGatekeeper-routed
+# Gmail send, PRD_7). Not committed as a real address on purpose -- fill in
+# the grader's/your own address before a real run.
+recipient = "CHANGE-ME@example.com"
+# Path to the OAuth token created by the one-time Gmail browser-consent
+# flow (Appendix א) -- gitignored, never commit the real file.
+token_path = "token.json"
+
+# Optional: [strategy] thief_class = "pkg.module:ClassName" to swap in a
+# different BrainBase subclass (ADR-7); omitted here to use the shipped
+# ThiefBrain (strategy/fleeing_brain.py).
+
+# Optional: Gatekeeper limits (ADR-4). Sensible defaults are already baked
+# into sdk.py's ThiefSdk.run() if this section is omitted entirely; these
+# are the same defaults spelled out explicitly so they're easy to tune.
+[rate_limits]
+token_bucket_capacity = 5
+token_bucket_refill_rate = 1.0
+dos_max_calls = 100
+dos_window_seconds = 60
+queue_max_depth = 10

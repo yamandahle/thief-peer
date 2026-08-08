@@ -72,9 +72,8 @@ thief-peer/                                # this repo root (separate from teamm
 │       ├── turn_banner.py                 # renders turn_fsm state
 │       └── replay_view.py                 # steps a saved log, re-verifies hashes live
 ├── config/thief/
-│   ├── game.json                          # SHARED, signed, byte-identical with the Cop's copy
-│   ├── game.toml                          # PRIVATE: port, opponent URL, strategy/LLM selectors, email
-│   └── rate_limits.json                   # Gatekeeper limits (never hardcoded)
+│   ├── game.json                          # SHARED, signed, byte-identical with the Cop's copy (real starter file, Stage 8)
+│   └── game.toml                          # PRIVATE: port, opponent URL, strategy/LLM selectors, email, Gatekeeper limits (real starter file, Stage 8; rate_limits folded in here rather than a separate rate_limits.json -- ConfigManager only ever merges two files, and these values are purely local tuning nobody needs to negotiate, so a third file added complexity without benefit)
 ├── data/                                  # match-log fixtures for replay tests
 ├── results/                               # emitted JSON artifacts per match (gitignored contents)
 ├── assets/                                # GUI icons, doc images
@@ -271,7 +270,9 @@ other teams who followed the book's text instead of the repo's source.
 **ADR-4 — One shared `ApiGatekeeper`, not per-module rate limiting.**
 *Decision:* `shared/gatekeeper.py` is the only code path allowed to call
 `infra/email_sender.py` or `infra/llm_provider.py`; it owns rate limiting (from
-`config/thief/rate_limits.json`, never hardcoded), FIFO queuing on overflow,
+`config/thief/game.toml`'s `[rate_limits]` section, never hardcoded — folded
+into the private config rather than a separate file, see §1's config/thief/
+note), FIFO queuing on overflow,
 retry-on-transient-failure, per-call logging, a token-bucket limiter, and a
 DOS/infinite-loop detector protecting the Gmail account from a runaway bug.
 *Rationale:* book Ch.9 explicitly names a Gatekeeper -> RateLimiter ->

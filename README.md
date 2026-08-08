@@ -57,20 +57,21 @@ Each of the 7 build stages has its own `docs/PRD_<n>_<name>.md` (design) and
 uv sync                                   # install dependencies
 uv run pytest --cov=thief_peer            # full test suite + coverage gate (85%)
 uv run ruff check .                       # lint
-uv run python -m thief_peer smoke-test --config <path-to-your-game.toml>
+uv run python -m thief_peer smoke-test --config config/thief/game.toml
 uv run python -m thief_peer run --group-name "Your-Team-Name" \
-    --config <your-private-game.toml> --shared-config <shared-game.json>
+    --config config/thief/game.toml --shared-config config/thief/game.json
 ```
 
 `run` drives a full live match against `network.opponent_url` to completion.
-`smoke-test` is a lighter diagnostic (a single `ping` round-trip). Both need
-a private `game.toml` you create yourself (`network.my_port`,
-`network.opponent_url`, `email.recipient`); `run` additionally needs a
-shared `game.json` with the Mandatory Parameters Table's values (`ConfigManager`,
-`docs/PLAN.md` ADR-5) — see `tests/integration/test_live_match.py` for a
-complete worked example of both files' shape. No sample `config/` directory
-ships in this repo, since its contents are necessarily specific to whichever
-match/opponent you're configuring for.
+`smoke-test` is a lighter diagnostic (a single `ping` round-trip). Real
+starter files ship at `config/thief/game.toml` (private) and
+`config/thief/game.json` (shared, Appendix ו's default values) — before a
+real run, edit `game.toml`'s two placeholder fields:
+`network.opponent_url` (the Cop peer's actual reachable MCP URL) and
+`email.recipient` (currently `CHANGE-ME@example.com`). `game.json`'s values
+are this repo's own starting proposal, not yet negotiated/hashed with the
+Cop peer — see the "Cop repo interop" note below before assuming they're
+final.
 
 ## Config split
 
@@ -149,7 +150,23 @@ trails. See `strategy/fleeing_brain.py` for the exact scoring.
 **Screenshots (mandatory).** _Not included — capturing these requires a live
 desktop session and is a manual step; see below._
 
-**Cop repo.** _Link to be added once available._
+**Cop repo.** `https://github.com/Nagham1023/yamanagh-cop`
+
+## Cop repo interop status
+
+As of the last check (Stage 8), the Cop repo was through its own PRD 5
+(cloud exposure) with PRD 6 (Commit-Reveal) and PRD 7 (reporting/GUI) not
+yet started — no real match is possible yet regardless of wire compatibility,
+since a match without Commit-Reveal on both sides isn't rules-compliant.
+Their own draft wire contract (`WIRE-CONTRACT.md`, at the time explicitly
+marked "not yet sent to the teammate") proposed a materially different tool
+surface for hint/scent than this repo's `commit_move`/`reveal_move`: two
+separate tools (`receive_hint`, `share_scent_map`) instead of one bundled
+message, a pull rather than push model for scent, and a `[col, row, value]`
+triple list rather than this repo's `{"row,col": value}` dict. The shared
+`game.json` schema and values, by contrast, already matched closely — that
+part is unlikely to need rework. Plan: wait for the Cop repo to reach PRD 6/7,
+then jointly reconcile the wire contract before attempting a real connection.
 
 ## Manual steps this repo cannot perform for you
 
