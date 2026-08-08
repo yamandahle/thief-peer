@@ -53,3 +53,34 @@ def test_run_subcommand_delegates_to_sdk_with_the_group_name_and_prints_result(
     assert captured["group_name"] == "Thief-Team"
     printed = json.loads(capsys.readouterr().out)
     assert printed == {"final_result": {"winner_group": "Thief-Team"}}
+
+
+def test_run_subcommand_with_gui_flag_delegates_to_run_with_gui(
+    tmp_path, monkeypatch, capsys
+):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        '[network]\nmy_port = 8804\nopponent_url = "http://127.0.0.1:8804/mcp"\n',
+        encoding="utf-8",
+    )
+
+    captured = {}
+
+    def fake_run(self, group_name):
+        captured["headless_called"] = True
+        return {}
+
+    def fake_run_with_gui(self, group_name):
+        captured["group_name"] = group_name
+        return {"final_result": {"winner_group": "Thief-Team"}}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.ThiefSdk.run", fake_run)
+    monkeypatch.setattr("thief_peer.sdk.sdk.ThiefSdk.run_with_gui", fake_run_with_gui)
+
+    exit_code = main(["--config", str(toml_path), "run", "--group-name", "Thief-Team", "--gui"])
+
+    assert exit_code == 0
+    assert "headless_called" not in captured
+    assert captured["group_name"] == "Thief-Team"
+    printed = json.loads(capsys.readouterr().out)
+    assert printed == {"final_result": {"winner_group": "Thief-Team"}}

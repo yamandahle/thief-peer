@@ -70,7 +70,8 @@ thief-peer/                                # this repo root (separate from teamm
 │       ├── window.py                      # Tkinter root: turn banner + board canvas + belief heatmap
 │       ├── board_view.py                  # renders OWN truth only — never the Cop's real position
 │       ├── turn_banner.py                 # renders turn_fsm state
-│       └── replay_view.py                 # steps a saved log, re-verifies hashes live
+│       ├── replay_view.py                 # steps a saved log, re-verifies hashes live
+│       └── live_session.py                # wires a running PeerRuntime to a live PeerWindow (background match thread + Tk .after() polling) -- added after PRD_7/PRD_8 since neither stage actually connected the two
 ├── config/thief/
 │   ├── game.json                          # SHARED, signed, byte-identical with the Cop's copy (real starter file, Stage 8)
 │   └── game.toml                          # PRIVATE: port, opponent URL, strategy/LLM selectors, email, Gatekeeper limits (real starter file, Stage 8; rate_limits folded in here rather than a separate rate_limits.json -- ConfigManager only ever merges two files, and these values are purely local tuning nobody needs to negotiate, so a third file added complexity without benefit)
@@ -139,7 +140,7 @@ talk directly, peer-to-peer, over MCP; the tunnel is transparent transport only.
 
 ```
 +-------------------------- Presentation (NO logic) --------------------------+
-|   cli.py          gui/window.py, board_view.py, turn_banner.py, replay_view.py |
+|   cli.py          gui/window.py, board_view.py, turn_banner.py, replay_view.py, live_session.py |
 +------------------------------------+-----------------------------------------+
                                      | calls only
                                      v

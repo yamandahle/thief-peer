@@ -72,3 +72,55 @@ def test_run_builds_a_gatekeeper_and_email_service_from_config_and_delegates(
     assert captured["email_service"] == "fake-service"
     assert captured["recipient"] == "grader@example.com"
     assert captured["gatekeeper"] is not None
+
+
+def test_run_with_gui_builds_a_window_and_live_session_and_returns_its_result(
+    tmp_path, monkeypatch
+):
+    """No real Tkinter involved -- PeerWindow/LiveSession are lazily
+    imported inside run_with_gui, so monkeypatching the real gui modules'
+    attributes (not sdk.py's own namespace) is what the local import picks
+    up at call time."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+    config = _make_config(tmp_path, port)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = {}
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured["group_name"] = group_name
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    class _FakeWindow:
+        pass
+
+    monkeypatch.setattr("thief_peer.gui.window.PeerWindow", _FakeWindow)
+
+    class _FakeSession:
+        def __init__(self, runtime, window):
+            captured["session_runtime"] = runtime
+            captured["session_window"] = window
+            self.match_result = {"final_result": {"winner_group": "Thief-Team"}}
+
+        def start(self):
+            captured["started"] = True
+
+    monkeypatch.setattr("thief_peer.gui.live_session.LiveSession", _FakeSession)
+
+    sdk = ThiefSdk(config)
+    result = sdk.run_with_gui("Thief-Team")
+
+    assert result == {"final_result": {"winner_group": "Thief-Team"}}
+    assert captured["group_name"] == "Thief-Team"
+    assert captured["started"] is True
+    assert isinstance(captured["session_runtime"], _FakeRuntime)
+    assert isinstance(captured["session_window"], _FakeWindow)

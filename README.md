@@ -60,11 +60,19 @@ uv run ruff check .                       # lint
 uv run python -m thief_peer smoke-test --config config/thief/game.toml
 uv run python -m thief_peer run --group-name "Your-Team-Name" \
     --config config/thief/game.toml --shared-config config/thief/game.json
+uv run python -m thief_peer run --group-name "Your-Team-Name" --gui \
+    --config config/thief/game.toml --shared-config config/thief/game.json
 ```
 
 `run` drives a full live match against `network.opponent_url` to completion.
-`smoke-test` is a lighter diagnostic (a single `ping` round-trip). Real
-starter files ship at `config/thief/game.toml` (private) and
+Add `--gui` to watch it live in a Tkinter window (belief heatmap + turn
+banner, `gui/live_session.py`) instead of running headless — the match runs
+on a background thread while the window polls `PeerRuntime.view()`; closing
+the window ends the session (the match itself keeps running to completion
+regardless, same as headless mode). `smoke-test` is a lighter diagnostic (a
+single `ping` round-trip).
+
+Real starter files ship at `config/thief/game.toml` (private) and
 `config/thief/game.json` (shared, Appendix ו's default values) — before a
 real run, edit `game.toml`'s two placeholder fields:
 `network.opponent_url` (the Cop peer's actual reachable MCP URL) and

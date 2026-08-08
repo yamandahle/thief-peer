@@ -36,10 +36,13 @@ the live GUI shows only this peer's local truth with a correct async turn
 banner; a saved log can be replayed and independently verified as OK or
 flagged TAMPERED.
 
-**Status:** components complete and tested (260 tests, 96%+ coverage, ruff
-clean); end-to-end smoke test passing. Two items remain genuinely open and
-are documented in `README.md` rather than claimed done: (1) `peer/runtime.py`
-(`PeerRuntime`) and the `negotiate`/`receive_turn` MCP tools were never built
-in any stage's task list, so there is no live-match entry point yet; (2) real
-Gmail OAuth sending and the two mandatory GUI screenshots require a manual
-operator session and cannot be produced here.
+**Status:** components complete and tested. Two items were flagged open at
+the time and have since been closed by follow-up work, tracked in their own
+docs rather than reopening this file: (1) `peer/runtime.py` (`PeerRuntime`)
+and the live-match MCP tools — closed by Stage 8
+(`PRD_8_peer_runtime.md`); (2) the GUI was built but nothing actually
+connected it to a running match (`PeerRuntime.view()` existed, but no
+caller polled it) — closed by `gui/live_session.py` (`cli.py run --gui`),
+added as a small follow-up after Stage 8, not a full numbered stage. Real
+Gmail OAuth sending and the two mandatory GUI screenshots remain manual —
+see `README.md`.

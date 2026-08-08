@@ -18,6 +18,7 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("smoke-test")
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--group-name", required=True)
+    run_parser.add_argument("--gui", action="store_true")
 
     args = parser.parse_args(argv)
 
@@ -27,6 +28,9 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "smoke-test":
         print(json.dumps(sdk.smoke_test()))
     elif args.command == "run":
-        print(json.dumps(sdk.run(args.group_name)))
+        if args.gui:
+            print(json.dumps(sdk.run_with_gui(args.group_name)))
+        else:
+            print(json.dumps(sdk.run(args.group_name)))
 
     return 0
