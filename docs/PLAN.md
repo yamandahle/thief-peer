@@ -439,7 +439,25 @@ commit_move(payload: dict) -> {"ok": bool}            # hash only; response = Ac
 reveal_move(payload: dict) -> {"ok": bool}             # move+hint, nonce withheld
 submit_audit(payload: dict) -> {"passed": bool, "verified_steps": int, "failed_steps": list[int]}
 get_revealed_records(payload: dict) -> {"records": list[dict]}   # added post-Stage-8, see below
+receive_barrier_declaration(payload: dict) -> {"ok": bool}   # {"row": int, "col": int}, added post-Stage-8
+receive_capture_claim(payload: dict) -> {"confirmed": bool}   # {"reason": "barrier"|"stuck"}, added post-Stage-8
 ```
+**`receive_barrier_declaration`/`receive_capture_claim`, added after Stage 8
+shipped (rules 21/22/46 fix):** `domain/rules.py::is_captured_by_barrier`
+existed and was unit-tested since Stage 1 but had zero call sites in the
+live match loop — no wire channel existed for the Cop to ever tell this
+peer a barrier was placed. The book prescribes no wire shape for this
+(confirmed against the Cop repo's own `WIRE-CONTRACT.md`, which
+independently reached the same conclusion) — this repo's own choice, not
+yet reconciled with the Cop side's `receive_barrier_declaration(col, row)`/
+`receive_capture_claim(...)` (different parameter shapes, and theirs
+includes both agents' coordinates where this one deliberately doesn't).
+`receive_capture_claim` never trusts an unverified claim: it only confirms
+what this peer has already independently determined locally (a barrier
+landed on its own current cell, or it has no legal moves) — rule 22 (never
+falsely declare a capture) is the *claimant's* obligation; this is this
+peer's own defense against a false claim from the other side.
+
 **`get_revealed_records`, added after Stage 8 shipped (rules 19/36 fix):**
 `finalize_match` originally only ever called `submit_audit` on the
 opponent (submitting this peer's own records to be audited by them) --

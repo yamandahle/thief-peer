@@ -22,3 +22,9 @@ class NullPeerContext:
 
     def handle_get_revealed_records(self, payload: dict) -> dict:
         raise NotImplementedError("NullPeerContext cannot reveal records")
+
+    def handle_receive_barrier_declaration(self, payload: dict) -> dict:
+        raise NotImplementedError("NullPeerContext cannot receive a barrier declaration")
+
+    def handle_receive_capture_claim(self, payload: dict) -> dict:
+        raise NotImplementedError("NullPeerContext cannot receive a capture claim")

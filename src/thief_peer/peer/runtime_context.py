@@ -1,14 +1,32 @@
 """PeerContextMixin: the `infra/mcp_server.py` context handlers
 (`handle_negotiate`/`handle_receive_control`/`handle_commit_move`/
-`handle_reveal_move`/`handle_get_revealed_records`), split out of
-`peer/runtime.py` to stay under this codebase's file-length convention --
-same reasoning as `peer/round_loop.py`/`peer/match_end.py`. A mixin, not
-free functions, since every handler here genuinely needs `PeerRuntime`'s
-own state (`round_exchange`, `config`, `group_name`, `records`,
-`_match_over`), not just a couple of explicit parameters.
+`handle_reveal_move`/`handle_get_revealed_records`/
+`handle_receive_barrier_declaration`/`handle_receive_capture_claim`), split
+out of `peer/runtime.py` to stay under this codebase's file-length
+convention -- same reasoning as `peer/round_loop.py`/`peer/match_end.py`. A
+mixin, not free functions, since every handler here genuinely needs
+`PeerRuntime`'s own state (`round_exchange`, `config`, `group_name`,
+`records`, `_match_over`, `state`, `board`), not just a couple of explicit
+parameters.
+
+`handle_receive_barrier_declaration`/`handle_receive_capture_claim` close
+rules 21/22/46's gap (found in a compliance re-audit against the book's
+Appendix E): `domain/rules.py::is_captured_by_barrier` was built and
+unit-tested but had zero call sites in the live match loop, since there
+was no wire channel for the Cop to ever tell this peer a barrier landed.
+The book gives no prescribed wire shape for this (confirmed against the
+Cop repo's own `WIRE-CONTRACT.md`, which independently reached the same
+conclusion); this repo's own choice, not dictated by anything external --
+worth reconciling with the Cop side's shape later, not unilaterally now.
+`handle_receive_capture_claim` only ever confirms a claim this peer has
+already independently, locally verified (never trusts an unverified
+claim at face value) -- rule 22 (never falsely declare a capture) is the
+*claimant's* obligation; this is this peer's own defense against a false
+claim, from the other side.
 """
 
 from thief_peer.domain.negotiation import Negotiation, canonical_terms
+from thief_peer.domain.rules import is_captured_by_barrier, is_captured_by_stuck
 from thief_peer.exceptions import SimulationError
 from thief_peer.peer.sealing import sealed_spec_record
 
@@ -37,3 +55,20 @@ class PeerContextMixin:
         if not self._match_over:
             raise SimulationError("Records are not revealed until the match has ended (rule 18)")
         return {"records": self.records}
+
+    def handle_receive_barrier_declaration(self, payload: dict) -> dict:
+        cell = (payload["row"], payload["col"])
+        self.state.record_barrier(cell)
+        if is_captured_by_barrier(self.state, cell):
+            self._captured_by_barrier = True
+        return {"ok": True}
+
+    def handle_receive_capture_claim(self, payload: dict) -> dict:
+        reason = payload.get("reason")
+        if reason == "barrier":
+            confirmed = self._captured_by_barrier
+        elif reason == "stuck":
+            confirmed = is_captured_by_stuck(self.state, self.board)
+        else:
+            confirmed = False
+        return {"confirmed": confirmed}

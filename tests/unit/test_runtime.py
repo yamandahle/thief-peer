@@ -182,6 +182,140 @@ def test_handle_get_revealed_records_returns_them_once_the_match_has_ended(tmp_p
     assert response == {"records": runtime.records}
 
 
+def test_handle_receive_barrier_declaration_records_a_barrier_elsewhere(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8910)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+
+    response = runtime.handle_receive_barrier_declaration({"row": 0, "col": 0})
+
+    assert response == {"ok": True}
+    assert (0, 0) in runtime.state.known_barriers
+    assert runtime._captured_by_barrier is False
+
+
+def test_handle_receive_barrier_declaration_flags_capture_on_my_own_cell(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8911)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    row, col = runtime.state.position
+
+    runtime.handle_receive_barrier_declaration({"row": row, "col": col})
+
+    assert runtime._captured_by_barrier is True
+
+
+def test_handle_receive_capture_claim_confirms_a_genuine_barrier_capture(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8912)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    row, col = runtime.state.position
+    runtime.handle_receive_barrier_declaration({"row": row, "col": col})
+
+    response = runtime.handle_receive_capture_claim({"reason": "barrier"})
+
+    assert response == {"confirmed": True}
+
+
+def test_handle_receive_capture_claim_denies_an_unfounded_barrier_claim(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8913)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+
+    response = runtime.handle_receive_capture_claim({"reason": "barrier"})
+
+    assert response == {"confirmed": False}
+
+
+def test_handle_receive_capture_claim_confirms_a_genuine_stuck_capture(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8914)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    row, col = runtime.state.position
+    for dr, dc in ((-1, 0), (1, 0), (0, -1), (0, 1)):
+        runtime.state.record_barrier((row + dr, col + dc))
+
+    response = runtime.handle_receive_capture_claim({"reason": "stuck"})
+
+    assert response == {"confirmed": True}
+
+
+def test_handle_receive_capture_claim_denies_an_unknown_reason(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8915)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+
+    response = runtime.handle_receive_capture_claim({"reason": "teleportation"})
+
+    assert response == {"confirmed": False}
+
+
+def test_being_captured_by_barrier_ends_the_match_after_the_current_round(tmp_path):
+    from thief_peer.shared.gatekeeper import ApiGatekeeper
+    from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+
+    my_config = _config(tmp_path, "mine", port=8916)
+    their_config = _config(tmp_path, "theirs", port=8917)
+    gatekeeper = ApiGatekeeper(
+        token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
+        dos_detector=DosDetector(max_calls=100, window_seconds=60),
+        queue=RequestQueue(max_depth=5),
+    )
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=gatekeeper,
+        email_service=_FakeGmailService(),
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+        round_deadline_sec=2.0,
+    )
+    opponent = _CooperativeStubOpponent(runtime, their_config, their_group_name="Cop-Team")
+    runtime.transport = opponent
+    runtime._captured_by_barrier = True  # simulates an inbound declaration that already arrived
+
+    result = runtime.run()
+
+    assert result["final_result"]["winner_group"] == "Cop-Team"
+    assert len(runtime.records) == 1
+
+
 def test_handle_negotiate_returns_my_own_signed_terms(tmp_path):
     my_config = _config(tmp_path, "mine", port=8904)
     runtime = PeerRuntime(

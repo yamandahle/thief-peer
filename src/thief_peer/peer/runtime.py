@@ -66,6 +66,7 @@ class PeerRuntime(PeerContextMixin):
         self.records: list[dict] = []
         self._last_opponent_scent: dict[str, float] = {}
         self._match_over = False
+        self._captured_by_barrier = False
 
         self.port = config.require("network.my_port")
         self.opponent_url = config.get("network.opponent_url")
@@ -102,7 +103,7 @@ class PeerRuntime(PeerContextMixin):
             if has_survived(self.state, self.survival_threshold):
                 end_reason = "survived"
                 break
-            if is_captured_by_stuck(self.state, self.board):
+            if is_captured_by_stuck(self.state, self.board) or self._captured_by_barrier:
                 end_reason = "captured"
                 break
 

@@ -286,3 +286,33 @@ instances genuinely auditing each other, not stubs). `peer/runtime.py`
 and `infra/mcp_server.py` were split further (`peer/runtime_context.py`,
 `infra/null_peer_context.py`) to absorb the new handler/tool without
 exceeding this codebase's 150-line-per-file convention.
+
+## Addendum 2 — capture-detection fix (post-Stage-8, same compliance
+re-audit)
+Rules 21/22/46: `domain/rules.py::is_captured_by_barrier` existed and was
+unit-tested since Stage 1 but had zero call sites in the live match loop —
+confirmed via grep — since no wire channel existed for the Cop to ever
+tell this peer a barrier landed. Fixed by adding two new tools,
+`receive_barrier_declaration` and `receive_capture_claim` (§3's table,
+`runtime_context.py`). The book prescribes no wire shape for either
+(independently confirmed against the Cop repo's own `WIRE-CONTRACT.md`,
+which reached the same conclusion about its own equivalent tools) — this
+repo's own design, not yet reconciled with the Cop side's differently-
+shaped tools of the same name, and deliberately not including either
+agent's coordinates (unlike the Cop repo's version), staying consistent
+with rule 27's natural-language-only spirit even though barrier cells
+are board features, not agent positions, and so aren't actually
+constrained by that rule. `receive_capture_claim` only ever confirms a
+claim this peer has already independently verified against its own local
+state (a recorded barrier landing on its own current cell, or having no
+legal moves) — it never trusts an unverified claim, which is this peer's
+own defense against a false claim (rule 22) from the other side.
+`run()`'s round loop now checks a new `_captured_by_barrier` flag
+alongside the existing `is_captured_by_stuck` check every round. Proven
+via a dedicated `PeerRuntime.run()`-level test
+(`test_being_captured_by_barrier_ends_the_match_after_the_current_round`)
+that pre-sets the flag and confirms the match ends after exactly one round
+with the opponent as winner. `infra/mcp_server.py` was split once more
+(`infra/server_lifecycle.py`, the `run_server_in_background`/
+`wait_until_ready` pair) to stay under the file-length convention after
+adding the two new tools.

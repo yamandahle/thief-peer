@@ -107,6 +107,14 @@ class _SpyContext:
         self.calls.append(("get_revealed_records", payload))
         return {"records": [{"payload": {"state": "s"}, "commit": "c"}]}
 
+    def handle_receive_barrier_declaration(self, payload):
+        self.calls.append(("receive_barrier_declaration", payload))
+        return {"ok": True}
+
+    def handle_receive_capture_claim(self, payload):
+        self.calls.append(("receive_capture_claim", payload))
+        return {"confirmed": True}
+
 
 @pytest.fixture
 def live_server_with_spy_context(unused_tcp_port):
@@ -186,6 +194,32 @@ def test_get_revealed_records_tool_delegates_to_context_and_returns_its_result(
     assert context.calls == [("get_revealed_records", {})]
 
 
+def test_receive_barrier_declaration_tool_delegates_to_context_and_returns_its_result(
+    live_server_with_spy_context,
+):
+    port, context = live_server_with_spy_context
+    transport = McpTransport(f"http://127.0.0.1:{port}/mcp")
+    sent = {"row": 3, "col": 4}
+
+    result = transport.call("receive_barrier_declaration", {"payload": sent})
+
+    assert result == {"ok": True}
+    assert context.calls == [("receive_barrier_declaration", sent)]
+
+
+def test_receive_capture_claim_tool_delegates_to_context_and_returns_its_result(
+    live_server_with_spy_context,
+):
+    port, context = live_server_with_spy_context
+    transport = McpTransport(f"http://127.0.0.1:{port}/mcp")
+    sent = {"reason": "barrier"}
+
+    result = transport.call("receive_capture_claim", {"payload": sent})
+
+    assert result == {"confirmed": True}
+    assert context.calls == [("receive_capture_claim", sent)]
+
+
 def test_null_peer_context_raises_not_implemented_for_every_handler():
     context = NullPeerContext()
     for method_name in (
@@ -194,6 +228,8 @@ def test_null_peer_context_raises_not_implemented_for_every_handler():
         "handle_commit_move",
         "handle_reveal_move",
         "handle_get_revealed_records",
+        "handle_receive_barrier_declaration",
+        "handle_receive_capture_claim",
     ):
         with pytest.raises(NotImplementedError):
             getattr(context, method_name)({})

@@ -10,18 +10,20 @@ context (normally `PeerRuntime` itself) owns all the actual state/logic.
 *mutual* audit (rules 19/36): `submit_audit` lets the opponent audit us;
 this lets us actively pull the opponent's own revealed log to audit them,
 rather than only ever submitting ourselves and passively hoping they
-reciprocate.
+reciprocate. `receive_barrier_declaration`/`receive_capture_claim`
+(also post-Stage-8) close rules 21/22/46's gap -- `domain/rules.py`'s
+`is_captured_by_barrier` existed but had no wire channel to ever learn a
+barrier was placed at all.
 """
 
 import socket
-import threading
-import time
 
 from fastmcp import FastMCP
 
 from thief_peer.domain.crypto import audit_records
 from thief_peer.exceptions import TransportError
 from thief_peer.infra.null_peer_context import NullPeerContext
+from thief_peer.infra.server_lifecycle import run_server_in_background, wait_until_ready
 
 __all__ = [
     "NullPeerContext",
@@ -101,42 +103,12 @@ def build_server(port: int, context, host: str = "0.0.0.0") -> FastMCP:
     def get_revealed_records(payload: dict) -> dict:
         return context.handle_get_revealed_records(payload)
 
+    @mcp.tool
+    def receive_barrier_declaration(payload: dict) -> dict:
+        return context.handle_receive_barrier_declaration(payload)
+
+    @mcp.tool
+    def receive_capture_claim(payload: dict) -> dict:
+        return context.handle_receive_capture_claim(payload)
+
     return mcp
-
-
-def run_server_in_background(app: FastMCP, port: int) -> threading.Thread:
-    """Starts `app` on a daemon thread and blocks until it's accepting
-    connections -- the exact thread-plus-`wait_until_ready` pattern already
-    duplicated across every Stage 2-7 integration test fixture, now shared
-    for `peer/runtime.py`'s production use (PRD_8 §3)."""
-    thread = threading.Thread(
-        target=app.run,
-        kwargs={
-            "transport": "http",
-            "host": "0.0.0.0",
-            "port": port,
-            "show_banner": False,
-            "log_level": "warning",
-        },
-        daemon=True,
-    )
-    thread.start()
-    wait_until_ready(port)
-    return thread
-
-
-def wait_until_ready(port: int, host: str = "127.0.0.1", timeout: float = 5.0) -> None:
-    """Block until a server started on `port` (e.g. in another thread) is
-    accepting connections, or raise `TransportError` after `timeout`
-    seconds — used by callers that must not call the server before it has
-    finished starting up (smoke tests, integration tests)."""
-    deadline = time.monotonic() + timeout
-    while time.monotonic() < deadline:
-        probe = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        try:
-            if probe.connect_ex((host, port)) == 0:
-                return
-        finally:
-            probe.close()
-        time.sleep(0.05)
-    raise TransportError(f"Server on {host}:{port} never became ready within {timeout}s")
