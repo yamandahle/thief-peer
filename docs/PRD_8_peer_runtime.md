@@ -316,3 +316,25 @@ with the opponent as winner. `infra/mcp_server.py` was split once more
 (`infra/server_lifecycle.py`, the `run_server_in_background`/
 `wait_until_ready` pair) to stay under the file-length convention after
 adding the two new tools.
+
+## Addendum 3 — `python -m thief_peer` never actually worked (found by the
+user running the documented command by hand)
+`src/thief_peer/main.py` existed with the right content (`from
+thief_peer.cli import main; ... raise SystemExit(main())`) but the wrong
+*name* -- `python -m <package>` specifically requires that package's
+`__main__.py` to exist; a module merely named `main.py` is never
+auto-invoked by `-m`, regardless of content. Every test in this suite
+imports and calls `cli.main()` as a plain function
+(`test_cli.py`/`test_sdk.py`), so nothing ever exercised the real `-m`
+subprocess path -- 363 passing tests, and the bug still shipped, because
+none of them tested the actual documented command. Fixed by renaming the
+file to `src/thief_peer/__main__.py`; `docs/PLAN.md`'s layout diagram also
+sketched a *separate* repo-root `main.py` convenience launcher from the
+very first draft, which was never built and turned out unnecessary once
+`__main__.py` alone makes `python -m thief_peer` work -- removed from the
+diagram rather than backfilled, since nothing else in the docs or code
+ever actually depended on it existing. Closed the actual test gap with
+`tests/unit/test_dunder_main.py`, a real `subprocess.run([sys.executable,
+"-m", "thief_peer", "--help"], ...)` call -- the first test in this repo
+that invokes the package the same way a real user does, not through a
+function import.

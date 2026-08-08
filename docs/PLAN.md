@@ -11,7 +11,6 @@ its scope, acceptance criteria, or milestones.
 
 ```
 thief-peer/                                # this repo root (separate from teammate's Cop repo)
-├── main.py                                # thin launcher -> thief_peer.cli:main()
 ├── pyproject.toml                         # uv, ruff (E,F,W,I,N,UP,B,C4,SIM), pytest-cov fail_under=85
 ├── uv.lock
 ├── .env-example                           # GMAIL_*, ANTHROPIC_API_KEY dummy placeholders
@@ -19,7 +18,7 @@ thief-peer/                                # this repo root (separate from teamm
 ├── README.md                              # academic report (Ch.9 mandatory sections)
 ├── src/thief_peer/
 │   ├── __init__.py
-│   ├── __main__.py                        # `uv run python -m thief_peer ...`
+│   ├── __main__.py                        # `uv run python -m thief_peer ...` -- the sole launcher; a separate repo-root main.py was sketched here originally but never built, and turned out unnecessary once this existed (see PRD_8 addendum 3)
 │   ├── cli.py                             # argument parsing ONLY -> calls ThiefSdk, zero logic
 │   ├── constants.py                       # Direction(N/S/E/W), MoveType, NONCE_BYTES, protocol strings
 │   ├── exceptions.py                      # ConfigError, CryptoError, SimulationError, ProviderError

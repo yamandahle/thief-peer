@@ -7,7 +7,7 @@ project's mandatory "full environment separation" rule.
 
 ## Status
 
-All 8 stages (`docs/PRD_1`…`docs/PRD_8`) are built and tested: 363 tests,
+All 8 stages (`docs/PRD_1`…`docs/PRD_8`) are built and tested: 364 tests,
 96%+ line coverage (`gui/*` excluded from the coverage gate per
 `pyproject.toml`), ruff-clean. `peer/runtime.py`'s `PeerRuntime` is the real
 live-match orchestrator — `cli.py run --group-name ... --config ...` drives

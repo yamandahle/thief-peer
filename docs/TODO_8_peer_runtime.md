@@ -69,8 +69,10 @@ sockets: handshake, every round's commit/reveal, a *genuinely mutual*
 audit on both sides (each peer actively pulls and verifies the other's
 revealed log via `get_revealed_records`, not just submits itself), and
 matching `game_uid`s in both sides' report output. Capture-by-barrier
-detection (rules 21/22/46) also closed post-shipment — see the PRD's two
-addenda for both fixes. 363 unit+integration tests passing, 96.8%
-coverage, ruff clean, every new/changed file at or under 150 lines.
+detection (rules 21/22/46) also closed post-shipment, and `python -m
+thief_peer` (misnamed `main.py` instead of `__main__.py` since Stage 2,
+found only when the user actually ran it) now genuinely works — see the
+PRD's three addenda. 364 unit+integration tests passing, 97.1% coverage,
+ruff clean, every new/changed file at or under 150 lines.
 
 **Status:** done
