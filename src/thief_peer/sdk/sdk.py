@@ -7,10 +7,13 @@ Gmail directly, only through the Gatekeeper) and drives a full match via
 `PeerWindow` instead of running headless (a gap left over from PRD_7/PRD_8:
 the GUI and `PeerRuntime.view()` both existed but nothing connected them).
 `gui.*` is imported lazily inside `run_with_gui()` only, so `run()`/
-`smoke_test()` never require Tkinter to be usable.
+`smoke_test()` never require Tkinter to be usable. `auth_gmail()` is the
+one-time OAuth2 bootstrap (Appendix א §1.5) that produces the token file
+`run()`/`run_with_gui()` assume already exists -- a separate, explicit step
+a human runs once, never invoked automatically mid-match.
 """
 
-from thief_peer.infra import email_sender
+from thief_peer.infra import email_sender, gmail_auth
 from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.infra.mcp_server import NullPeerContext, build_server, run_server_in_background
 from thief_peer.peer.runtime import PeerRuntime
@@ -44,6 +47,10 @@ class ThiefSdk:
         session = LiveSession(runtime, PeerWindow())
         session.start()
         return session.match_result
+
+    def auth_gmail(self, credentials_path: str = "credentials.json") -> str:
+        token_path = self._config.get("email.token_path", "token.json")
+        return str(gmail_auth.ensure_token(credentials_path, token_path))
 
     def _build_runtime(self, group_name: str) -> PeerRuntime:
         gatekeeper = ApiGatekeeper(

@@ -50,10 +50,11 @@ thief-peer/                                # this repo root (separate from teamm
 │   │   ├── handshake.py                   # Step-0 declaration exchange before move 1
 │   │   └── summary.py                     # per-match summary for report + GUI
 │   ├── infra/                             # adapters to the outside world
-│   │   ├── mcp_server.py                  # FastMCP: negotiate/receive_turn/submit_audit/receive_control
+│   │   ├── mcp_server.py                  # FastMCP: negotiate/commit_move/reveal_move/submit_audit/receive_control (corrected list, Stage 8 -- see PRD_8)
 │   │   ├── mcp_client.py                  # McpTransport: calls the Cop's MCP tools
 │   │   ├── llm_provider.py                # ollama/claude_api/claude_cli — banter ONLY, never move
-│   │   └── email_sender.py                # Gmail API/OAuth2, structured JSON only, via Gatekeeper
+│   │   ├── email_sender.py                # Gmail API, structured JSON only, via Gatekeeper -- assumes a valid token already exists
+│   │   └── gmail_auth.py                  # one-time OAuth2 bootstrap producing that token (Appendix א §1.5) -- run once by a human, never mid-match
 │   ├── report/
 │   │   ├── artifact_schemas.py            # schema_version, field docs
 │   │   ├── artifacts.py                   # build_declaration / build_config / build_log / build_result

@@ -19,6 +19,8 @@ def main(argv: list[str] | None = None) -> int:
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--group-name", required=True)
     run_parser.add_argument("--gui", action="store_true")
+    auth_parser = subparsers.add_parser("auth-gmail")
+    auth_parser.add_argument("--credentials", default="credentials.json")
 
     args = parser.parse_args(argv)
 
@@ -32,5 +34,7 @@ def main(argv: list[str] | None = None) -> int:
             print(json.dumps(sdk.run_with_gui(args.group_name)))
         else:
             print(json.dumps(sdk.run(args.group_name)))
+    elif args.command == "auth-gmail":
+        print(json.dumps({"token_path": sdk.auth_gmail(args.credentials)}))
 
     return 0

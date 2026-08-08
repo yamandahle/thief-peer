@@ -7,7 +7,7 @@ project's mandatory "full environment separation" rule.
 
 ## Status
 
-All 8 stages (`docs/PRD_1`…`docs/PRD_8`) are built and tested: 332 tests,
+All 8 stages (`docs/PRD_1`…`docs/PRD_8`) are built and tested: 347 tests,
 96%+ line coverage (`gui/*` excluded from the coverage gate per
 `pyproject.toml`), ruff-clean. `peer/runtime.py`'s `PeerRuntime` is the real
 live-match orchestrator — `cli.py run --group-name ... --config ...` drives
@@ -62,7 +62,16 @@ uv run python -m thief_peer run --group-name "Your-Team-Name" \
     --config config/thief/game.toml --shared-config config/thief/game.json
 uv run python -m thief_peer run --group-name "Your-Team-Name" --gui \
     --config config/thief/game.toml --shared-config config/thief/game.json
+uv run python -m thief_peer auth-gmail --credentials credentials.json
 ```
+
+`auth-gmail` is the one-time OAuth2 bootstrap (`infra/gmail_auth.py`,
+Appendix א §1.5) that produces `token.json` — run it once, before the first
+real `run`, after you've created `credentials.json` yourself (see the
+manual step below; that part genuinely can't be automated). It opens a
+browser for the one-time consent screen, then exits; re-running it later
+just silently refreshes an expiring token or no-ops if the existing one is
+still valid.
 
 `run` drives a full live match against `network.opponent_url` to completion.
 Add `--gui` to watch it live in a Tkinter window (belief heatmap + turn
@@ -73,11 +82,13 @@ regardless, same as headless mode). `smoke-test` is a lighter diagnostic (a
 single `ping` round-trip).
 
 Real starter files ship at `config/thief/game.toml` (private) and
-`config/thief/game.json` (shared, Appendix ו's default values) — before a
-real run, edit `game.toml`'s two placeholder fields:
-`network.opponent_url` (the Cop peer's actual reachable MCP URL) and
-`email.recipient` (currently `CHANGE-ME@example.com`). `game.json`'s values
-are this repo's own starting proposal, not yet negotiated/hashed with the
+`config/thief/game.json` (shared, Appendix ו's default values). Before a
+submission-relevant run, check `game.toml`'s two placeholder-ish fields:
+`network.opponent_url` (the Cop peer's actual reachable MCP URL, currently
+a localhost placeholder) and `email.recipient` (currently the user's own
+address for early testing — change to the real grading recipient before a
+real submission run). `game.json`'s values are this repo's own starting
+proposal, not yet negotiated/hashed with the
 Cop peer — see the "Cop repo interop" note below before assuming they're
 final.
 
@@ -178,11 +189,16 @@ then jointly reconcile the wire contract before attempting a real connection.
 
 ## Manual steps this repo cannot perform for you
 
-- **Gmail OAuth setup and a real sent-email verification.** `infra/email_sender.py`
-  is fully tested against a fake Gmail service double, but actually sending a
-  report requires your own Google Cloud OAuth credentials, one-time browser
-  consent, and a `token.json` — none of which can be created or verified from
-  here.
+- **Creating `credentials.json` and completing the one-time browser consent.**
+  `infra/gmail_auth.py`'s `ensure_token()` (via `cli.py auth-gmail`) is the
+  real OAuth2 bootstrap logic and is fully tested against faked
+  Credentials/Flow objects, but it still needs a real `credentials.json` —
+  downloaded from a Google Cloud project with the Gmail API enabled and an
+  OAuth client ID created (Desktop app type) — and a real human clicking
+  through the actual consent screen in a real browser when `auth-gmail` runs.
+  Neither can be produced or verified from here. A real sent-email
+  verification (confirming a report actually lands in the inbox) is the
+  same kind of manual check.
 - **The two mandatory submission screenshots** (Live GUI belief heatmap,
   Replay "Verified OK" stamp) — the Tkinter GUI's rendered appearance can
   only be confirmed by actually running it on a visible desktop.

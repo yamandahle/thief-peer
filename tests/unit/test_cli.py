@@ -84,3 +84,28 @@ def test_run_subcommand_with_gui_flag_delegates_to_run_with_gui(
     assert captured["group_name"] == "Thief-Team"
     printed = json.loads(capsys.readouterr().out)
     assert printed == {"final_result": {"winner_group": "Thief-Team"}}
+
+
+def test_auth_gmail_subcommand_delegates_to_sdk_and_prints_the_token_path(
+    tmp_path, monkeypatch, capsys
+):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        '[network]\nmy_port = 8807\nopponent_url = "http://127.0.0.1:8807/mcp"\n',
+        encoding="utf-8",
+    )
+
+    captured = {}
+
+    def fake_auth_gmail(self, credentials_path):
+        captured["credentials_path"] = credentials_path
+        return "token.json"
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.ThiefSdk.auth_gmail", fake_auth_gmail)
+
+    exit_code = main(["--config", str(toml_path), "auth-gmail", "--credentials", "creds.json"])
+
+    assert exit_code == 0
+    assert captured["credentials_path"] == "creds.json"
+    printed = json.loads(capsys.readouterr().out)
+    assert printed == {"token_path": "token.json"}

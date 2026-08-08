@@ -124,3 +124,53 @@ def test_run_with_gui_builds_a_window_and_live_session_and_returns_its_result(
     assert captured["started"] is True
     assert isinstance(captured["session_runtime"], _FakeRuntime)
     assert isinstance(captured["session_window"], _FakeWindow)
+
+
+def test_auth_gmail_delegates_to_gmail_auth_with_the_configs_token_path(tmp_path, monkeypatch):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        '[network]\nmy_port = 8805\nopponent_url = "http://127.0.0.1:8805/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\ntoken_path = "my-token.json"\n',
+        encoding="utf-8",
+    )
+    config = ConfigManager(toml_path)
+
+    captured = {}
+
+    def fake_ensure_token(credentials_path, token_path):
+        captured["credentials_path"] = credentials_path
+        captured["token_path"] = token_path
+        return tmp_path / token_path
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.gmail_auth.ensure_token", fake_ensure_token)
+
+    sdk = ThiefSdk(config)
+    result = sdk.auth_gmail("my-credentials.json")
+
+    assert captured["credentials_path"] == "my-credentials.json"
+    assert captured["token_path"] == "my-token.json"
+    assert result == str(tmp_path / "my-token.json")
+
+
+def test_auth_gmail_defaults_credentials_path_and_uses_default_token_path(tmp_path, monkeypatch):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        '[network]\nmy_port = 8806\nopponent_url = "http://127.0.0.1:8806/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\n',
+        encoding="utf-8",
+    )
+    config = ConfigManager(toml_path)
+
+    captured = {}
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.gmail_auth.ensure_token",
+        lambda credentials_path, token_path: captured.update(
+            credentials_path=credentials_path, token_path=token_path
+        )
+        or "token.json",
+    )
+
+    ThiefSdk(config).auth_gmail()
+
+    assert captured["credentials_path"] == "credentials.json"
+    assert captured["token_path"] == "token.json"
