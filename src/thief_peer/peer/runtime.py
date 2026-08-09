@@ -19,16 +19,17 @@ from pathlib import Path
 from thief_peer.domain.rules import has_survived, is_captured_by_stuck
 from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.infra.mcp_server import build_server, run_server_in_background
-from thief_peer.peer.handshake import run_handshake
+from thief_peer.interop.cop_opponent import (
+    maybe_register_cop_tools,
+    play_opponent_round,
+    run_opponent_handshake,
+)
 from thief_peer.peer.heartbeat_monitor import HeartbeatMonitor
 from thief_peer.peer.match_end import finalize_match
 from thief_peer.peer.round_exchange import RoundExchange
-from thief_peer.peer.round_loop import play_round
 from thief_peer.peer.runtime_context import PeerContextMixin
 from thief_peer.peer.runtime_setup import build_game_components
 from thief_peer.peer.turn_fsm import TurnFsm
-
-_SENDER = "thief"
 
 
 class PeerRuntime(PeerContextMixin):
@@ -45,6 +46,7 @@ class PeerRuntime(PeerContextMixin):
         sub_game_number: int = 1,
         num_sub_games: int = 1,
         is_counted: bool = True,
+        shared_config_path: str | None = None,
     ):
         self.config = config
         self.group_name = group_name
@@ -57,6 +59,10 @@ class PeerRuntime(PeerContextMixin):
         self.num_sub_games = num_sub_games
         self.is_counted = is_counted
         self.repos = config.get("repos", {})
+        # "native" (default) speaks this repo's own vocabulary; "cop_v1"
+        # switches to the Cop-repo interop adapter (interop/cop_opponent.py).
+        self.opponent_protocol = config.get("network.opponent_protocol", "native")
+        self.shared_config_path = shared_config_path
         self.heartbeat = HeartbeatMonitor(timeout_sec=watchdog_timeout_sec)
 
         components = build_game_components(config)
@@ -78,6 +84,7 @@ class PeerRuntime(PeerContextMixin):
         self.port = config.require("network.my_port")
         self.opponent_url = config.get("network.opponent_url")
         self.server_app = build_server(self.port, self)
+        maybe_register_cop_tools(self)
         self.transport = McpTransport(self.opponent_url) if self.opponent_url else None
 
     # --- match lifecycle ---
@@ -85,25 +92,13 @@ class PeerRuntime(PeerContextMixin):
     def run(self) -> dict:
         run_server_in_background(self.server_app, self.port)
         self.heartbeat.start()
-        their_step0 = run_handshake(self.config, self.transport, self.group_name)
-        opponent_group_name = their_step0["payload"]["group_name"]
+        opponent_group_name = run_opponent_handshake(self)
 
         end_reason = "max_moves_reached"
         step = 0
         while step < self.max_moves:
             step += 1
-            record, self._last_opponent_scent, technical_loss = play_round(
-                step,
-                self.turn_handler,
-                self.turn_fsm,
-                self.scent,
-                self.trash_talk,
-                self.round_exchange,
-                self.transport,
-                _SENDER,
-                self.round_deadline_sec,
-                self._last_opponent_scent,
-            )
+            record, self._last_opponent_scent, technical_loss = play_opponent_round(self, step)
             self.records.append(record)
             self.heartbeat.beat()
             if technical_loss:
@@ -133,6 +128,7 @@ class PeerRuntime(PeerContextMixin):
             self.num_sub_games,
             self.repos,
             self.is_counted,
+            self.opponent_protocol,
         )
 
     def view(self):

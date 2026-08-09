@@ -68,3 +68,25 @@ def test_run_handshake_raises_on_a_terms_mismatch_before_any_step0_exchange(tmp_
 
     with pytest.raises(ConfigError, match="grid_size"):
         run_handshake(my_config, transport, group_name="Thief-Team")
+
+
+class _ScentDriftPeerTransport(_StubPeerTransport):
+    """Same negotiated numbers as a real peer, but a tampered scent-lock
+    hash -- simulates an opponent whose ScentField implementation has
+    silently drifted (ch.4.5, rule 23) despite reporting identical config
+    values, which `_StubPeerTransport` alone can't exercise."""
+
+    def call(self, tool_name: str, payload: dict) -> dict:
+        result = super().call(tool_name, payload)
+        if tool_name == "negotiate":
+            result = {**result, "scent_lock_hash": "0" * 64}
+        return result
+
+
+def test_run_handshake_raises_on_a_scent_lock_drift_even_with_matching_terms(tmp_path):
+    my_config = _config(tmp_path, "mine")
+    their_config = _config(tmp_path, "theirs")
+    transport = _ScentDriftPeerTransport(their_config, their_group_name="Cop-Team")
+
+    with pytest.raises(ConfigError, match="scent-lock"):
+        run_handshake(my_config, transport, group_name="Thief-Team")

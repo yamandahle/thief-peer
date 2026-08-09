@@ -419,6 +419,87 @@ def test_repos_defaults_to_empty_dict_when_no_repos_section(tmp_path):
     assert runtime.repos == {}
 
 
+class _CooperativeCopStubOpponent:
+    """Stands in for a real Cop peer speaking her actual wire vocabulary --
+    builds a genuinely matching declaration (same shared config file, same
+    default pheromone params) so Step-0 verification legitimately passes,
+    the real-match precondition `interop/cop_handshake.py` checks for."""
+
+    def __init__(self, shared_config_path, group_name="Cop-Team"):
+        self._shared_config_path = shared_config_path
+        self._group_name = group_name
+
+    def call(self, tool_name: str, payload: dict) -> dict:
+        from thief_peer.domain.scent_lock import scent_lock_hash
+        from thief_peer.interop.cop_wire import (
+            build_cop_declaration,
+            build_cop_hardware,
+            current_git_commit_hash,
+            hash_config_file,
+            sign_cop_declaration,
+        )
+
+        if tool_name == "receive_step0":
+            declaration = build_cop_declaration(
+                hardware=build_cop_hardware(
+                    {"os": "Linux", "cpu_cores": 4, "ram_gb": 8.0, "gpu": None, "vram_gb": None},
+                    "template",
+                ),
+                code_commit_hash=current_git_commit_hash(),
+                group_name=self._group_name,
+                sub_game_number=1,
+                config_sha256=hash_config_file(self._shared_config_path),
+                scent_model_sha256=scent_lock_hash(0.9, 0.10, 5),
+            )
+            return {
+                "declaration": declaration,
+                "signature": sign_cop_declaration(declaration),
+                "repos": {"cop": "x", "thief": "y"},
+            }
+        if tool_name == "receive_commit":
+            return {"acknowledged": True}
+        if tool_name == "receive_reveal":
+            return {"accepted": True, "word_count": 1}
+        if tool_name == "share_scent_map":
+            return {"cells": []}
+        raise ValueError(f"unexpected tool call: {tool_name}")
+
+
+def test_a_short_cop_v1_match_completes_using_her_wire_vocabulary(tmp_path):
+    toml_path = tmp_path / "mine.toml"
+    toml_path.write_text(
+        "[network]\nmy_port = 8922\nopponent_protocol = \"cop_v1\"\n", encoding="utf-8"
+    )
+    json_path = tmp_path / "mine.json"
+    json_path.write_text(_GAME_JSON, encoding="utf-8")
+    my_config = ConfigManager(toml_path, json_path)
+
+    from thief_peer.shared.gatekeeper import ApiGatekeeper
+    from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+
+    gatekeeper = ApiGatekeeper(
+        token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
+        dos_detector=DosDetector(max_calls=100, window_seconds=60),
+        queue=RequestQueue(max_depth=5),
+    )
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=gatekeeper,
+        email_service=_FakeGmailService(),
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+        round_deadline_sec=2.0,
+        shared_config_path=str(json_path),
+    )
+    runtime.transport = _CooperativeCopStubOpponent(str(json_path))
+
+    result = runtime.run()
+
+    assert has_survived(runtime.state, survival_threshold=3)
+    assert result["final_result"]["winner_group"] == "Thief-Team"
+
+
 def test_view_never_exposes_an_opponent_position_field(tmp_path):
     my_config = _config(tmp_path, "mine", port=8906)
     runtime = PeerRuntime(

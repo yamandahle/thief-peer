@@ -80,11 +80,16 @@ def build_server(port: int, context, host: str = "0.0.0.0") -> FastMCP:
         return _submit_audit_handler(payload)
 
     @mcp.tool
-    def negotiate(terms: dict, nonce: str, commit: str) -> dict:
+    def negotiate(terms: dict, nonce: str, commit: str, scent_lock_hash: str) -> dict:
         # peer/handshake.py's run_handshake (reused unmodified) sends these
-        # three fields as loose top-level arguments, not wrapped in a
-        # `payload` key -- matches its existing, already-tested call shape.
-        return context.handle_negotiate({"terms": terms, "nonce": nonce, "commit": commit})
+        # fields as loose top-level arguments, not wrapped in a `payload`
+        # key -- matches its existing, already-tested call shape.
+        # scent_lock_hash (ch.4.5) rides alongside terms/nonce/commit --
+        # verification happens client-side in handshake.py, the server just
+        # needs to accept the field so the caller's call shape is legal.
+        return context.handle_negotiate(
+            {"terms": terms, "nonce": nonce, "commit": commit, "scent_lock_hash": scent_lock_hash}
+        )
 
     @mcp.tool
     def receive_control(type: str, record: dict) -> dict:

@@ -67,13 +67,19 @@ def finalize_match(
     num_sub_games: int,
     repos: dict | None = None,
     is_counted: bool = True,
+    opponent_protocol: str = "native",
 ) -> dict:
     game_id = derive_game_id(*sorted([group_name, opponent_group_name]))
     game_uid = derive_game_uid(game_id, sub_game_number)
     result_claim = "technical_loss" if end_reason == "technical_loss" else "survival"
 
     _not_evaluated = {"passed": False, "verified_steps": 0, "failed_steps": []}
-    if end_reason == "technical_loss":
+    # A real Cop peer has no submit_audit/get_revealed_records tools -- her
+    # per-turn commit envelope is cryptographically incompatible with this
+    # side's own anyway (interop/__init__.py's documented scope boundary),
+    # so this exchange is skipped entirely rather than calling tools that
+    # don't exist on her server.
+    if end_reason == "technical_loss" or opponent_protocol != "native":
         self_audit = _not_evaluated
         opponent_audit = _not_evaluated
     else:
@@ -92,7 +98,7 @@ def finalize_match(
         "opponent_audited_by_me": opponent_audit,
     }
 
-    audit_was_evaluated = end_reason != "technical_loss"
+    audit_was_evaluated = end_reason != "technical_loss" and opponent_protocol == "native"
     if audit_was_evaluated and not opponent_audit["passed"]:
         winner = group_name  # caught the opponent forging -- automatic (rule 19)
     elif audit_was_evaluated and not self_audit["passed"]:

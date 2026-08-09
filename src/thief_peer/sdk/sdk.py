@@ -26,8 +26,9 @@ from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucke
 
 
 class ThiefSdk:
-    def __init__(self, config: ConfigManager):
+    def __init__(self, config: ConfigManager, shared_config_path: str | None = None):
         self._config = config
+        self._shared_config_path = shared_config_path
 
     def smoke_test(self) -> dict:
         port = self._config.require("network.my_port")
@@ -70,5 +71,11 @@ class ThiefSdk:
         service = email_sender.get_service(self._config.get("email.token_path", "token.json"))
         recipient = self._config.require("email.recipient")
         return PeerRuntime(
-            self._config, group_name, gatekeeper, service, recipient, is_counted=is_counted
+            self._config,
+            group_name,
+            gatekeeper,
+            service,
+            recipient,
+            is_counted=is_counted,
+            shared_config_path=self._shared_config_path,
         )

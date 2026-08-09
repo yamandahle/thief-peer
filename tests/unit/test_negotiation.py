@@ -67,7 +67,9 @@ def test_verify_peer_accepts_matching_terms(tmp_path):
     terms = canonical_terms(_config(tmp_path))
     signed = Negotiation.signed(terms)
 
-    Negotiation.verify_peer(signed["terms"], signed["nonce"], signed["commit"], terms)
+    Negotiation.verify_peer(
+        signed["terms"], signed["nonce"], signed["commit"], terms, signed["scent_lock_hash"]
+    )
 
 
 def test_verify_peer_rejects_a_tampered_commit(tmp_path):
@@ -76,7 +78,9 @@ def test_verify_peer_rejects_a_tampered_commit(tmp_path):
     tampered_terms = {**signed["terms"], "grid_size": 99}
 
     with pytest.raises(ConfigError, match="tamper"):
-        Negotiation.verify_peer(tampered_terms, signed["nonce"], signed["commit"], terms)
+        Negotiation.verify_peer(
+            tampered_terms, signed["nonce"], signed["commit"], terms, signed["scent_lock_hash"]
+        )
 
 
 def test_verify_peer_rejects_a_single_mismatched_field_and_names_it(tmp_path):
@@ -86,7 +90,9 @@ def test_verify_peer_rejects_a_single_mismatched_field_and_names_it(tmp_path):
     signed = Negotiation.signed(their_terms)
 
     with pytest.raises(ConfigError, match="grid_size"):
-        Negotiation.verify_peer(signed["terms"], signed["nonce"], signed["commit"], my_terms)
+        Negotiation.verify_peer(
+            signed["terms"], signed["nonce"], signed["commit"], my_terms, signed["scent_lock_hash"]
+        )
 
 
 def test_verify_peer_accepts_even_if_local_key_names_would_have_differed(tmp_path):
@@ -96,3 +102,23 @@ def test_verify_peer_accepts_even_if_local_key_names_would_have_differed(tmp_pat
     terms = canonical_terms(_config(tmp_path))
     assert "board_and_agents.grid_size" not in terms  # wire key, not our local dotted path
     assert "grid_size" in terms
+
+
+def test_signed_includes_a_scent_lock_hash(tmp_path):
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms)
+
+    assert len(signed["scent_lock_hash"]) == 64  # sha256 hexdigest
+
+
+def test_verify_peer_rejects_a_scent_lock_hash_mismatch_even_with_matching_terms(tmp_path):
+    # ch.4.5/rule 23: identical negotiated *numbers* don't guarantee
+    # identical *formula behavior* -- a peer whose ScentField implementation
+    # has silently drifted must still be caught here.
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms)
+
+    with pytest.raises(ConfigError, match="scent-lock"):
+        Negotiation.verify_peer(
+            signed["terms"], signed["nonce"], signed["commit"], terms, "0" * 64
+        )

@@ -19,6 +19,7 @@ stage, matching the corresponding `PRD_<n>_<name>.md` 1:1:
 | 6 — Commit-Reveal + Step-0 | [`TODO_6_security.md`](TODO_6_security.md) | Ch.5 | ✅ done |
 | 7 — Reporting shell | [`TODO_7_reporting_shell.md`](TODO_7_reporting_shell.md) | Ch.9/7/App.א | ⚠️ components done, PeerRuntime/live-match wiring + manual Gmail/GUI steps outstanding |
 | 8 — PeerRuntime + live-match MCP tools | [`TODO_8_peer_runtime.md`](TODO_8_peer_runtime.md) | Ch.5 §5.3.2/Ch.8/Ch.6 §6.2 | ✅ done |
+| 9 — Cop-repo interop adapter + scent-lock ceremony | [`TODO_9_cop_interop.md`](TODO_9_cop_interop.md) | Ch.4.5/Ch.5.5 | ✅ done (audit-hash compat explicitly out of scope) |
 
 Stage 8 is not part of the original 7-stage plan from `PRD.md` §6 — it's a
 genuine gap found after Stage 7 shipped (`PeerRuntime` was named throughout

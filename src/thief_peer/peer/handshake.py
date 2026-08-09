@@ -21,6 +21,7 @@ def run_handshake(config: ConfigManager, transport, group_name: str) -> dict:
         their_negotiation["nonce"],
         their_negotiation["commit"],
         my_terms,
+        their_negotiation["scent_lock_hash"],
     )
 
     my_spec = sealed_spec_record(group_name)

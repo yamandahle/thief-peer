@@ -142,10 +142,18 @@ def test_negotiate_tool_delegates_to_context_and_returns_its_result(live_server_
     port, context = live_server_with_spy_context
     transport = McpTransport(f"http://127.0.0.1:{port}/mcp")
 
-    result = transport.call("negotiate", {"terms": {"grid_size": 7}, "nonce": "x", "commit": "y"})
+    result = transport.call(
+        "negotiate",
+        {"terms": {"grid_size": 7}, "nonce": "x", "commit": "y", "scent_lock_hash": "h"},
+    )
 
     assert result == {"terms": {"grid_size": 7}, "nonce": "n", "commit": "c"}
-    assert context.calls == [("negotiate", {"terms": {"grid_size": 7}, "nonce": "x", "commit": "y"})]
+    assert context.calls == [
+        (
+            "negotiate",
+            {"terms": {"grid_size": 7}, "nonce": "x", "commit": "y", "scent_lock_hash": "h"},
+        )
+    ]
 
 
 def test_receive_control_tool_delegates_to_context_and_returns_its_result(live_server_with_spy_context):

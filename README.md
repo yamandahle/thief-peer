@@ -7,7 +7,8 @@ project's mandatory "full environment separation" rule.
 
 ## Status
 
-All 8 stages (`docs/PRD_1`…`docs/PRD_8`) are built and tested: 378 tests,
+All 8 stages (`docs/PRD_1`…`docs/PRD_8`) plus Stage 9's Cop-repo interop
+adapter (`docs/PRD_9_cop_interop.md`) are built and tested: 419 tests,
 96%+ line coverage (`gui/*` excluded from the coverage gate per
 `pyproject.toml`), ruff-clean. `peer/runtime.py`'s `PeerRuntime` is the real
 live-match orchestrator — `cli.py run --group-name ... --config ...` drives
@@ -176,19 +177,33 @@ desktop session and is a manual step; see below._
 
 ## Cop repo interop status
 
-As of the last check (Stage 8), the Cop repo was through its own PRD 5
-(cloud exposure) with PRD 6 (Commit-Reveal) and PRD 7 (reporting/GUI) not
-yet started — no real match is possible yet regardless of wire compatibility,
-since a match without Commit-Reveal on both sides isn't rules-compliant.
-Their own draft wire contract (`WIRE-CONTRACT.md`, at the time explicitly
-marked "not yet sent to the teammate") proposed a materially different tool
-surface for hint/scent than this repo's `commit_move`/`reveal_move`: two
-separate tools (`receive_hint`, `share_scent_map`) instead of one bundled
-message, a pull rather than push model for scent, and a `[col, row, value]`
-triple list rather than this repo's `{"row,col": value}` dict. The shared
-`game.json` schema and values, by contrast, already matched closely — that
-part is unlikely to need rework. Plan: wait for the Cop repo to reach PRD 6/7,
-then jointly reconcile the wire contract before attempting a real connection.
+As of Stage 9, the Cop repo is through its own PRD 10 (CLI + full report
+bundle) — fully built. A tool-by-tool comparison against her actual cloned
+source found a completely disjoint MCP surface (different tool names,
+payload shapes, scent transport, Step-0 shape) — expected, since the book
+never mandates one, and confirmed by her own `WIRE-CONTRACT.md`. Rather than
+wait for a joint reconciliation, `src/thief_peer/interop/` builds a
+translation adapter unilaterally, on this side only (see
+`docs/PRD_9_cop_interop.md`): `network.opponent_protocol = "cop_v1"` in
+`game.toml` switches `PeerRuntime` to speak her exact vocabulary.
+
+Three concrete pieces verified **byte-for-byte identical against her actual
+cloned code** (not just internal self-consistency): the ch.4.5 scent-lock
+hash, a Step-0 declaration signature, and the scent wire round-trip.
+Negotiation, Step-0, and the full commit/reveal/scent turn loop are
+genuinely wired both directions (outbound calls + inbound tool
+registration on this repo's own server). One real gap, deliberate and
+documented: her per-turn `Hcommit` is cryptographically over a different
+field set than this repo's own sealing, so her end-of-match audit can't be
+made to pass against genuinely honest play without rebuilding this side's
+sealing scheme to match hers exactly — `finalize_match` skips that
+exchange in `cop_v1` mode rather than crashing on it.
+
+**Before a real connection attempt:** `config/thief/game.json` must be made
+byte-identical (not just schema-identical) to her actual shared config
+file — her `config_sha256` check hashes raw file bytes — and the two teams
+need to agree out-of-band on which side sets `initiate_step0`/dials in
+first, same as her own `game.toml` already documents on her side.
 
 ## Manual steps this repo cannot perform for you
 

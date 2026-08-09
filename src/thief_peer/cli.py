@@ -26,7 +26,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
 
     config = ConfigManager(args.config, args.shared_config)
-    sdk = ThiefSdk(config)
+    sdk = ThiefSdk(config, shared_config_path=args.shared_config)
 
     if args.command == "smoke-test":
         print(json.dumps(sdk.smoke_test()))
