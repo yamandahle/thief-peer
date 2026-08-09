@@ -15,13 +15,21 @@ adapter, not coupled to the live round loop's own step variable) -- correct
 for a normal, synchronous, one-call-at-a-time match, not hardened against
 retries or out-of-order delivery.
 
-`handle_receive_capture_claim` acknowledges receipt only, matching her own
-`receive_capture_claim` contract ("the truthful confirm/deny travels back
-later, as its own commit, via receive_capture_response, not this call's
-return value") -- actually firing that follow-up `receive_capture_response`
-call back to her is not wired here (would need an outbound transport
-reference inside an inbound handler); a known, flagged gap, not an
-oversight.
+`handle_receive_capture_claim` acknowledges receipt immediately, matching
+her own `receive_capture_claim` contract ("the truthful confirm/deny travels
+back later... via receive_capture_response, not this call's return value"),
+then fires that follow-up itself on a background thread using
+`self._context.transport` (the same live `McpTransport` every outbound
+`cop_send_*` call already uses -- no new plumbing needed, just reading it at
+call time). Confirmed by an actual live run: without this follow-up, the
+claimant's `receive_capture_claim` call waits the full `response_timeout_sec`
+and technical-losses, while this side's own report independently claims a
+win -- exactly the contradictory-report condition rule 35 ([FATAL]) voids a
+game over. Truth is checked against this peer's own real position only
+(`self._context.state.position`) -- the claimed cop position is never
+verified, since this peer has no visibility into the cop's true location at
+all (ADR-8, fog of war); rule 21's obligation on the *respondent* is only to
+not deny its own reality, not to audit the claimant's.
 
 `handle_receive_final_reveal` was found missing by an actual live run
 against her real process, not by inspection: her own `report_game()`
@@ -36,6 +44,7 @@ against the nonces/intents (interop/__init__.py's documented boundary).
 import threading
 
 from thief_peer.interop.cop_handshake import build_own_declaration, verify_their_declaration
+from thief_peer.interop.cop_turn_sender import cop_send_capture_response
 from thief_peer.interop.cop_wire import serialize_scent_for_cop, sign_cop_declaration
 
 
@@ -45,6 +54,9 @@ class CopContextAdapter:
         self._shared_config_path = shared_config_path
         self._sub_game_number = sub_game_number
         self._commit_step = 0
+        # Exposed so a test can join() it rather than racing the background
+        # capture-response call; None until the first claim ever arrives.
+        self._capture_response_thread: threading.Thread | None = None
         # Set once her own receive_final_reveal call actually lands -- lets
         # cop_shutdown_grace wait for the real event rather than guessing a
         # fixed sleep duration (her round loop's own pace isn't ours to
@@ -77,11 +89,24 @@ class CopContextAdapter:
         return serialize_scent_for_cop(self._context.scent.snapshot())
 
     def handle_receive_barrier_declaration(self, col: int, row: int) -> dict:
-        return self._context.handle_receive_barrier_declaration({"row": row, "col": col})
+        # Her ack contract is {"acknowledged": True} (WIRE-CONTRACT.md); the
+        # native handler's own {"ok": True} is that protocol's own
+        # convention, not hers -- translate at this boundary rather than
+        # changing the native handler for every other caller.
+        self._context.handle_receive_barrier_declaration({"row": row, "col": col})
+        return {"acknowledged": True}
 
     def handle_receive_capture_claim(
         self, thief_col: int, thief_row: int, cop_col: int, cop_row: int, claimed_at_step: int
     ) -> dict:
+        my_row, my_col = self._context.state.position
+        confirmed = (my_row, my_col) == (thief_row, thief_col)
+        self._capture_response_thread = threading.Thread(
+            target=cop_send_capture_response,
+            args=(self._context.transport, confirmed, my_row, my_col),
+            daemon=True,
+        )
+        self._capture_response_thread.start()
         return {"acknowledged": True}
 
     def handle_receive_capture_response(

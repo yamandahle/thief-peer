@@ -38,6 +38,19 @@ game-outcome winner (rule 19: "any hash mismatch at audit = automatic 0 to
 the forging team," no appeal) -- catching the opponent lying wins
 regardless of `end_reason`, and (should it ever happen with correct code)
 being caught lying loses regardless of `end_reason` too.
+
+`_NATIVE_STYLE_AUDIT_PROTOCOLS` is the extension point for this exchange:
+`submit_audit`/`get_revealed_records` are this repo's own invented tool
+names, so they only exist on a peer's server that also speaks this exact
+vocabulary. A real Cop peer doesn't (her own end-of-match mechanism is
+`receive_final_reveal`, wired separately -- `interop/cop_opponent.py::
+send_opponent_final_reveal`, called before this function from
+`peer/runtime.py`); a *different* future opponent registered in
+`interop/cop_opponent.py` wouldn't either, unless it's added to this set
+once its own audit exchange is confirmed compatible. Until then this
+exchange is skipped entirely for it too, rather than calling tools that
+don't exist on its server -- `audit.passed` reports "not evaluated," not a
+false pass or false failure.
 """
 
 from pathlib import Path
@@ -50,6 +63,7 @@ from thief_peer.report.report_writer import LeagueCounter, write_and_send
 
 _SENDER = "thief"
 _WINNER_IS_OPPONENT = {"technical_loss", "captured"}
+_NATIVE_STYLE_AUDIT_PROTOCOLS = {"native"}
 
 
 def finalize_match(
@@ -75,11 +89,11 @@ def finalize_match(
 
     _not_evaluated = {"passed": False, "verified_steps": 0, "failed_steps": []}
     # A real Cop peer has no submit_audit/get_revealed_records tools -- her
-    # per-turn commit envelope is cryptographically incompatible with this
-    # side's own anyway (interop/__init__.py's documented scope boundary),
-    # so this exchange is skipped entirely rather than calling tools that
-    # don't exist on her server.
-    if end_reason == "technical_loss" or opponent_protocol != "native":
+    # own end-of-match mechanism (receive_final_reveal) is wired separately
+    # (peer/runtime.py::send_opponent_final_reveal, before this function
+    # runs), so this native-only exchange is skipped entirely for her,
+    # rather than calling tools that don't exist on her server.
+    if end_reason == "technical_loss" or opponent_protocol not in _NATIVE_STYLE_AUDIT_PROTOCOLS:
         self_audit = _not_evaluated
         opponent_audit = _not_evaluated
     else:
@@ -98,7 +112,9 @@ def finalize_match(
         "opponent_audited_by_me": opponent_audit,
     }
 
-    audit_was_evaluated = end_reason != "technical_loss" and opponent_protocol == "native"
+    audit_was_evaluated = (
+        end_reason != "technical_loss" and opponent_protocol in _NATIVE_STYLE_AUDIT_PROTOCOLS
+    )
     if audit_was_evaluated and not opponent_audit["passed"]:
         winner = group_name  # caught the opponent forging -- automatic (rule 19)
     elif audit_was_evaluated and not self_audit["passed"]:

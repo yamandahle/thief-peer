@@ -151,9 +151,35 @@ def test_negotiate_tool_delegates_to_context_and_returns_its_result(live_server_
     assert context.calls == [
         (
             "negotiate",
-            {"terms": {"grid_size": 7}, "nonce": "x", "commit": "y", "scent_lock_hash": "h"},
+            {
+                "terms": {"grid_size": 7},
+                "nonce": "x",
+                "commit": "y",
+                "scent_lock_hash": "h",
+                "config_sha256": None,
+            },
         )
     ]
+
+
+def test_negotiate_tool_accepts_and_forwards_config_sha256(live_server_with_spy_context):
+    # PRD_10 (rule 11): the field is optional, but must actually reach
+    # context.handle_negotiate when the caller does send it.
+    port, context = live_server_with_spy_context
+    transport = McpTransport(f"http://127.0.0.1:{port}/mcp")
+
+    transport.call(
+        "negotiate",
+        {
+            "terms": {"grid_size": 7},
+            "nonce": "x",
+            "commit": "y",
+            "scent_lock_hash": "h",
+            "config_sha256": "deadbeef",
+        },
+    )
+
+    assert context.calls[-1][1]["config_sha256"] == "deadbeef"
 
 
 def test_receive_control_tool_delegates_to_context_and_returns_its_result(live_server_with_spy_context):

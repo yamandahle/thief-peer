@@ -122,3 +122,67 @@ def test_verify_peer_rejects_a_scent_lock_hash_mismatch_even_with_matching_terms
         Negotiation.verify_peer(
             signed["terms"], signed["nonce"], signed["commit"], terms, "0" * 64
         )
+
+
+def test_signed_includes_the_given_config_sha256(tmp_path):
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms, config_sha256="deadbeef")
+    assert signed["config_sha256"] == "deadbeef"
+
+
+def test_signed_config_sha256_defaults_to_none(tmp_path):
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms)
+    assert signed["config_sha256"] is None
+
+
+def test_verify_peer_accepts_matching_config_sha256(tmp_path):
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms)
+
+    Negotiation.verify_peer(
+        signed["terms"],
+        signed["nonce"],
+        signed["commit"],
+        terms,
+        signed["scent_lock_hash"],
+        my_config_sha256="same-hash",
+        their_config_sha256="same-hash",
+    )
+
+
+def test_verify_peer_rejects_a_config_sha256_mismatch_even_with_matching_terms(tmp_path):
+    # rule 11 [FATAL]: two config files that differ only in formatting/
+    # whitespace carry identical negotiated *values* and would still pass
+    # the term-by-term check above -- this catches that class of drift.
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms)
+
+    with pytest.raises(ConfigError, match="byte-identical"):
+        Negotiation.verify_peer(
+            signed["terms"],
+            signed["nonce"],
+            signed["commit"],
+            terms,
+            signed["scent_lock_hash"],
+            my_config_sha256="my-hash",
+            their_config_sha256="a-different-hash",
+        )
+
+
+def test_verify_peer_skips_the_config_sha256_check_when_either_side_has_none(tmp_path):
+    # An isolated caller with no file path handy (e.g. this test's own
+    # in-memory config) must not be forced to fabricate a hash -- the
+    # term-by-term check is the unconditional floor either way.
+    terms = canonical_terms(_config(tmp_path))
+    signed = Negotiation.signed(terms)
+
+    Negotiation.verify_peer(
+        signed["terms"],
+        signed["nonce"],
+        signed["commit"],
+        terms,
+        signed["scent_lock_hash"],
+        my_config_sha256=None,
+        their_config_sha256="theirs-only",
+    )

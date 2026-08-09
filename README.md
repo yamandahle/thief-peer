@@ -205,6 +205,42 @@ file — her `config_sha256` check hashes raw file bytes — and the two teams
 need to agree out-of-band on which side sets `initiate_step0`/dials in
 first, same as her own `game.toml` already documents on her side.
 
+## Going live: a real match over the public internet (rule 10)
+
+`infra/server_lifecycle.py`/`infra/mcp_server.py::build_server` already bind
+`0.0.0.0` by default, so a tunnel pointed at this process reaches it with no
+code changes. This repo deliberately does not automate launching the tunnel
+itself (`docs/PRD_5_cloud_tunnel.md` §4's own reasoning, revisited and kept
+in `docs/PRD_10_cop_parity_hardening.md` §6) — the steps below are the
+manual runbook that replaces that automation:
+
+1. **Install and run a tunnel tool** (ngrok, Localtonet, or similar) pointed
+   at `network.my_port` in your config, e.g. `ngrok http 8801`.
+2. **Copy the template**: `cp config/thief/game_cop_remote.toml.example
+   config/thief/game_cop_remote.toml`, then fill in the two `REQUIRED`
+   placeholders — `network.opponent_url` (the tunnel URL *the other side*
+   gives you, not your own) and `email.recipient`.
+3. **Confirm `config/thief/game.json` is byte-identical** to the Cop side's
+   copy before connecting (rule 11, [FATAL] if it isn't) —
+   `sha256sum config/thief/game.json` on both machines must print the same
+   hash. This repo's own handshake now checks this automatically
+   (`domain/negotiation.py::Negotiation`, PRD_10) and will reject the
+   connection with a clear error if the files differ, but confirming by
+   hand first saves a wasted connection attempt.
+4. **Confirm `token.json` exists** (`uv run python -m thief_peer auth-gmail`
+   if it doesn't yet) — and if you're building a submission archive by
+   zipping the working directory rather than `git archive`ing a tagged
+   commit, deliberately exclude `token.json`/`credentials.json` from it.
+   Both are already `.gitignore`d, but a raw directory zip doesn't respect
+   `.gitignore`.
+5. **Run the match**: `uv run python -m thief_peer run --config
+   config/thief/game_cop_remote.toml --shared-config config/thief/game.json
+   --group-name "Your-Team-Name"`.
+6. **Verify afterward**: `uv run python -m thief_peer replay --log
+   results/log_<game_uid>.json` prints a step-by-step and overall
+   `Verified OK`/`TAMPERED` verdict (rule 20) — add `--gui` for the visual
+   step-navigable window.
+
 ## Manual steps this repo cannot perform for you
 
 - **Creating `credentials.json` and completing the one-time browser consent.**
@@ -224,4 +260,5 @@ first, same as her own `game.toml` already documents on her side.
   repo** — `PeerRuntime` is built and proven against a second real instance
   of itself (see "Known limitation" above), but a genuine cross-repo match
   needs their process actually running, on their machine or a shared
-  tunnel, which isn't something this repo can simulate or fake.
+  tunnel, which isn't something this repo can simulate or fake. See "Going
+  live" above for the exact manual steps once both processes are ready.

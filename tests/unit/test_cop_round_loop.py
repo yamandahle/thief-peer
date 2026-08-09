@@ -11,6 +11,7 @@ from thief_peer.strategy.brain_base import Decision
 
 class _FakeState:
     position = (2, 2)
+    step_count = 1
 
 
 class _FakeTurnHandler:
@@ -74,7 +75,9 @@ def test_play_round_cop_pulls_scent_before_deciding_then_commits_and_reveals():
     assert next_scent == {"4,3": 0.62}
     tool_names = [name for name, _ in transport.calls]
     assert tool_names == ["share_scent_map", "receive_commit", "receive_reveal"]
-    assert record["payload"]["move"] == "N"
+    assert record["payload"]["move"] == {"type": "move", "direction": "N"}
+    assert record["payload"]["state"] == '{"barriers_placed":[],"own_pos":[2,2],"steps_taken":1}'
+    assert record["payload"]["intent"] is True
 
 
 def test_play_round_cop_falls_back_to_last_scent_when_pull_fails():

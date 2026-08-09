@@ -59,19 +59,37 @@ def test_required_terms_is_non_empty_and_covers_the_negotiation_vocabulary():
     assert "board_and_agents.grid_size" in REQUIRED_TERMS
 
 
-def test_sealed_step_record_has_the_four_mandatory_fields_and_a_verifiable_commit():
-    record = sealed_step_record(state="s1", move="N", intent="truth")
+def test_sealed_step_record_has_the_seven_field_envelope_and_a_verifiable_commit():
+    # 7 fields, matching the Cop repo's own CommitEnvelope shape (state,
+    # move, intent, nonce, hint_text, step, role) -- adopted as this team's
+    # own intra-pair standard, see peer/sealing.py's docstring.
+    record = sealed_step_record(
+        state="s1", move="N", intent="truth", hint_text="cold", step=1, role="thief"
+    )
 
-    assert set(record["payload"]) == {"state", "move", "intent", "nonce"}
+    assert set(record["payload"]) == {
+        "state",
+        "move",
+        "intent",
+        "nonce",
+        "hint_text",
+        "step",
+        "role",
+    }
     content = {k: v for k, v in record["payload"].items() if k != "nonce"}
     assert CommitReveal.verify(content, record["payload"]["nonce"], record["commit"])
 
 
 def test_sealed_step_record_carries_the_given_values():
-    record = sealed_step_record(state="s7", move="E", intent="lie")
+    record = sealed_step_record(
+        state="s7", move="E", intent="lie", hint_text="warm", step=7, role="thief"
+    )
     assert record["payload"]["state"] == "s7"
     assert record["payload"]["move"] == "E"
     assert record["payload"]["intent"] == "lie"
+    assert record["payload"]["hint_text"] == "warm"
+    assert record["payload"]["step"] == 7
+    assert record["payload"]["role"] == "thief"
 
 
 def test_sealed_spec_record_has_the_step0_fields_and_a_verifiable_commit():

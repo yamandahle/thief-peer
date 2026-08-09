@@ -4,6 +4,18 @@ LLM error *or* deadline overrun -- the banter must never stall the turn
 (book's explicit resilience requirement). The LLM call runs on a background
 thread with a real bounded wait: if it hangs past the deadline we stop
 waiting and fall back, we don't just hope it returns quickly.
+
+`gatekeeper` (PRD_10 fix, rules 28/29): every external call this peer makes
+must go through the one rate-limited/DOS-protected doorway
+(`shared/gatekeeper.py::ApiGatekeeper`) -- `report/report_writer.py`'s Gmail
+send already did; this LLM call didn't (`infra/llm_provider.py`'s own
+docstring self-documented this as a deferred gap since Stage 4, predating
+Stage 7's gatekeeper). Optional and backward-compatible: `gatekeeper=None`
+(the default, and every existing caller) calls the provider directly, since
+no LLM provider is wired into a real match yet either (`peer/runtime_setup.py`
+always passes `llm_provider=None` today) -- this closes the routing gap so
+whenever that wiring lands, the gatekeeper is already in the path, not a
+second gap to find later.
 """
 
 from concurrent.futures import Future, ThreadPoolExecutor
@@ -22,6 +34,7 @@ class TrashTalk:
         hint_max_words: int = 15,
         map_area: str = "",
         step_deadline_seconds: float = 5.0,
+        gatekeeper=None,
     ):
         self._template = template_provider
         self._llm = llm_provider
@@ -29,6 +42,7 @@ class TrashTalk:
         self._hint_max_words = hint_max_words
         self._map_area = map_area
         self._step_deadline_seconds = step_deadline_seconds
+        self._gatekeeper = gatekeeper
 
     def generate_hint(self, step: int) -> str:
         use_llm = (
@@ -41,9 +55,14 @@ class TrashTalk:
             text = self._template.generate(self._map_area)
         return enforce_word_cap(text, self._hint_max_words)
 
+    def _call_llm(self) -> str:
+        if self._gatekeeper is not None:
+            return self._gatekeeper.execute(self._llm.generate, self._map_area)
+        return self._llm.generate(self._map_area)
+
     def _call_llm_bounded(self) -> str | None:
         pool = ThreadPoolExecutor(max_workers=1)
-        future: Future = pool.submit(self._llm.generate, self._map_area)
+        future: Future = pool.submit(self._call_llm)
         try:
             return future.result(timeout=self._step_deadline_seconds)
         except Exception:

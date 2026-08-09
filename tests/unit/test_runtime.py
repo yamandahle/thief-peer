@@ -462,6 +462,8 @@ class _CooperativeCopStubOpponent:
             return {"accepted": True, "word_count": 1}
         if tool_name == "share_scent_map":
             return {"cells": []}
+        if tool_name == "receive_final_reveal":
+            return {"acknowledged": True}
         raise ValueError(f"unexpected tool call: {tool_name}")
 
 

@@ -2,6 +2,12 @@
 through Stages 1-6 (board/state/brain/belief, sealed Commit-Reveal chain,
 game identifiers), then this stage's report-writer -- proving all seven
 stages actually compose, not just pass in isolation.
+
+`test_a_real_persisted_log_replays_and_verifies_end_to_end` (PRD_10, rule 20
+[FATAL]) closes the loop the smoke test above stops short of: proving the
+exact file `write_and_send` puts on disk is genuinely consumable by
+`sdk.py::run_replay`, not just structurally similar to what
+`gui/replay_view.py` expects.
 """
 
 import json
@@ -13,6 +19,7 @@ from thief_peer.domain.own_state import OwnGameState
 from thief_peer.peer.sealing import sealed_step_record
 from thief_peer.peer.turn_handler import TurnHandler
 from thief_peer.report.report_writer import LeagueCounter, write_and_send
+from thief_peer.sdk.sdk import run_replay
 from thief_peer.shared.gatekeeper import ApiGatekeeper
 from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
 from thief_peer.strategy.fleeing_brain import ThiefBrain
@@ -49,7 +56,16 @@ def test_a_full_scripted_match_produces_all_four_artifacts_and_sends_one_email(t
         decision = handler.play_turn(scent_snapshot)
         move = decision.direction.value if decision.direction else "STAY"
         # --- Stage 6: seal each step into the audited commit chain ---
-        records.append(sealed_step_record(state=f"step-{step}", move=move, intent="truth"))
+        records.append(
+            sealed_step_record(
+                state=f"step-{step}",
+                move=move,
+                intent="truth",
+                hint_text="",
+                step=step,
+                role="thief",
+            )
+        )
 
     audit = audit_records(records)
     assert audit["passed"] is True
@@ -107,3 +123,79 @@ def test_a_full_scripted_match_produces_all_four_artifacts_and_sends_one_email(t
     assert outcomes == ["success"]
 
     assert artifacts["result"]["final_result"]["winner_group"] == "thief-team"
+
+
+def _play_and_write_log(tmp_path):
+    """Mirrors the scripted match above, returning just the persisted
+    log file's path -- the piece `run_replay` actually reads."""
+    board = Board(size=9, barriers=set())
+    state = OwnGameState(position=(4, 4))
+    handler = TurnHandler(board, state, ThiefBrain())
+
+    records = []
+    for step, scent_snapshot in enumerate(_SCRIPTED_SCENT_FEED, start=1):
+        decision = handler.play_turn(scent_snapshot)
+        move = decision.direction.value if decision.direction else "STAY"
+        records.append(
+            sealed_step_record(
+                state=f"step-{step}", move=move, intent="truth", hint_text="", step=step, role="thief"
+            )
+        )
+
+    game_id = derive_game_id("thief-team", "cop-team")
+    game_uid = derive_game_uid(game_id, sub_game_number=1)
+    match_result = {
+        "game_id": game_id,
+        "game_uid": game_uid,
+        "sub_game_number": 1,
+        "num_sub_games": 1,
+        "opponent_group_id": "cop-team",
+        "groups": {"group_1": {"identity": "thief-team"}, "group_2": {"identity": "cop-team"}},
+        "shared_terms": {"grid_size": 9},
+        "config_name": "config_smoke_g01",
+        "records": records,
+        "audit": audit_records(records),
+        "final_result": {"winner_group": "thief-team", "tokens_total_series": 0},
+    }
+    results_dir = tmp_path / "results"
+    gatekeeper = ApiGatekeeper(
+        token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
+        dos_detector=DosDetector(max_calls=100, window_seconds=60),
+        queue=RequestQueue(max_depth=5),
+    )
+    write_and_send(
+        match_result,
+        gatekeeper=gatekeeper,
+        email_service=_FakeGmailService(),
+        recipient="grader@example.com",
+        results_dir=results_dir,
+        league_counter=LeagueCounter(tmp_path / "league.json"),
+    )
+    return results_dir / f"log_{game_uid}.json"
+
+
+def test_a_real_persisted_log_replays_and_verifies_end_to_end(tmp_path, capsys):
+    log_path = _play_and_write_log(tmp_path)
+
+    exit_code = run_replay(str(log_path))
+
+    assert exit_code == 0
+    assert "Overall: Verified OK" in capsys.readouterr().out
+
+
+def test_a_tampered_persisted_log_fails_replay_end_to_end(tmp_path, capsys):
+    log_path = _play_and_write_log(tmp_path)
+    log = json.loads(log_path.read_text(encoding="utf-8"))
+    original_move = log["records"][1]["payload"]["move"]
+    # Pick any direction different from what was actually sealed -- the
+    # scripted brain's real choice isn't fixed ahead of time, so "corrupt
+    # to a hardcoded string" could accidentally be a no-op.
+    log["records"][1]["payload"]["move"] = next(
+        d for d in ["N", "S", "E", "W", "STAY"] if d != original_move
+    )
+    log_path.write_text(json.dumps(log), encoding="utf-8")
+
+    exit_code = run_replay(str(log_path))
+
+    assert exit_code == 1
+    assert "Overall: TAMPERED" in capsys.readouterr().out

@@ -80,15 +80,31 @@ def build_server(port: int, context, host: str = "0.0.0.0") -> FastMCP:
         return _submit_audit_handler(payload)
 
     @mcp.tool
-    def negotiate(terms: dict, nonce: str, commit: str, scent_lock_hash: str) -> dict:
+    def negotiate(
+        terms: dict,
+        nonce: str,
+        commit: str,
+        scent_lock_hash: str,
+        config_sha256: str | None = None,
+    ) -> dict:
         # peer/handshake.py's run_handshake (reused unmodified) sends these
         # fields as loose top-level arguments, not wrapped in a `payload`
         # key -- matches its existing, already-tested call shape.
         # scent_lock_hash (ch.4.5) rides alongside terms/nonce/commit --
         # verification happens client-side in handshake.py, the server just
         # needs to accept the field so the caller's call shape is legal.
+        # config_sha256 (PRD_10, rule 11) is the same story: FastMCP
+        # schema-validates every call against this exact signature, so
+        # Negotiation.signed()'s new field needs a matching parameter here
+        # or every real negotiate call breaks, not just the ones that set it.
         return context.handle_negotiate(
-            {"terms": terms, "nonce": nonce, "commit": commit, "scent_lock_hash": scent_lock_hash}
+            {
+                "terms": terms,
+                "nonce": nonce,
+                "commit": commit,
+                "scent_lock_hash": scent_lock_hash,
+                "config_sha256": config_sha256,
+            }
         )
 
     @mcp.tool
