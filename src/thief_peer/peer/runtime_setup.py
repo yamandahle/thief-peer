@@ -18,7 +18,7 @@ from thief_peer.strategy.talk_providers import TemplateProvider
 from thief_peer.strategy.trash_talk import TrashTalk
 
 
-def build_game_components(config) -> SimpleNamespace:
+def build_game_components(config, gatekeeper=None) -> SimpleNamespace:
     def _term(wire_key: str):
         return config.require(CANONICAL_TERM_KEYS[wire_key])
 
@@ -35,6 +35,7 @@ def build_game_components(config) -> SimpleNamespace:
         llm_provider=None,
         hint_max_words=_term("hint_word_limit"),
         map_area=config.get("world.map_area", ""),
+        gatekeeper=gatekeeper,
     )
     return SimpleNamespace(
         board=board,

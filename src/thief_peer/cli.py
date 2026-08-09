@@ -1,12 +1,17 @@
 """Argument parsing and delegation only (PRD_2 §3, SDK mandate) — this file
 must never grow business logic. Stage 2 adds one diagnostic subcommand,
 `smoke-test`; later stages add `run` etc. the same way.
+
+`replay` (PRD_10, rule 20 [FATAL]) is dispatched *before* a `ConfigManager`
+is ever constructed -- unlike every other subcommand, replaying a saved log
+needs no game config at all, and `--config`'s default path isn't guaranteed
+to exist for a bare `replay`-only invocation.
 """
 
 import argparse
 import json
 
-from thief_peer.sdk.sdk import ThiefSdk
+from thief_peer.sdk.sdk import ThiefSdk, run_replay
 from thief_peer.shared.config import ConfigManager
 
 
@@ -22,8 +27,14 @@ def main(argv: list[str] | None = None) -> int:
     run_parser.add_argument("--warmup", action="store_true")
     auth_parser = subparsers.add_parser("auth-gmail")
     auth_parser.add_argument("--credentials", default="credentials.json")
+    replay_parser = subparsers.add_parser("replay")
+    replay_parser.add_argument("--log", required=True)
+    replay_parser.add_argument("--gui", action="store_true")
 
     args = parser.parse_args(argv)
+
+    if args.command == "replay":
+        return run_replay(args.log, gui=args.gui)
 
     config = ConfigManager(args.config, args.shared_config)
     sdk = ThiefSdk(config, shared_config_path=args.shared_config)

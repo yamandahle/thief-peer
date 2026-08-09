@@ -25,6 +25,7 @@ claim at face value) -- rule 22 (never falsely declare a capture) is the
 claim, from the other side.
 """
 
+from thief_peer.domain.crypto import hash_config_file
 from thief_peer.domain.negotiation import Negotiation, canonical_terms
 from thief_peer.domain.rules import is_captured_by_barrier, is_captured_by_stuck
 from thief_peer.exceptions import SimulationError
@@ -33,7 +34,11 @@ from thief_peer.peer.sealing import sealed_spec_record
 
 class PeerContextMixin:
     def handle_negotiate(self, payload: dict) -> dict:
-        return Negotiation.signed(canonical_terms(self.config))
+        # PRD_10 fix (rule 11 [FATAL]): the responder's reply needs its own
+        # config_sha256 too, or the initiator's verify_peer only ever has
+        # its own half of the byte-identical check to compare against.
+        config_sha256 = hash_config_file(self.shared_config_path) if self.shared_config_path else None
+        return Negotiation.signed(canonical_terms(self.config), config_sha256=config_sha256)
 
     def handle_receive_control(self, payload: dict) -> dict:
         if payload.get("type") == "step0":

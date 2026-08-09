@@ -9,12 +9,24 @@ two mutually-distrusting peers rests on this math, not good faith
 import hashlib
 import json
 import secrets
+from pathlib import Path
 
 from thief_peer.constants import NONCE_BYTES
 
 
 def canonical_json(payload: dict) -> str:
     return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def hash_config_file(path: str | Path) -> str:
+    """Plain `sha256(raw file bytes)` -- rule 11 [FATAL]'s literal "byte-for-
+    byte identical" requirement, not a semantic/field-value comparison.
+    Canonical home for this (PRD_10 fix): both `domain/negotiation.py`'s
+    native path and `interop/cop_wire.py`'s cop_v1 path need the exact same
+    algorithm, so it lives here once rather than drifting into two copies.
+    Matches the Cop repo's own `integrity/step0.py::hash_config_file`
+    exactly (empirically verified, see `interop/cop_wire.py`)."""
+    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
 
 
 class CommitReveal:

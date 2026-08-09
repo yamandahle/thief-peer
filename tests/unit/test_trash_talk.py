@@ -88,6 +88,61 @@ def test_falls_back_to_template_and_stays_bounded_when_llm_exceeds_deadline():
     assert elapsed < 1.0  # bounded by the deadline, not by the stub's 2s sleep
 
 
+class _SpyGatekeeper:
+    def __init__(self):
+        self.calls = []
+
+    def execute(self, api_call, *args, **kwargs):
+        self.calls.append((api_call, args, kwargs))
+        return api_call(*args, **kwargs)
+
+
+def test_routes_the_llm_call_through_the_gatekeeper_when_one_is_configured():
+    llm = _StubLlm(text="llm line")
+    gatekeeper = _SpyGatekeeper()
+    talk = TrashTalk(
+        _FixedTemplate(), llm_provider=llm, every_n_steps=1, map_area="NYC", gatekeeper=gatekeeper
+    )
+
+    result = talk.generate_hint(step=1)
+
+    assert result == "llm line"
+    assert len(gatekeeper.calls) == 1
+    api_call, args, kwargs = gatekeeper.calls[0]
+    assert api_call == llm.generate
+    assert args == ("NYC",)
+
+
+def test_falls_back_to_template_when_the_gatekeeper_blocks_the_call():
+    from thief_peer.exceptions import TransportError
+
+    class _LockedGatekeeper:
+        def execute(self, api_call, *args, **kwargs):
+            raise TransportError("Gatekeeper locked: anomalous call volume detected")
+
+    llm = _StubLlm(text="llm line")
+    talk = TrashTalk(
+        _FixedTemplate(),
+        llm_provider=llm,
+        every_n_steps=1,
+        gatekeeper=_LockedGatekeeper(),
+    )
+
+    assert talk.generate_hint(step=1) == "template line"
+    assert llm.calls == 0  # the gatekeeper rejected it before the LLM ever ran
+
+
+def test_calls_the_llm_directly_when_no_gatekeeper_is_configured():
+    """Backward-compatible default -- no LLM provider is wired into a real
+    match yet either (peer/runtime_setup.py), so every existing caller must
+    keep working unchanged."""
+    llm = _StubLlm(text="llm line")
+    talk = TrashTalk(_FixedTemplate(), llm_provider=llm, every_n_steps=1)
+
+    assert talk.generate_hint(step=1) == "llm line"
+    assert llm.calls == 1
+
+
 def test_hint_is_word_capped_regardless_of_source():
     class _LongTemplate(TemplateProvider):
         def __init__(self):

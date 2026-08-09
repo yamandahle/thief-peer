@@ -14,6 +14,7 @@ relies on being accurate (rules 37/38).
 import json
 from pathlib import Path
 
+from thief_peer.exceptions import ProviderError, TransportError
 from thief_peer.infra import email_sender
 from thief_peer.report.artifact_helpers import artifact_filenames
 from thief_peer.report.artifacts import build_config, build_declaration, build_log, build_result
@@ -80,6 +81,21 @@ def write_and_send(
     for key, artifact in artifacts.items():
         (results_path / filenames[key]).write_text(json.dumps(artifact, indent=2), encoding="utf-8")
 
-    gatekeeper.execute(email_sender.send_report, email_service, recipient, artifacts["result"])
+    try:
+        gatekeeper.execute(email_sender.send_report, email_service, recipient, artifacts["result"])
+        artifacts["email_sent"] = True
+    except (TransportError, ProviderError) as exc:
+        # The only two exception types that ever escape ApiGatekeeper.execute
+        # (shared/gatekeeper.py's DOS-lock/queue-full checks raise
+        # TransportError directly; _call_with_retry wraps every other
+        # failure, including a real rate-limit block, as ProviderError after
+        # retries are exhausted) -- narrowed from a bare `except Exception`
+        # so a genuine bug elsewhere in this call chain still surfaces
+        # instead of being silently absorbed here. The four artifacts above
+        # are already on disk regardless (rules 33/34); this only degrades
+        # the rule-32 email step to best-effort, and says so in the return
+        # value rather than only printing once and moving on.
+        print(f"[Warning] Email send skipped: {exc}")
+        artifacts["email_sent"] = False
 
     return artifacts

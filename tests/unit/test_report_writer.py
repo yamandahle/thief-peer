@@ -5,6 +5,7 @@ count is an explicit disqualification-level offense if caught (PRD_7 §2.7)."""
 
 import json
 
+from thief_peer.exceptions import ProviderError, TransportError
 from thief_peer.report.report_writer import LeagueCounter, write_and_send
 
 
@@ -64,6 +65,14 @@ class _SpyGatekeeper:
     def execute(self, api_call, *args, **kwargs):
         self.calls.append((api_call, args, kwargs))
         return {"id": "sent"}
+
+
+class _RaisingGatekeeper:
+    def __init__(self, exc):
+        self._exc = exc
+
+    def execute(self, api_call, *args, **kwargs):
+        raise self._exc
 
 
 def test_write_and_send_creates_all_four_artifact_files_on_disk(tmp_path):
@@ -155,5 +164,67 @@ def test_write_and_send_returns_the_four_assembled_artifacts(tmp_path):
         league_counter=LeagueCounter(tmp_path / "league.json"),
     )
 
-    assert set(artifacts) == {"declaration", "config", "log", "result"}
+    assert set(artifacts) == {"declaration", "config", "log", "result", "email_sent"}
     assert artifacts["result"]["final_result"]["winner_group"] == "thief"
+    assert artifacts["email_sent"] is True
+
+
+def test_write_and_send_still_writes_all_artifacts_when_the_gatekeeper_blocks_the_email(tmp_path):
+    """Rule 33/34 (the four JSON artifacts) must not depend on rule 32's
+    email step succeeding -- a real DOS-lock/queue-full/rate-limit block
+    (TransportError/ProviderError, the only two types ApiGatekeeper.execute
+    can raise) degrades the email step to best-effort rather than aborting
+    the whole match report."""
+    gatekeeper = _RaisingGatekeeper(TransportError("gatekeeper locked"))
+
+    artifacts = write_and_send(
+        _match_result(),
+        gatekeeper=gatekeeper,
+        email_service=object(),
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+        league_counter=LeagueCounter(tmp_path / "league.json"),
+    )
+
+    assert artifacts["email_sent"] is False
+    files = sorted(p.name for p in (tmp_path / "results").iterdir())
+    assert files == [
+        "config_a-vs-b_g01.json",
+        "declaration_a-vs-b.json",
+        "log_a-vs-b_g01.json",
+        "result_a-vs-b.json",
+    ]
+
+
+def test_write_and_send_reports_email_not_sent_on_a_provider_error_too(tmp_path):
+    gatekeeper = _RaisingGatekeeper(ProviderError("Gatekeeper call failed after retries"))
+
+    artifacts = write_and_send(
+        _match_result(),
+        gatekeeper=gatekeeper,
+        email_service=object(),
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+        league_counter=LeagueCounter(tmp_path / "league.json"),
+    )
+
+    assert artifacts["email_sent"] is False
+
+
+def test_write_and_send_does_not_swallow_an_unrelated_bug(tmp_path):
+    """The narrowed except must not hide a genuine bug elsewhere in this
+    call chain -- only the two exception types the real ApiGatekeeper.execute
+    can actually raise are treated as a best-effort email failure."""
+    import pytest
+
+    gatekeeper = _RaisingGatekeeper(ValueError("not a gatekeeper failure"))
+
+    with pytest.raises(ValueError):
+        write_and_send(
+            _match_result(),
+            gatekeeper=gatekeeper,
+            email_service=object(),
+            recipient="grader@example.com",
+            results_dir=tmp_path / "results",
+            league_counter=LeagueCounter(tmp_path / "league.json"),
+        )

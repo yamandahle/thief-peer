@@ -9,6 +9,17 @@ the three `scent_*` wire keys above already lock the raw *numbers* via
 Commit-Reveal, but two independently-written ScentField implementations
 could still diverge on kernel layout or rounding while reporting identical
 numbers -- this catches that class of drift, which the numbers alone can't.
+
+`config_sha256` (PRD_10 fix, rule 11 [FATAL]) also rides alongside: the
+term-by-term comparison above already existed, but two config files that
+differ only in formatting/whitespace/key order carry identical negotiated
+*values* and would still pass it, even though they are not byte-identical
+-- which is what rule 11 literally requires. `interop/cop_wire.py`'s
+cop_v1 path already had this (`hash_config_file`, empirically verified
+against the Cop repo's own algorithm); this closes the same gap for the
+native protocol. Optional (`None` when the caller has no file path handy,
+e.g. an isolated unit test) -- the term-by-term check is the unconditional
+floor either way, this is strictly additive.
 """
 
 import secrets
@@ -59,13 +70,14 @@ def _scent_lock_hash_of(terms: dict) -> str:
 
 class Negotiation:
     @staticmethod
-    def signed(terms: dict) -> dict:
+    def signed(terms: dict, config_sha256: str | None = None) -> dict:
         sealed = CommitReveal.seal(terms)
         return {
             "terms": terms,
             "nonce": sealed["nonce"],
             "commit": sealed["commit"],
             "scent_lock_hash": _scent_lock_hash_of(terms),
+            "config_sha256": config_sha256,
         }
 
     @staticmethod
@@ -75,6 +87,8 @@ class Negotiation:
         their_commit: str,
         my_terms: dict,
         their_scent_lock_hash: str,
+        my_config_sha256: str | None = None,
+        their_config_sha256: str | None = None,
     ) -> None:
         if not CommitReveal.verify(their_terms, their_nonce, their_commit):
             raise ConfigError(
@@ -92,4 +106,17 @@ class Negotiation:
                 "Peer's scent-lock hash does not match ours (ch.4.5, rule 23) -- "
                 "the pheromone formula implementations have diverged even though "
                 "the negotiated numbers match."
+            )
+        # Rule 11 [FATAL]: only enforced when a shared config file path was
+        # actually available to hash (both sides, by construction of a real
+        # match -- canonical_terms() itself can't be satisfied without one).
+        # Skipped, not silently "passed", when either side has none -- e.g.
+        # an isolated unit test with no file on disk at all.
+        both_hashes_known = my_config_sha256 is not None and their_config_sha256 is not None
+        if both_hashes_known and not secrets.compare_digest(my_config_sha256, their_config_sha256):
+            raise ConfigError(
+                "Peer's config file is not byte-identical to ours (rule 11, "
+                "[FATAL]) -- the negotiated term values matched, but the "
+                "underlying game.json files differ (formatting, whitespace, "
+                "or a genuinely different file)."
             )

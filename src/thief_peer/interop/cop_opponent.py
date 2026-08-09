@@ -5,6 +5,18 @@ based on `network.opponent_protocol` in config ("native", the default, or
 codebase's existing preference (`peer/handshake.py`, `peer/round_loop.py`)
 for injectable collaborators over deep object coupling -- kept out of
 `peer/runtime.py` itself, which is already at this project's 150-line cap.
+
+This module is the intended extension point for onboarding a *different*
+future league opponent (rule 31 requires playing several distinct teams,
+not just this one paired Cop): add one new `interop/<team>_v1/`-style
+adapter package mirroring `cop_v1`'s shape, then one more branch in each of
+the functions below. `peer/runtime.py`, `peer/round_loop.py`, and
+`peer/match_end.py`'s core logic never need to change for that -- only this
+file grows. A new, uncoordinated opponent that never registers here still
+gets `"native"`'s default behavior, which speaks only the book's own
+baseline wire shapes/tool names -- no opponent is ever required to adopt
+this repo's own extensions (e.g. the 7-field Commit-Reveal envelope, see
+`peer/sealing.py`) just to complete a match.
 """
 
 import time
@@ -13,6 +25,8 @@ from thief_peer.interop.cop_handshake import cop_step0_handshake
 from thief_peer.interop.cop_round_loop import play_round_cop
 from thief_peer.interop.cop_server_registration import register_cop_tools
 from thief_peer.interop.cop_server_tools import CopContextAdapter
+from thief_peer.interop.cop_turn_sender import cop_send_final_reveal
+from thief_peer.interop.cop_wire import build_cop_final_reveal_payload
 from thief_peer.peer.handshake import run_handshake
 from thief_peer.peer.round_loop import play_round
 
@@ -63,7 +77,9 @@ def run_opponent_handshake(runtime) -> str:
             runtime.repos,
         )
         return response["declaration"]["group_name"]
-    their_step0 = run_handshake(runtime.config, runtime.transport, runtime.group_name)
+    their_step0 = run_handshake(
+        runtime.config, runtime.transport, runtime.group_name, runtime.shared_config_path
+    )
     return their_step0["payload"]["group_name"]
 
 
@@ -71,6 +87,24 @@ def cop_shutdown_grace(runtime) -> None:
     if runtime.opponent_protocol == "cop_v1":
         runtime._cop_adapter.final_reveal_received.wait(timeout=SHUTDOWN_GRACE_CEILING_SECONDS)
         time.sleep(RESPONSE_FLUSH_SECONDS)
+
+
+def send_opponent_final_reveal(runtime, records: list[dict]) -> None:
+    """Only meaningful for `cop_v1` -- native match-end uses its own
+    `submit_audit`/`get_revealed_records` exchange instead
+    (`peer/match_end.py`). `cop_send_final_reveal` was fully built (PRD 9)
+    but never actually called in `cop_v1` mode until now; wiring it up lets
+    her side's own `integrity/audit.py::run_mutual_audit` genuinely verify
+    this peer's per-turn commits, now that `sealed_step_record` hashes her
+    same 7-field envelope shape. This only closes *her* auditing *us* --
+    there is no documented tool on her side for the reverse (pulling her
+    own revealed records for this peer to audit her), so `match_end.py`'s
+    own `opponent_audited_by_me` honestly stays unevaluated for `cop_v1`;
+    closing that fully would need a new tool on her side, not this one."""
+    if runtime.opponent_protocol != "cop_v1":
+        return
+    nonces, intents = build_cop_final_reveal_payload(records)
+    cop_send_final_reveal(runtime.transport, nonces, intents)
 
 
 def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool]:

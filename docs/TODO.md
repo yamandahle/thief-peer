@@ -20,6 +20,7 @@ stage, matching the corresponding `PRD_<n>_<name>.md` 1:1:
 | 7 — Reporting shell | [`TODO_7_reporting_shell.md`](TODO_7_reporting_shell.md) | Ch.9/7/App.א | ⚠️ components done, PeerRuntime/live-match wiring + manual Gmail/GUI steps outstanding |
 | 8 — PeerRuntime + live-match MCP tools | [`TODO_8_peer_runtime.md`](TODO_8_peer_runtime.md) | Ch.5 §5.3.2/Ch.8/Ch.6 §6.2 | ✅ done |
 | 9 — Cop-repo interop adapter + scent-lock ceremony | [`TODO_9_cop_interop.md`](TODO_9_cop_interop.md) | Ch.4.5/Ch.5.5 | ✅ done (audit-hash compat explicitly out of scope) |
+| 10 — Cop-parity audit + cloud-readiness hardening | [`TODO_10_cop_parity_hardening.md`](TODO_10_cop_parity_hardening.md) | Ch.9 §9.3/App.E rules 10/11/20/28/29 | ✅ done (audit found 4/6 claimed extensions already at parity; replay CLI wiring, gatekeeper config fix, native config-hash check, and remote-match runbook all implemented and tested) |
 
 Stage 8 is not part of the original 7-stage plan from `PRD.md` §6 — it's a
 genuine gap found after Stage 7 shipped (`PeerRuntime` was named throughout

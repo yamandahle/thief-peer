@@ -24,12 +24,28 @@ from thief_peer.interop.cop_turn_sender import (
 )
 
 
-class _SpyContext:
+class _State:
+    def __init__(self, position=(0, 0)):
+        self.position = position  # (row, col), matching domain/board.py's Cell
+
+
+class _FakeTransport:
     def __init__(self):
+        self.calls = []
+
+    def call(self, name, payload):
+        self.calls.append((name, payload))
+        return {"acknowledged": True}
+
+
+class _SpyContext:
+    def __init__(self, position=(0, 0)):
         self.calls = []
         self.config = "cfg"
         self.group_name = "Thief-Team"
         self.repos = {"cop": "x", "thief": "y"}
+        self.state = _State(position)
+        self.transport = _FakeTransport()
 
         class _Scent:
             def snapshot(self):
@@ -91,9 +107,42 @@ def test_handle_receive_barrier_declaration_swaps_col_row_into_our_row_col_paylo
     assert context.calls == [("receive_barrier_declaration", {"row": 2, "col": 5})]
 
 
-def test_handle_receive_capture_claim_only_acknowledges():
-    adapter = CopContextAdapter(_SpyContext(), shared_config_path="unused")
-    assert adapter.handle_receive_capture_claim(1, 2, 3, 4, 9) == {"acknowledged": True}
+def test_handle_receive_barrier_declaration_acks_in_her_shape_not_the_native_one():
+    context = _SpyContext()
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+
+    result = adapter.handle_receive_barrier_declaration(col=5, row=2)
+
+    assert result == {"acknowledged": True}
+
+
+def test_handle_receive_capture_claim_acks_immediately_then_confirms_a_real_capture():
+    context = _SpyContext(position=(2, 5))  # actually standing at row=2, col=5
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+
+    result = adapter.handle_receive_capture_claim(
+        thief_col=5, thief_row=2, cop_col=5, cop_row=2, claimed_at_step=9
+    )
+
+    assert result == {"acknowledged": True}
+    adapter._capture_response_thread.join(timeout=1)
+    assert context.transport.calls == [
+        ("receive_capture_response", {"confirmed": True, "true_thief_col": 5, "true_thief_row": 2})
+    ]
+
+
+def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wrong():
+    context = _SpyContext(position=(9, 9))  # actually standing elsewhere
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+
+    adapter.handle_receive_capture_claim(
+        thief_col=5, thief_row=2, cop_col=5, cop_row=2, claimed_at_step=9
+    )
+
+    adapter._capture_response_thread.join(timeout=1)
+    assert context.transport.calls == [
+        ("receive_capture_response", {"confirmed": False, "true_thief_col": 9, "true_thief_row": 9})
+    ]
 
 
 def test_handle_receive_final_reveal_only_acknowledges():

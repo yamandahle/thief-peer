@@ -1,0 +1,31 @@
+# Template for a REAL match over the public internet (rule 10) -- copy this
+# file to game_cop_remote.toml (gitignored-safe filename pattern is not
+# required here since it holds no secrets, but keep the placeholders below
+# from ever being a real submitted config) and fill in the two placeholders
+# marked REQUIRED before running `cli.py run`.
+#
+# This is the only difference from config/thief/game_cop_local_test.toml:
+# opponent_url points at a real tunnel URL instead of 127.0.0.1. Everything
+# else (opponent_protocol, repos, email) is identical -- see PRD_10's
+# "going live" runbook in README.md for the exact manual steps (installing
+# and running the tunnel tool, confirming game.json is byte-identical on
+# both sides, confirming token.json is ready) before pointing this at a
+# real opponent process.
+
+[network]
+my_port = 8801
+# REQUIRED: the tunnel URL ngrok/Localtonet prints after you run it against
+# my_port above, e.g. "https://abcd1234.ngrok-free.app/mcp" -- NOT
+# 127.0.0.1. Ask the Cop side for their own tunnel URL the same way.
+opponent_url = "https://REPLACE-WITH-YOUR-TUNNEL-URL/mcp"
+opponent_protocol = "cop_v1"
+
+[email]
+# REQUIRED: change to the real grading recipient before a submission-
+# relevant run -- this placeholder is the developer's own address.
+recipient = "yamandahle@gmail.com"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"

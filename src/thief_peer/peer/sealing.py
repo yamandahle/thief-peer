@@ -20,8 +20,27 @@ def validate_required_terms(config: ConfigManager) -> None:
         config.require(term)
 
 
-def sealed_step_record(state: str, move: str, intent: str) -> dict:
-    payload = {"state": state, "move": move, "intent": intent}
+def sealed_step_record(
+    state: str, move: str, intent: str, hint_text: str, step: int, role: str
+) -> dict:
+    """The book's Ch.5.3.1 equation is `SHA256(State‖Move‖Intent‖Nonce)` --
+    the 4 fields this repo hashed exclusively until now. `hint_text`/`step`/
+    `role` extend that (the Cop repo's own elaboration, citing the book's
+    reference-implementation record, p.51) -- adopted here as this team's
+    own intra-pair standard so a real mutual audit against that specific,
+    already-coordinated partner can run for real instead of reporting "not
+    evaluated" (see `interop/cop_wire.py`). All three are already known
+    locally at commit time (the hint text this turn, the step counter, and
+    this peer's fixed role) -- no new wire round-trip is introduced by
+    hashing them."""
+    payload = {
+        "state": state,
+        "move": move,
+        "intent": intent,
+        "hint_text": hint_text,
+        "step": step,
+        "role": role,
+    }
     sealed = CommitReveal.seal(payload)
     return {"payload": {**payload, "nonce": sealed["nonce"]}, "commit": sealed["commit"]}
 

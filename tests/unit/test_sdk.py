@@ -5,8 +5,20 @@ proves the delegation wiring (config -> Gatekeeper/Gmail service/recipient
 -> PeerRuntime.run()) -- PeerRuntime's own behavior has its dedicated tests,
 and a real two-process match is the separate integration test (PRD_8 §5)."""
 
-from thief_peer.sdk.sdk import ThiefSdk
+import json
+
+from thief_peer.domain.crypto import CommitReveal
+from thief_peer.sdk.sdk import ThiefSdk, run_replay
 from thief_peer.shared.config import ConfigManager
+
+
+def _clean_log(n: int) -> list[dict]:
+    records = []
+    for i in range(n):
+        payload = {"state": f"s{i}", "move": "N", "intent": "truth"}
+        sealed = CommitReveal.seal(payload)
+        records.append({"payload": {**payload, "nonce": sealed["nonce"]}, "commit": sealed["commit"]})
+    return records
 
 
 def _make_config(tmp_path, port: int):
@@ -126,6 +138,71 @@ def test_run_with_gui_builds_a_window_and_live_session_and_returns_its_result(
     assert isinstance(captured["session_window"], _FakeWindow)
 
 
+def test_build_runtime_reads_gatekeeper_numbers_from_the_shared_rate_limiter_gatekeeper_config(
+    tmp_path, monkeypatch
+):
+    """PRD_10 fix: the token bucket / retry / queue-depth numbers must come
+    from game.json's shared, negotiated `rate_limiter_gatekeeper` block
+    (Appendix F, identical on the Cop side) -- not the private
+    `rate_limits.*` key, which never existed in the shared schema and
+    silently produced Python's hardcoded fallback defaults instead.
+    Reaches into ApiGatekeeper/TokenBucket/RequestQueue's own private
+    attributes deliberately, since this is exactly the regression a
+    wrong-key-path bug wouldn't otherwise surface in any test."""
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        f'[network]\nmy_port = {port}\nopponent_url = "http://127.0.0.1:{port}/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\n',
+        encoding="utf-8",
+    )
+    json_path = tmp_path / "game.json"
+    json_path.write_text(
+        json.dumps(
+            {
+                "rate_limiter_gatekeeper": {
+                    "requests_per_minute": 42,
+                    "concurrent_requests": 2,
+                    "retry_backoff_sec": 7,
+                    "max_retries": 9,
+                    "queue_depth": 123,
+                }
+            }
+        ),
+        encoding="utf-8",
+    )
+    config = ConfigManager(toml_path, json_path)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = {}
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured["gatekeeper"] = gatekeeper
+
+        def run(self):
+            return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    ThiefSdk(config).run("Thief-Team")
+
+    gatekeeper = captured["gatekeeper"]
+    assert gatekeeper._max_retries == 9
+    assert gatekeeper._backoff_sec == 7
+    assert gatekeeper._token_bucket._capacity == 42
+    assert gatekeeper._token_bucket._refill_rate == 42 / 60.0
+    assert gatekeeper._queue._max_depth == 123
+
+
 def test_run_passes_is_counted_through_to_peer_runtime(tmp_path, monkeypatch):
     import socket
 
@@ -202,3 +279,85 @@ def test_auth_gmail_defaults_credentials_path_and_uses_default_token_path(tmp_pa
 
     assert captured["credentials_path"] == "credentials.json"
     assert captured["token_path"] == "token.json"
+
+
+def _write_log(tmp_path, records: list[dict]):
+    log_path = tmp_path / "log.json"
+    log_path.write_text(
+        json.dumps({"schema_version": 1, "records": records, "audit": {}}), encoding="utf-8"
+    )
+    return log_path
+
+
+def test_run_replay_prints_verified_ok_and_returns_zero_for_a_clean_log(tmp_path, capsys):
+    log_path = _write_log(tmp_path, _clean_log(3))
+
+    exit_code = run_replay(str(log_path))
+
+    assert exit_code == 0
+    out = capsys.readouterr().out
+    assert "Overall: Verified OK" in out
+    assert "step 0: Verified OK" in out
+    assert "step 1: Verified OK" in out
+    assert "step 2: Verified OK" in out
+
+
+def test_run_replay_prints_tampered_and_returns_one_for_a_corrupted_log(tmp_path, capsys):
+    records = _clean_log(3)
+    records[1]["payload"]["move"] = "S"  # corrupted after sealing
+    log_path = _write_log(tmp_path, records)
+
+    exit_code = run_replay(str(log_path))
+
+    assert exit_code == 1
+    out = capsys.readouterr().out
+    assert "Overall: TAMPERED" in out
+    assert "step 0: Verified OK" in out
+    assert "step 1: TAMPERED" in out
+
+
+def test_run_replay_with_gui_opens_a_window_after_the_headless_verdict(
+    tmp_path, monkeypatch, capsys
+):
+    """No real Tkinter involved -- tkinter.Tk/Button and ReplayView are all
+    faked at the module attribute level, the same technique
+    test_run_with_gui_builds_a_window_and_live_session_and_returns_its_result
+    already uses for PeerWindow/LiveSession."""
+    log_path = _write_log(tmp_path, _clean_log(2))
+    captured = {}
+
+    class _FakeRoot:
+        def title(self, text):
+            captured["title"] = text
+
+        def mainloop(self):
+            captured["mainloop_called"] = True
+
+    class _FakeButton:
+        def __init__(self, *args, **kwargs):
+            pass
+
+        def pack(self, **kwargs):
+            pass
+
+    class _FakeReplayView:
+        def __init__(self, root, records):
+            captured["view_records"] = records
+
+        def step_back(self):
+            pass
+
+        def step_forward(self):
+            pass
+
+    monkeypatch.setattr("tkinter.Tk", lambda: _FakeRoot())
+    monkeypatch.setattr("tkinter.Button", _FakeButton)
+    monkeypatch.setattr("thief_peer.gui.replay_view.ReplayView", _FakeReplayView)
+
+    exit_code = run_replay(str(log_path), gui=True)
+
+    assert exit_code == 0
+    assert captured["mainloop_called"] is True
+    assert len(captured["view_records"]) == 2
+    printed = capsys.readouterr().out
+    assert "Overall: Verified OK" in printed  # headless verdict still printed first

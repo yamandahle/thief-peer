@@ -30,12 +30,14 @@ cop = "https://github.com/Nagham1023/yamanagh-cop"
 # different BrainBase subclass (ADR-7); omitted here to use the shipped
 # ThiefBrain (strategy/fleeing_brain.py).
 
-# Optional: Gatekeeper limits (ADR-4). Sensible defaults are already baked
-# into sdk.py's ThiefSdk.run() if this section is omitted entirely; these
-# are the same defaults spelled out explicitly so they're easy to tune.
+# Optional: DOS-detector thresholds only (ADR-4, PRD_10 fix). The token
+# bucket / retry / queue-depth Gatekeeper numbers are NOT here anymore --
+# they're part of the shared, negotiated `rate_limiter_gatekeeper` block in
+# game.json (Appendix F, identical on the Cop side), read directly from
+# there by sdk.py. DOS-detector circuit-breaker thresholds have no
+# equivalent shared field -- each side's own unilateral defense choice, not
+# something to negotiate -- so they stay private/local here. Sensible
+# defaults are already baked into sdk.py if this section is omitted.
 [rate_limits]
-token_bucket_capacity = 5
-token_bucket_refill_rate = 1.0
 dos_max_calls = 100
 dos_window_seconds = 60
-queue_max_depth = 10

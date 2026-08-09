@@ -31,7 +31,14 @@ def play_round(
     scent.advance(turn_handler.state.position)
 
     move = decision.direction.value if decision.direction else "STAY"
-    record = sealed_step_record(state=f"step-{step}", move=move, intent=decision.verdict)
+    record = sealed_step_record(
+        state=f"step-{step}",
+        move=move,
+        intent=decision.verdict,
+        hint_text=decision.hint,
+        step=step,
+        role=sender,
+    )
 
     turn_fsm.transition("COMMITTING")
     send_commit(transport, step, sender, record)

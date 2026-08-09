@@ -10,11 +10,17 @@ her per-step reveal (unlike native `play_round`'s `wait_for_reveal`): doing
 so would require this side's inbound `CopContextAdapter`'s own step
 counter to stay lock-step with this loop's `step` numbering, coupling two
 independently-paced call sequences for a guarantee this scope boundary
-doesn't need (her per-turn Hcommit audit-compatibility is already a known,
-separate gap -- see `interop/__init__.py`). A `share_scent_map` pull that
-lands slightly before or after her own current move is the same kind of
-approximate, time-decayed signal scent already is everywhere else in this
-game -- not a new class of risk this loop needs to close.
+doesn't need. A `share_scent_map` pull that lands slightly before or after
+her own current move is the same kind of approximate, time-decayed signal
+scent already is everywhere else in this game -- not a new class of risk
+this loop needs to close.
+
+`state`/`move`/`intent` here are built via `interop/cop_wire.py`'s
+`build_cop_state_string`/`build_cop_move_envelope` and a booleanized
+`decision.verdict`, not this side's own internal shapes -- required for
+her real end-of-match audit to recompute the identical `Hcommit` this side
+sealed (see `interop/__init__.py` and `tests/unit/test_cop_wire.py`'s
+cross-repo check), not just a wire-compatible-looking gesture.
 """
 
 from thief_peer.exceptions import DeadlineExceededError, TransportError
@@ -23,6 +29,7 @@ from thief_peer.interop.cop_turn_sender import (
     cop_send_commit,
     cop_send_reveal,
 )
+from thief_peer.interop.cop_wire import build_cop_move_envelope, build_cop_state_string
 from thief_peer.peer.sealing import sealed_step_record
 
 
@@ -47,7 +54,15 @@ def play_round_cop(
     scent.advance(turn_handler.state.position)
 
     move = decision.direction.value if decision.direction else "STAY"
-    record = sealed_step_record(state=f"step-{step}", move=move, intent=decision.verdict)
+    my_row, my_col = turn_handler.state.position
+    record = sealed_step_record(
+        state=build_cop_state_string(my_row, my_col, turn_handler.state.step_count),
+        move=build_cop_move_envelope(move),
+        intent=decision.verdict == "truth",
+        hint_text=decision.hint,
+        step=step,
+        role="thief",
+    )
 
     turn_fsm.transition("COMMITTING")
     try:

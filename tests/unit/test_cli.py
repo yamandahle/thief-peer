@@ -111,6 +111,46 @@ def test_run_subcommand_with_gui_flag_delegates_to_run_with_gui(
     assert printed == {"final_result": {"winner_group": "Thief-Team"}}
 
 
+def test_replay_subcommand_delegates_to_run_replay_without_needing_a_config(
+    tmp_path, monkeypatch
+):
+    """The whole point: no game.toml exists anywhere near tmp_path, and
+    --config was never passed, yet replay must still work -- it needs no
+    game config at all (cli.py dispatches it before ConfigManager is ever
+    constructed)."""
+    captured = {}
+
+    def fake_run_replay(log_path, gui=False):
+        captured["log_path"] = log_path
+        captured["gui"] = gui
+        return 0
+
+    monkeypatch.setattr("thief_peer.cli.run_replay", fake_run_replay)
+    monkeypatch.chdir(tmp_path)  # confirms the default --config path is never touched
+
+    exit_code = main(["replay", "--log", "results/log_x.json"])
+
+    assert exit_code == 0
+    assert captured["log_path"] == "results/log_x.json"
+    assert captured["gui"] is False
+
+
+def test_replay_subcommand_with_gui_flag_passes_it_through(tmp_path, monkeypatch):
+    captured = {}
+
+    def fake_run_replay(log_path, gui=False):
+        captured["gui"] = gui
+        return 1
+
+    monkeypatch.setattr("thief_peer.cli.run_replay", fake_run_replay)
+    monkeypatch.chdir(tmp_path)
+
+    exit_code = main(["replay", "--log", "results/log_x.json", "--gui"])
+
+    assert exit_code == 1
+    assert captured["gui"] is True
+
+
 def test_auth_gmail_subcommand_delegates_to_sdk_and_prints_the_token_path(
     tmp_path, monkeypatch, capsys
 ):

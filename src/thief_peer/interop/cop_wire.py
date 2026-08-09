@@ -10,19 +10,21 @@ book's default parameters).
 import hashlib
 import json
 import subprocess
-from pathlib import Path
+
+from thief_peer.domain.crypto import hash_config_file  # noqa: F401 -- re-exported, see below
 
 _VALUE_PRECISION = 2  # matches her Step0Declaration's ram_gb/gpu_vram_gb .2f convention
 
-
-def hash_config_file(path: str | Path) -> str:
-    """Plain sha256(raw bytes) -- matches her `integrity/step0.py::
-    hash_config_file` and her `check_config.py --identical`. For this to
-    ever pass her side's `config_sha256` check (rule 11), our `game.json`
-    must be byte-identical to her shared config file, not just schema-
-    identical -- a one-time coordination step, not something this function
-    alone can guarantee."""
-    return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+# hash_config_file used to be defined here as its own copy. Moved to
+# domain/crypto.py (PRD_10) once domain/negotiation.py's native protocol
+# needed the exact same byte-for-byte-file algorithm too -- re-exported
+# under this name so every existing `from interop.cop_wire import
+# hash_config_file` call site keeps working unchanged. Matches the Cop
+# repo's own `integrity/step0.py::hash_config_file` exactly (empirically
+# verified: for this to ever pass her side's `config_sha256` check, rule
+# 11, our `game.json` must be byte-identical to hers, not just schema-
+# identical -- a one-time coordination step, not something this function
+# alone can guarantee).
 
 
 def current_git_commit_hash() -> str:
@@ -105,6 +107,58 @@ def serialize_scent_for_cop(snapshot: dict[str, float]) -> dict:
         row, col = (int(part) for part in key.split(","))
         cells.append([col, row, value])
     return {"cells": cells}
+
+
+def build_cop_state_string(row: int, col: int, steps_taken: int) -> str:
+    """Matches her `integrity/commit_payload.py::canonical_state_bytes`
+    byte-for-byte, for a thief-role agent specifically: `barriers_placed`
+    is always `[]` (this side never places a barrier --
+    `strategy/brain_base.py`'s own structural guarantee that
+    `Decision.move_type` is never `BARRIER` for the thief role), `own_pos`
+    is `[col, row]` (her `Position` field order, this side's own `Cell` is
+    `(row, col)`). She reconstructs this independently by replaying this
+    side's own revealed moves rather than trusting a transmitted `state`
+    value (rule 27: never a position claim on the wire) -- so for her
+    recomputed `Hcommit` to ever match what this side committed to, this
+    side's own hashed `state` must equal exactly what her replay would
+    derive, not an arbitrary local label. Returns a `str`, not `bytes`,
+    because her own `_canonical_envelope_bytes` decodes her `state: bytes`
+    field to utf-8 before hashing -- this is that already-decoded string."""
+    payload = {"own_pos": [col, row], "steps_taken": steps_taken, "barriers_placed": []}
+    return json.dumps(payload, sort_keys=True, separators=(",", ":"))
+
+
+def build_cop_move_envelope(direction: str) -> dict:
+    """This side's own sealed envelope must hash the same `move` shape she
+    receives over `receive_reveal` and stores in her `PeerTrace` (her own
+    `move_to_wire` output, `{"type": "move", "direction": ...}`) -- not the
+    bare direction string this side uses internally everywhere else.
+    Thief never places a barrier (see `build_cop_state_string`), so this is
+    always a `move`, never a `place_barrier`, envelope."""
+    return {"type": "move", "direction": direction}
+
+
+def build_cop_final_reveal_payload(records: list[dict]) -> tuple[dict, dict]:
+    """This side's own revealed nonces/intents, keyed by step (as strings --
+    JSON object keys are always strings), matching her `receive_final_reveal`
+    contract. Meaningful now that `peer/sealing.py::sealed_step_record`
+    hashes the same 7-field shape her `integrity/commit_reveal.py::
+    CommitEnvelope` does (state, move, intent, nonce, hint_text, step,
+    role) -- her side's own audit can genuinely recompute and verify this
+    peer's per-turn Hcommit from this data. `intent` must already be a real
+    `bool` in `payload["intent"]` by the time it reaches here (see
+    `interop/cop_round_loop.py`) -- her own `integrity/peer_trace.py::
+    run_peer_audit` does `intent=bool(entry.intent)` on whatever arrives,
+    and a non-empty string ("truth" *or* "lie") is truthy either way, which
+    would silently corrupt her reconstruction rather than raise."""
+    nonces: dict[str, str] = {}
+    intents: dict[str, bool] = {}
+    for record in records:
+        payload = record["payload"]
+        step_key = str(payload["step"])
+        nonces[step_key] = payload["nonce"]
+        intents[step_key] = bool(payload["intent"])
+    return nonces, intents
 
 
 def deserialize_scent_from_cop(wire: dict) -> dict[str, float]:

@@ -24,6 +24,7 @@ from thief_peer.interop.cop_opponent import (
     maybe_register_cop_tools,
     play_opponent_round,
     run_opponent_handshake,
+    send_opponent_final_reveal,
 )
 from thief_peer.peer.heartbeat_monitor import HeartbeatMonitor
 from thief_peer.peer.match_end import finalize_match
@@ -66,7 +67,7 @@ class PeerRuntime(PeerContextMixin):
         self.shared_config_path = shared_config_path
         self.heartbeat = HeartbeatMonitor(timeout_sec=watchdog_timeout_sec)
 
-        components = build_game_components(config)
+        components = build_game_components(config, self.gatekeeper)
         self.board = components.board
         self.state = components.state
         self.turn_handler = components.turn_handler
@@ -114,6 +115,7 @@ class PeerRuntime(PeerContextMixin):
 
         self.heartbeat.stop()
         self._match_over = True
+        send_opponent_final_reveal(self, self.records)
         result = finalize_match(
             self.group_name,
             opponent_group_name,
