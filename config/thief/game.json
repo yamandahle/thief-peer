@@ -1,11 +1,13 @@
 {
+  "schema_version": "1.2",
+  "agreed_between": ["group-a", "group-b"],
   "board_and_agents": {
     "grid_size": 7,
     "num_agents": 2,
-    "axis_origin_corner": "top-left",
-    "axis_start_index": 0,
     "thief_start": [3, 3],
-    "cop_start": [0, 0]
+    "cop_start": [0, 0],
+    "axis_origin_corner": "top-left",
+    "axis_start_index": 0
   },
   "world": {
     "map_area": "New York",

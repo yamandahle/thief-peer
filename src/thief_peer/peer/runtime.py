@@ -20,6 +20,7 @@ from thief_peer.domain.rules import has_survived, is_captured_by_stuck
 from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.infra.mcp_server import build_server, run_server_in_background
 from thief_peer.interop.cop_opponent import (
+    cop_shutdown_grace,
     maybe_register_cop_tools,
     play_opponent_round,
     run_opponent_handshake,
@@ -113,7 +114,7 @@ class PeerRuntime(PeerContextMixin):
 
         self.heartbeat.stop()
         self._match_over = True
-        return finalize_match(
+        result = finalize_match(
             self.group_name,
             opponent_group_name,
             end_reason,
@@ -130,6 +131,8 @@ class PeerRuntime(PeerContextMixin):
             self.is_counted,
             self.opponent_protocol,
         )
+        cop_shutdown_grace(self)
+        return result
 
     def view(self):
         from thief_peer.gui.window import PeerView

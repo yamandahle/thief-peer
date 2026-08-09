@@ -1,0 +1,16 @@
+# Local-only test double for connecting to a real Cop process on this same
+# machine (interop/ adapter, network.opponent_protocol = "cop_v1"). Not
+# used by config/thief/game.toml's own native Thief-vs-Thief path.
+
+[network]
+my_port = 8801
+opponent_url = "http://127.0.0.1:8802/mcp"
+opponent_protocol = "cop_v1"
+
+[email]
+recipient = "yamandahle@gmail.com"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"

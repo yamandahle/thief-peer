@@ -1,10 +1,11 @@
 """CopContextAdapter: lets this peer's own FastMCP server also answer a
 real Cop client's actual tool calls (`receive_commit`, `receive_reveal`,
 `share_scent_map`, `receive_step0`, `receive_barrier_declaration`,
-`receive_capture_claim`, `receive_capture_response`) -- registered
-alongside the native tools (`infra/mcp_server.py`), sharing the same
-underlying game state via `context` (normally `PeerRuntime` itself); only
-the entry translation differs.
+`receive_capture_claim`, `receive_capture_response`, `receive_final_reveal`)
+-- registered by `cop_server_registration.py::register_cop_tools` alongside
+the native tools (`infra/mcp_server.py`), sharing the same underlying game
+state via `context` (normally `PeerRuntime` itself); only the entry
+translation differs.
 
 Step tracking: her wire messages carry no explicit step number (unlike
 this repo's own `commit_move`/`reveal_move` payloads) -- she relies on
@@ -21,11 +22,18 @@ return value") -- actually firing that follow-up `receive_capture_response`
 call back to her is not wired here (would need an outbound transport
 reference inside an inbound handler); a known, flagged gap, not an
 oversight.
+
+`handle_receive_final_reveal` was found missing by an actual live run
+against her real process, not by inspection: her own `report_game()`
+always calls this peer's `receive_final_reveal` as part of *her* end-of-
+game sequence, regardless of whether this side's own `finalize_match`
+skips the (incompatible) audit exchange in `cop_v1` mode -- omitting the
+tool entirely meant her side's own match, otherwise fully successful,
+crashed on its very last step. Acknowledges only; no audit is attempted
+against the nonces/intents (interop/__init__.py's documented boundary).
 """
 
-import contextlib
-
-from fastmcp import FastMCP
+import threading
 
 from thief_peer.interop.cop_handshake import build_own_declaration, verify_their_declaration
 from thief_peer.interop.cop_wire import serialize_scent_for_cop, sign_cop_declaration
@@ -37,6 +45,12 @@ class CopContextAdapter:
         self._shared_config_path = shared_config_path
         self._sub_game_number = sub_game_number
         self._commit_step = 0
+        # Set once her own receive_final_reveal call actually lands -- lets
+        # cop_shutdown_grace wait for the real event rather than guessing a
+        # fixed sleep duration (her round loop's own pace isn't ours to
+        # predict; a live run against her real process is exactly what
+        # showed a blind 5s sleep wasn't long enough).
+        self.final_reveal_received = threading.Event()
         self._reveal_step = 0
 
     def handle_receive_commit(self, h_commit: str) -> dict:
@@ -75,6 +89,10 @@ class CopContextAdapter:
     ) -> dict:
         return {"acknowledged": True}
 
+    def handle_receive_final_reveal(self, nonces: dict, intents: dict) -> dict:
+        self.final_reveal_received.set()
+        return {"acknowledged": True}
+
     def handle_receive_step0(self, declaration: dict, signature: str, repos: dict) -> dict:
         my_declaration = build_own_declaration(
             self._context.config,
@@ -89,55 +107,3 @@ class CopContextAdapter:
             "signature": my_signature,
             "repos": dict(self._context.repos),
         }
-
-
-_COLLIDES_WITH_NATIVE = ("receive_barrier_declaration", "receive_capture_claim")
-
-
-def register_cop_tools(mcp: FastMCP, adapter: CopContextAdapter) -> None:
-    """Registers her exact tool names onto an already-constructed `mcp`
-    instance, alongside the native Thief tools `infra/mcp_server.py`
-    already registered. Two names collide: this repo's own (pre-existing,
-    not book-mandated) `receive_barrier_declaration`/`receive_capture_claim`
-    tools happen to share her exact names but a different parameter shape
-    (`payload: dict` vs her flat `col`/`row`/... kwargs). `mcp.tool` doesn't
-    overwrite an existing registration (only warns and keeps the first), so
-    the native versions are explicitly removed first -- a `cop_v1` server
-    always answers *her* shape for these two, never silently keeps the
-    native one underneath."""
-    for name in _COLLIDES_WITH_NATIVE:
-        # nothing native registered under this name (e.g. a fresh mcp in tests) is fine
-        with contextlib.suppress(KeyError):
-            mcp.local_provider.remove_tool(name)
-
-    @mcp.tool
-    def receive_commit(h_commit: str) -> dict:
-        return adapter.handle_receive_commit(h_commit)
-
-    @mcp.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
-        return adapter.handle_receive_reveal(move, hint_text)
-
-    @mcp.tool
-    def share_scent_map() -> dict:
-        return adapter.handle_share_scent_map()
-
-    @mcp.tool
-    def receive_barrier_declaration(col: int, row: int) -> dict:
-        return adapter.handle_receive_barrier_declaration(col, row)
-
-    @mcp.tool
-    def receive_capture_claim(
-        thief_col: int, thief_row: int, cop_col: int, cop_row: int, claimed_at_step: int
-    ) -> dict:
-        return adapter.handle_receive_capture_claim(
-            thief_col, thief_row, cop_col, cop_row, claimed_at_step
-        )
-
-    @mcp.tool
-    def receive_capture_response(confirmed: bool, true_thief_col: int, true_thief_row: int) -> dict:
-        return adapter.handle_receive_capture_response(confirmed, true_thief_col, true_thief_row)
-
-    @mcp.tool
-    def receive_step0(declaration: dict, signature: str, repos: dict) -> dict:
-        return adapter.handle_receive_step0(declaration, signature, repos)

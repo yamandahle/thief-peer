@@ -465,7 +465,13 @@ class _CooperativeCopStubOpponent:
         raise ValueError(f"unexpected tool call: {tool_name}")
 
 
-def test_a_short_cop_v1_match_completes_using_her_wire_vocabulary(tmp_path):
+def test_a_short_cop_v1_match_completes_using_her_wire_vocabulary(tmp_path, monkeypatch):
+    # _CooperativeCopStubOpponent never calls back into this side's own
+    # receive_final_reveal tool (it only answers as the opponent's client
+    # role), so cop_shutdown_grace's event never fires here -- shorten the
+    # ceiling so the test doesn't actually wait the real default out.
+    monkeypatch.setattr("thief_peer.interop.cop_opponent.SHUTDOWN_GRACE_CEILING_SECONDS", 0.05)
+    monkeypatch.setattr("thief_peer.interop.cop_opponent.RESPONSE_FLUSH_SECONDS", 0.01)
     toml_path = tmp_path / "mine.toml"
     toml_path.write_text(
         "[network]\nmy_port = 8922\nopponent_protocol = \"cop_v1\"\n", encoding="utf-8"

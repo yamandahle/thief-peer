@@ -13,11 +13,13 @@ from fastmcp import FastMCP
 
 from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.infra.server_lifecycle import wait_until_ready
-from thief_peer.interop.cop_server_tools import CopContextAdapter, register_cop_tools
+from thief_peer.interop.cop_server_registration import register_cop_tools
+from thief_peer.interop.cop_server_tools import CopContextAdapter
 from thief_peer.interop.cop_turn_sender import (
     cop_request_scent_map,
     cop_send_barrier_declaration,
     cop_send_commit,
+    cop_send_final_reveal,
     cop_send_reveal,
 )
 
@@ -94,6 +96,14 @@ def test_handle_receive_capture_claim_only_acknowledges():
     assert adapter.handle_receive_capture_claim(1, 2, 3, 4, 9) == {"acknowledged": True}
 
 
+def test_handle_receive_final_reveal_only_acknowledges():
+    # Found necessary by an actual live run against her real process: her
+    # own report_game() always calls this, regardless of whether this
+    # side's own audit exchange is skipped in cop_v1 mode.
+    adapter = CopContextAdapter(_SpyContext(), shared_config_path="unused")
+    assert adapter.handle_receive_final_reveal({"0": "nonce"}, {"0": True}) == {"acknowledged": True}
+
+
 @pytest.fixture
 def live_server_with_cop_adapter(free_tcp_port):
     context = _SpyContext()
@@ -147,3 +157,12 @@ def test_cop_send_barrier_declaration_lands_with_row_col_swapped_back(live_serve
     cop_send_barrier_declaration(transport, row=2, col=5)
 
     assert context.calls == [("receive_barrier_declaration", {"row": 2, "col": 5})]
+
+
+def test_cop_send_final_reveal_lands_on_the_registered_server(live_server_with_cop_adapter):
+    port, _context = live_server_with_cop_adapter
+    transport = McpTransport(f"http://127.0.0.1:{port}/mcp")
+
+    result = cop_send_final_reveal(transport, {"0": "nonce"}, {"0": True})
+
+    assert result == {"acknowledged": True}

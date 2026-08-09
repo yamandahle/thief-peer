@@ -1,0 +1,16 @@
+# Local-only test double for "peer B" when running a Thief-vs-Thief match
+# by hand on your own machine (a real Cop opponent needs its own real
+# process). Mirrors config/thief/game.toml but on the opposite port. Not
+# used by any real submission run -- see README's "Running it" section.
+
+[network]
+my_port = 8802
+opponent_url = "http://127.0.0.1:8801/mcp"
+
+[email]
+recipient = "yamandahle@gmail.com"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
