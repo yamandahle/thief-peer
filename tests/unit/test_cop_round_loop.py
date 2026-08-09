@@ -5,6 +5,7 @@ test) -- these are the first direct tests of this round shape."""
 
 from thief_peer.constants import Direction
 from thief_peer.interop.cop_round_loop import play_round_cop
+from thief_peer.peer.turn_fsm import TurnFsm
 from thief_peer.strategy.brain_base import Decision
 
 
@@ -89,16 +90,34 @@ def test_play_round_cop_falls_back_to_last_scent_when_pull_fails():
 
 
 def test_play_round_cop_declares_technical_loss_when_commit_fails():
+    # Uses the REAL TurnFsm, not the fake -- the fake never enforced the
+    # book's legal-transition table, which is exactly what let the original
+    # bug (attempting COMMITTING -> TECHNICAL_LOSS directly, an illegal
+    # edge -- only AWAITING_REVEAL -> TECHNICAL_LOSS exists) ship
+    # undetected until an actual mid-match connection drop hit it live.
     turn_handler = _FakeTurnHandler()
     transport = _StubTransport(fail_on="receive_commit")
-    fsm = _FakeTurnFsm()
+    fsm = TurnFsm()
 
     record, next_scent, technical_loss = play_round_cop(
         1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(), transport, {}
     )
 
     assert technical_loss is True
-    assert "TECHNICAL_LOSS" in fsm.transitions
+    assert fsm.state == "TECHNICAL_LOSS"
+
+
+def test_play_round_cop_declares_technical_loss_when_reveal_fails():
+    turn_handler = _FakeTurnHandler()
+    transport = _StubTransport(fail_on="receive_reveal")
+    fsm = TurnFsm()
+
+    record, next_scent, technical_loss = play_round_cop(
+        1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(), transport, {}
+    )
+
+    assert technical_loss is True
+    assert fsm.state == "TECHNICAL_LOSS"
 
 
 def test_play_round_cop_advances_this_sides_own_scent_field_at_its_own_position():

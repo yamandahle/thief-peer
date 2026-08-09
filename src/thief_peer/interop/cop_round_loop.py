@@ -54,6 +54,13 @@ def play_round_cop(
         cop_send_commit(transport, record["commit"])
         cop_send_reveal(transport, move, decision.hint)
     except (DeadlineExceededError, TransportError):
+        # The book's own transition table (also respected by native
+        # play_round) has no direct COMMITTING -> TECHNICAL_LOSS edge --
+        # only AWAITING_REVEAL -> TECHNICAL_LOSS. Found by an actual
+        # mid-match connection drop during a real live run, not by
+        # inspection: skipping this intermediate step raised a
+        # SimulationError instead of cleanly recording the technical loss.
+        turn_fsm.transition("AWAITING_REVEAL")
         turn_fsm.transition("TECHNICAL_LOSS")
         return record, peer_scent, True
 
