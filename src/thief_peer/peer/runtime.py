@@ -115,7 +115,16 @@ class PeerRuntime(PeerContextMixin):
 
         self.heartbeat.stop()
         self._match_over = True
-        send_opponent_final_reveal(self, self.records)
+        self_audit = None
+        opponent_audit = None
+        if self.opponent_protocol == "cop_v1":
+            # Ch.5.3.2 order: reveal our nonces (she audits us and returns
+            # the summary), wait for hers, audit her locally, then report.
+            self_audit = send_opponent_final_reveal(self, self.records)
+            cop_shutdown_grace(self)
+            opponent_audit = self._cop_adapter.opponent_audit
+        else:
+            send_opponent_final_reveal(self, self.records)
         result = finalize_match(
             self.group_name,
             opponent_group_name,
@@ -132,8 +141,11 @@ class PeerRuntime(PeerContextMixin):
             self.repos,
             self.is_counted,
             self.opponent_protocol,
+            precomputed_self_audit=self_audit,
+            precomputed_opponent_audit=opponent_audit,
         )
-        cop_shutdown_grace(self)
+        if self.opponent_protocol != "cop_v1":
+            cop_shutdown_grace(self)
         return result
 
     def view(self):

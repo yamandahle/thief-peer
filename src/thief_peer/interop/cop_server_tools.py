@@ -1,51 +1,23 @@
-"""CopContextAdapter: lets this peer's own FastMCP server also answer a
-real Cop client's actual tool calls (`receive_commit`, `receive_reveal`,
-`share_scent_map`, `receive_step0`, `receive_barrier_declaration`,
-`receive_capture_claim`, `receive_capture_response`, `receive_final_reveal`)
--- registered by `cop_server_registration.py::register_cop_tools` alongside
-the native tools (`infra/mcp_server.py`), sharing the same underlying game
-state via `context` (normally `PeerRuntime` itself); only the entry
-translation differs.
+"""CopContextAdapter: FastMCP handlers for the Cop repo's tool names.
 
-Step tracking: her wire messages carry no explicit step number (unlike
-this repo's own `commit_move`/`reveal_move` payloads) -- she relies on
-call order matching turn order, so this adapter does too, via its own
-independent counters. A deliberate, documented simplification (per-
-adapter, not coupled to the live round loop's own step variable) -- correct
-for a normal, synchronous, one-call-at-a-time match, not hardened against
-retries or out-of-order delivery.
-
-`handle_receive_capture_claim` acknowledges receipt immediately, matching
-her own `receive_capture_claim` contract ("the truthful confirm/deny travels
-back later... via receive_capture_response, not this call's return value"),
-then fires that follow-up itself on a background thread using
-`self._context.transport` (the same live `McpTransport` every outbound
-`cop_send_*` call already uses -- no new plumbing needed, just reading it at
-call time). Confirmed by an actual live run: without this follow-up, the
-claimant's `receive_capture_claim` call waits the full `response_timeout_sec`
-and technical-losses, while this side's own report independently claims a
-win -- exactly the contradictory-report condition rule 35 ([FATAL]) voids a
-game over. Truth is checked against this peer's own real position only
-(`self._context.state.position`) -- the claimed cop position is never
-verified, since this peer has no visibility into the cop's true location at
-all (ADR-8, fog of war); rule 21's obligation on the *respondent* is only to
-not deny its own reality, not to audit the claimant's.
-
-`handle_receive_final_reveal` was found missing by an actual live run
-against her real process, not by inspection: her own `report_game()`
-always calls this peer's `receive_final_reveal` as part of *her* end-of-
-game sequence, regardless of whether this side's own `finalize_match`
-skips the (incompatible) audit exchange in `cop_v1` mode -- omitting the
-tool entirely meant her side's own match, otherwise fully successful,
-crashed on its very last step. Acknowledges only; no audit is attempted
-against the nonces/intents (interop/__init__.py's documented boundary).
+Records her commit/reveal stream into `CopPeerTrace` and, on Final Reveal
+(Ch.5.3.2), runs rules 19/36 peer audit — returning the summary so mutual
+audit is visible on the wire, not only in her local report.
 """
 
 import threading
 
 from thief_peer.interop.cop_handshake import build_own_declaration, verify_their_declaration
+from thief_peer.interop.cop_peer_audit import CopPeerTrace, audit_cop_peer_trace
 from thief_peer.interop.cop_turn_sender import cop_send_capture_response
 from thief_peer.interop.cop_wire import serialize_scent_for_cop, sign_cop_declaration
+
+_NOT_EVALUATED = {
+    "passed": False,
+    "verified_steps": 0,
+    "failed_steps": [],
+    "evaluated": False,
+}
 
 
 class CopContextAdapter:
@@ -54,19 +26,15 @@ class CopContextAdapter:
         self._shared_config_path = shared_config_path
         self._sub_game_number = sub_game_number
         self._commit_step = 0
-        # Exposed so a test can join() it rather than racing the background
-        # capture-response call; None until the first claim ever arrives.
-        self._capture_response_thread: threading.Thread | None = None
-        # Set once her own receive_final_reveal call actually lands -- lets
-        # cop_shutdown_grace wait for the real event rather than guessing a
-        # fixed sleep duration (her round loop's own pace isn't ours to
-        # predict; a live run against her real process is exactly what
-        # showed a blind 5s sleep wasn't long enough).
-        self.final_reveal_received = threading.Event()
         self._reveal_step = 0
+        self._capture_response_thread: threading.Thread | None = None
+        self.final_reveal_received = threading.Event()
+        self.peer_trace = CopPeerTrace()
+        self.opponent_audit: dict = dict(_NOT_EVALUATED)
 
     def handle_receive_commit(self, h_commit: str) -> dict:
         self._context.handle_commit_move({"step": self._commit_step, "h_commit": h_commit})
+        self.peer_trace.record_commit(h_commit)
         self._commit_step += 1
         return {"acknowledged": True}
 
@@ -82,6 +50,7 @@ class CopContextAdapter:
                 "intent": "truth",
             }
         )
+        self.peer_trace.record_reveal(move, hint_text)
         self._reveal_step += 1
         return {"accepted": True, "word_count": len(hint_text.split())}
 
@@ -89,10 +58,6 @@ class CopContextAdapter:
         return serialize_scent_for_cop(self._context.scent.snapshot())
 
     def handle_receive_barrier_declaration(self, col: int, row: int) -> dict:
-        # Her ack contract is {"acknowledged": True} (WIRE-CONTRACT.md); the
-        # native handler's own {"ok": True} is that protocol's own
-        # convention, not hers -- translate at this boundary rather than
-        # changing the native handler for every other caller.
         self._context.handle_receive_barrier_declaration({"row": row, "col": col})
         return {"acknowledged": True}
 
@@ -115,8 +80,17 @@ class CopContextAdapter:
         return {"acknowledged": True}
 
     def handle_receive_final_reveal(self, nonces: dict, intents: dict) -> dict:
+        """Ch.5.3.2 Final Reveal: store nonces, audit her commits (rules
+        19/36), signal shutdown-grace waiters, return the audit summary."""
+        self.peer_trace.record_final_reveal(nonces, intents)
+        config = self._context.config
+        self.opponent_audit = audit_cop_peer_trace(
+            self.peer_trace,
+            cop_start=config.require("board_and_agents.cop_start"),
+            grid_size=int(config.require("board_and_agents.grid_size")),
+        )
         self.final_reveal_received.set()
-        return {"acknowledged": True}
+        return {"acknowledged": True, **self.opponent_audit}
 
     def handle_receive_step0(self, declaration: dict, signature: str, repos: dict) -> dict:
         my_declaration = build_own_declaration(

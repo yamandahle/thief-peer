@@ -38,10 +38,18 @@ class _FakeTransport:
         return {"acknowledged": True}
 
 
+class _Cfg:
+    def require(self, key):
+        return {
+            "board_and_agents.cop_start": [0, 0],
+            "board_and_agents.grid_size": 7,
+        }[key]
+
+
 class _SpyContext:
     def __init__(self, position=(0, 0)):
         self.calls = []
-        self.config = "cfg"
+        self.config = _Cfg()
         self.group_name = "Thief-Team"
         self.repos = {"cop": "x", "thief": "y"}
         self.state = _State(position)
@@ -145,12 +153,24 @@ def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wron
     ]
 
 
-def test_handle_receive_final_reveal_only_acknowledges():
-    # Found necessary by an actual live run against her real process: her
-    # own report_game() always calls this, regardless of whether this
-    # side's own audit exchange is skipped in cop_v1 mode.
+def test_handle_receive_final_reveal_audits_peer_and_acks():
+    # Ch.5.3.2 + rules 19/36: Final Reveal triggers peer audit, not ack-only.
+    adapter = CopContextAdapter(_SpyContext(position=(2, 5)), shared_config_path="unused")
+    adapter.peer_trace.record_commit("deadbeef")
+    adapter.peer_trace.record_reveal({"type": "move", "direction": "E"}, "hint")
+
+    result = adapter.handle_receive_final_reveal({"1": "n" * 32}, {"1": True})
+
+    assert result["acknowledged"] is True
+    assert "passed" in result
+    assert adapter.final_reveal_received.is_set()
+    assert adapter.opponent_audit["evaluated"] is True
+
+
+def test_handle_receive_final_reveal_acks_when_empty():
     adapter = CopContextAdapter(_SpyContext(), shared_config_path="unused")
-    assert adapter.handle_receive_final_reveal({"0": "nonce"}, {"0": True}) == {"acknowledged": True}
+    assert adapter.handle_receive_final_reveal({}, {})["acknowledged"] is True
+
 
 
 @pytest.fixture
@@ -214,4 +234,6 @@ def test_cop_send_final_reveal_lands_on_the_registered_server(live_server_with_c
 
     result = cop_send_final_reveal(transport, {"0": "nonce"}, {"0": True})
 
-    assert result == {"acknowledged": True}
+    assert result["acknowledged"] is True
+    assert "passed" in result  # rules 19/36 audit summary rides on the ack
+

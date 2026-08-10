@@ -82,42 +82,57 @@ def finalize_match(
     repos: dict | None = None,
     is_counted: bool = True,
     opponent_protocol: str = "native",
+    precomputed_self_audit: dict | None = None,
+    precomputed_opponent_audit: dict | None = None,
 ) -> dict:
     game_id = derive_game_id(*sorted([group_name, opponent_group_name]))
     game_uid = derive_game_uid(game_id, sub_game_number)
     result_claim = "technical_loss" if end_reason == "technical_loss" else "survival"
 
-    _not_evaluated = {"passed": False, "verified_steps": 0, "failed_steps": []}
-    # A real Cop peer has no submit_audit/get_revealed_records tools -- her
-    # own end-of-match mechanism (receive_final_reveal) is wired separately
-    # (peer/runtime.py::send_opponent_final_reveal, before this function
-    # runs), so this native-only exchange is skipped entirely for her,
-    # rather than calling tools that don't exist on her server.
-    if end_reason == "technical_loss" or opponent_protocol not in _NATIVE_STYLE_AUDIT_PROTOCOLS:
+    _not_evaluated = {
+        "passed": False,
+        "verified_steps": 0,
+        "failed_steps": [],
+        "evaluated": False,
+    }
+    # cop_v1: Ch.5.3.2 Final Reveal carries nonces; both sides audit via
+    # recomputed Hcommit (rules 19/36). `PeerRuntime` precomputes both
+    # halves (her audit of us returned on our reveal call; our audit of
+    # her after her reveal lands) and passes them here.
+    if precomputed_self_audit is not None and precomputed_opponent_audit is not None:
+        self_audit = precomputed_self_audit
+        opponent_audit = precomputed_opponent_audit
+        # Only treat as rule-19 material when at least one side actually
+        # ran the Hcommit check (verified_steps>0 or failed_steps set).
+        audit_was_evaluated = end_reason != "technical_loss" and (
+            bool(self_audit.get("evaluated")) or bool(opponent_audit.get("evaluated"))
+        )
+    elif end_reason == "technical_loss" or opponent_protocol not in _NATIVE_STYLE_AUDIT_PROTOCOLS:
         self_audit = _not_evaluated
         opponent_audit = _not_evaluated
+        audit_was_evaluated = False
     else:
-        # Get audited BY the opponent (submit our own revealed log to them).
         audit_payload = build_audit_payload(_SENDER, result_claim, records)
         self_audit = transport.call("submit_audit", {"payload": audit_payload})
-
-        # Actively audit THEM: pull their revealed log and verify it
-        # ourselves, rather than only ever being the one getting checked.
         their_records = transport.call("get_revealed_records", {"payload": {}})["records"]
         opponent_audit = audit_records(their_records)
+        audit_was_evaluated = True
 
     audit = {
-        "passed": self_audit["passed"] and opponent_audit["passed"],
+        "passed": bool(self_audit.get("passed")) and bool(opponent_audit.get("passed")),
         "self_audited_by_opponent": self_audit,
         "opponent_audited_by_me": opponent_audit,
     }
 
-    audit_was_evaluated = (
-        end_reason != "technical_loss" and opponent_protocol in _NATIVE_STYLE_AUDIT_PROTOCOLS
-    )
-    if audit_was_evaluated and not opponent_audit["passed"]:
+    if (
+        audit_was_evaluated
+        and opponent_audit.get("evaluated", True)
+        and not opponent_audit["passed"]
+    ):
         winner = group_name  # caught the opponent forging -- automatic (rule 19)
-    elif audit_was_evaluated and not self_audit["passed"]:
+    elif (
+        audit_was_evaluated and self_audit.get("evaluated", True) and not self_audit["passed"]
+    ):
         winner = opponent_group_name  # the opponent caught us forging -- automatic
     elif end_reason in _WINNER_IS_OPPONENT:
         winner = opponent_group_name
@@ -132,9 +147,6 @@ def finalize_match(
         "num_sub_games": num_sub_games,
         "opponent_group_id": opponent_group_name,
         "groups": {
-            # Rule 49 ("four links in both teams' JSON"): only this peer's
-            # own known repos -- the opponent's are genuinely unknowable
-            # over this wire (no channel exists), never invented.
             "group_1": {"identity": group_name, "repos": repos or {}},
             "group_2": {"identity": opponent_group_name},
         },

@@ -65,7 +65,7 @@ def test_send_opponent_final_reveal_sends_nonces_and_intents_in_cop_v1_mode():
         {"payload": {"step": 2, "nonce": "n2", "intent": False}},
     ]
 
-    send_opponent_final_reveal(runtime, records)
+    result = send_opponent_final_reveal(runtime, records)
 
     assert runtime.transport.calls == [
         (
@@ -73,11 +73,16 @@ def test_send_opponent_final_reveal_sends_nonces_and_intents_in_cop_v1_mode():
             {"nonces": {"1": "n1", "2": "n2"}, "intents": {"1": True, "2": False}},
         )
     ]
+    assert result["passed"] is False  # stub transport returns ack-only
+    assert result["verified_steps"] == 0
 
 
 def test_send_opponent_final_reveal_does_nothing_in_native_mode():
     runtime = _FakeRuntime("native")
 
-    send_opponent_final_reveal(runtime, records=[{"payload": {"step": 1, "nonce": "n", "intent": "truth"}}])
+    result = send_opponent_final_reveal(
+        runtime, records=[{"payload": {"step": 1, "nonce": "n", "intent": "truth"}}]
+    )
 
     assert runtime.transport.calls == []
+    assert result["verified_steps"] == 0

@@ -89,22 +89,28 @@ def cop_shutdown_grace(runtime) -> None:
         time.sleep(RESPONSE_FLUSH_SECONDS)
 
 
-def send_opponent_final_reveal(runtime, records: list[dict]) -> None:
-    """Only meaningful for `cop_v1` -- native match-end uses its own
-    `submit_audit`/`get_revealed_records` exchange instead
-    (`peer/match_end.py`). `cop_send_final_reveal` was fully built (PRD 9)
-    but never actually called in `cop_v1` mode until now; wiring it up lets
-    her side's own `integrity/audit.py::run_mutual_audit` genuinely verify
-    this peer's per-turn commits, now that `sealed_step_record` hashes her
-    same 7-field envelope shape. This only closes *her* auditing *us* --
-    there is no documented tool on her side for the reverse (pulling her
-    own revealed records for this peer to audit her), so `match_end.py`'s
-    own `opponent_audited_by_me` honestly stays unevaluated for `cop_v1`;
-    closing that fully would need a new tool on her side, not this one."""
+def send_opponent_final_reveal(runtime, records: list[dict]) -> dict:
+    """Send our Final Reveal to the Cop (Ch.5.3.2). Returns her peer-audit
+    summary of *our* commits (rules 19/36) when present; otherwise an
+    honest not-evaluated stub. Native mode is a no-op."""
+    not_evaluated = {
+        "passed": False,
+        "verified_steps": 0,
+        "failed_steps": [],
+        "evaluated": False,
+    }
     if runtime.opponent_protocol != "cop_v1":
-        return
+        return not_evaluated
     nonces, intents = build_cop_final_reveal_payload(records)
-    cop_send_final_reveal(runtime.transport, nonces, intents)
+    response = cop_send_final_reveal(runtime.transport, nonces, intents)
+    if not isinstance(response, dict) or "passed" not in response:
+        return not_evaluated
+    return {
+        "passed": bool(response.get("passed", False)),
+        "verified_steps": int(response.get("verified_steps", 0)),
+        "failed_steps": list(response.get("failed_steps") or []),
+        "evaluated": True,
+    }
 
 
 def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool]:
