@@ -3,6 +3,16 @@ empirical sweep. Dev tooling only -- never imported by src/, never wired
 into a real match; runs entirely offline against synthetic opponents, not
 a real Cop implementation (respects rule 1/2's "one role per process" in
 spirit by staying purely a local simulation).
+
+KNOWN LIMITATION (found 2026-08-12, after the first real tuning attempt
+regressed real match performance -- see fleeing_brain.py's revert note):
+book_baseline_cop_move only ever moves, never places a barrier, so this
+simulator can never punish a Thief for camping in a corner. A weight
+configuration that scores well here is not proven safe against a real
+barrier-placing Cop. Before tuning again, this needs a capture mode that
+can wall the Thief in (e.g. a simple heuristic: when adjacent to the
+believed Thief cell, place a barrier there instead of moving), not just
+direct-collision capture.
 """
 
 from thief_peer.domain.belief import BeliefGrid

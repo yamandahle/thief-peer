@@ -15,24 +15,37 @@ from thief_peer.domain.board import Board, Cell
 from thief_peer.domain.own_state import OwnGameState
 from thief_peer.strategy.brain_base import BrainBase
 
-# Weighted-sum combination (PRD_3 §3), empirically tuned by
-# scripts/tune_weights.py (coordinate-ascent sweep, 60 trials/config,
-# scored on win rate against a real belief+scent book-baseline Cop
-# opponent -- not guessed): raised win rate from 17% to 77% over the
-# original reasoned defaults (1.0/1.5/0.1/5), also corroborated by an
-# independent sanity check (avg. distance maintained against a second,
-# unrelated opponent model improved too, 4.59 -> 5.60 -- not just
-# overfitting to the one opponent tuned against).
-EXPECTED_DISTANCE_WEIGHT = 2.0
+# Weighted-sum combination (PRD_3 §3): expected distance dominates in open
+# space, but a large mobility gap (the signature of a real dead end, not
+# just "slightly fewer options") can still outweigh a small distance edge --
+# this is what keeps the Thief out of corners the naive single-peak-fleeing
+# baseline walks straight into.
+#
+# REVERTED (2026-08-12) from an empirically-"tuned" 2.0/1.5/0.5/10: that
+# configuration scored well (77% win rate) against scripts/tune_weights.py's
+# simulated opponent, but that simulator only ever moves -- it never places
+# a barrier, so it can never punish camping in a corner. In real matches
+# against the actual Cop repo (6 real games, --warmup), the higher
+# EXPECTED_DISTANCE_WEIGHT made corners look locally optimal (often the
+# single farthest cell from the believed Cop position) and the Thief
+# repeatedly chose STAY there for many consecutive rounds instead of
+# escaping, letting the real Cop wall it in with barriers -- 5 of 6 losses,
+# all via the identical STAY-camping-in-the-corner pattern (see
+# peer/round_reporter.py's live output, which is what caught this). Real
+# win rate across all real matches so far: 2/7 (~29%), worse than these
+# original values. A simulator that actually models barrier placement is
+# needed before attempting to re-tune -- see the open item in
+# scripts/tuning_cop.py's module docstring.
+EXPECTED_DISTANCE_WEIGHT = 1.0
 MOBILITY_WEIGHT = 1.5
-LOOKAHEAD_WEIGHT = 0.5
+LOOKAHEAD_WEIGHT = 0.1
 TIE_EPSILON = 1e-6
 
 # Top-N highest-probability belief cells considered as candidate Cop
 # positions in the expectimax lookahead -- keeps the search tractable
 # without discarding the distribution the way a single most_likely()
-# point does. Also empirically tuned (see above).
-LOOKAHEAD_CANDIDATE_COUNT = 10
+# point does.
+LOOKAHEAD_CANDIDATE_COUNT = 5
 
 
 class ThiefBrain(BrainBase):
