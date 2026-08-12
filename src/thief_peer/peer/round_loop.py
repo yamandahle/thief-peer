@@ -23,10 +23,11 @@ def play_round(
     sender: str,
     round_deadline_sec: float,
     last_opponent_scent: dict,
-) -> tuple[dict, dict, bool]:
-    """Returns (sealed_record, next_opponent_scent, technical_loss)."""
+    last_opponent_hint: str = "",
+) -> tuple[dict, dict, str, bool]:
+    """Returns (sealed_record, next_opponent_scent, next_opponent_hint, technical_loss)."""
     turn_fsm.transition("COMPUTING_MOVE")
-    decision = turn_handler.play_turn(last_opponent_scent)
+    decision = turn_handler.play_turn(last_opponent_scent, last_opponent_hint)
     decision.hint = trash_talk.generate_hint(step)
     scent.advance(turn_handler.state.position)
 
@@ -49,9 +50,10 @@ def play_round(
         their_reveal = round_exchange.wait_for_reveal(step, round_deadline_sec)
     except DeadlineExceededError:
         turn_fsm.transition("TECHNICAL_LOSS")
-        return record, last_opponent_scent, True
+        return record, last_opponent_scent, last_opponent_hint, True
 
     turn_fsm.transition("VERIFYING")
     next_scent = their_reveal.get("scent_grid", {})
+    next_hint = their_reveal.get("hint", "")
     turn_fsm.transition("WAITING_FOR_OPPONENT")
-    return record, next_scent, False
+    return record, next_scent, next_hint, False

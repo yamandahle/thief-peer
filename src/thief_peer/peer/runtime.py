@@ -83,6 +83,7 @@ class PeerRuntime(PeerContextMixin):
         self.round_exchange = RoundExchange()
         self.records: list[dict] = []
         self._last_opponent_scent: dict[str, float] = {}
+        self._last_opponent_hint: str = ""
         self._match_over = False
         self._captured_by_barrier = False
         self.opponent_repos: dict = {}
@@ -107,7 +108,9 @@ class PeerRuntime(PeerContextMixin):
         step = 0
         while step < self.max_moves:
             step += 1
-            record, self._last_opponent_scent, technical_loss = play_opponent_round(self, step)
+            record, self._last_opponent_scent, self._last_opponent_hint, technical_loss = (
+                play_opponent_round(self, step)
+            )
             self.records.append(record)
             self.heartbeat.beat()
             if technical_loss:

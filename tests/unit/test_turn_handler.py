@@ -45,6 +45,29 @@ def test_play_turn_folds_the_scent_snapshot_into_the_belief_grid():
     assert likely[0] >= 4 and likely[1] >= 4
 
 
+def test_play_turn_folds_a_directional_hint_into_the_belief_grid():
+    # book Ch.6.4 (page 47): the incoming hint text, not just scent, must
+    # reach the belief update.
+    board = Board(size=8, barriers=set())
+    state = OwnGameState(position=(0, 0))
+    handler = TurnHandler(board, state, ThiefBrain())
+
+    handler.play_turn(opponent_scent_snapshot={}, opponent_hint_text="last seen out west")
+
+    likely = handler.belief.most_likely()
+    assert likely[1] < 4  # west half of the columns
+
+
+def test_play_turn_defaults_to_no_hint_text():
+    board = Board(size=5, barriers=set())
+    state = OwnGameState(position=(2, 2))
+    handler = TurnHandler(board, state, ThiefBrain())
+
+    decision = handler.play_turn(opponent_scent_snapshot={"0,0": 0.9})  # no third arg
+
+    assert decision.move_type in (MoveType.MOVE, MoveType.HOLD)
+
+
 def test_run_scripted_match_plays_one_turn_per_scripted_scent_snapshot():
     board = Board(size=5, barriers=set())
     state = OwnGameState(position=(2, 2))

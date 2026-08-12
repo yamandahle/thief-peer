@@ -13,6 +13,13 @@ from thief_peer.domain.board import Board, Cell
 from thief_peer.domain.own_state import OwnGameState
 from thief_peer.shared.config import ConfigManager
 
+# Book Ch.6.4 (page 47) requires folding hints into the belief update with
+# "a reliability coefficient... since the text may be false," but gives no
+# number -- kept low, well below scent's implicit full trust, so a false
+# hint can never outweigh the unfakeable scent signal (same kind of
+# unspecified-by-the-book constant as trash_talk.py's _LIE_THRESHOLD).
+HINT_RELIABILITY = 0.3
+
 
 @dataclass
 class Decision:

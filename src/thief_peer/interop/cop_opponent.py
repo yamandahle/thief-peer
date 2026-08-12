@@ -118,9 +118,14 @@ def send_opponent_final_reveal(runtime, records: list[dict]) -> dict:
     }
 
 
-def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool]:
+def play_opponent_round(runtime, step: int) -> tuple[dict, dict, str, bool]:
     if runtime.opponent_protocol == "cop_v1":
-        return play_round_cop(
+        # play_round_cop never learns her hint synchronously (it arrives,
+        # if at all, via an inbound receive_hint MCP call on our own
+        # server, not this round-trip) -- out of scope for now, so the
+        # hint slot stays at whatever it already was (never populated on
+        # this path).
+        record, next_scent, technical_loss = play_round_cop(
             step,
             runtime.turn_handler,
             runtime.turn_fsm,
@@ -129,6 +134,7 @@ def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool]:
             runtime.transport,
             runtime._last_opponent_scent,
         )
+        return record, next_scent, runtime._last_opponent_hint, technical_loss
     return play_round(
         step,
         runtime.turn_handler,
@@ -140,4 +146,5 @@ def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool]:
         _SENDER,
         runtime.round_deadline_sec,
         runtime._last_opponent_scent,
+        runtime._last_opponent_hint,
     )

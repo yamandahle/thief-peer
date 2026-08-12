@@ -1,8 +1,10 @@
 """BeliefGrid (PRD_4 §2.3, §3): a probability distribution over the
-believed opponent position, updated from the opponent's scent field alone.
-A hint is never folded in as a second observation here -- scent is
-unfakeable ground truth, a hint is a claim to be tested against it, never
-trusted standalone (book Ch.4.4/6.4; PRD_4 §4).
+believed opponent position. `observe_scent` is the primary, fully-trusted
+update -- scent is unfakeable ground truth (book Ch.4.4/6.4; PRD_4 §4).
+`observe_hint` (book Ch.6.4, page 47) folds in a parsed hint-direction cue
+as a second, much weaker observation, reliability-weighted since the hint
+text may be false -- it can nudge the distribution but never outweigh what
+scent already established.
 """
 
 from thief_peer.constants import DELTAS
@@ -23,6 +25,24 @@ class BeliefGrid:
             for c in range(self._size):
                 intensity = cells.get(f"{r},{c}", 0.0)
                 self._matrix[r][c] *= 1.0 + intensity
+        self._normalize()
+
+    def observe_hint(self, direction_weights: dict[str, float] | None, reliability: float) -> None:
+        """Fold a parsed hint-direction cue into the belief update (book
+        Ch.6.4, page 47): "on every incoming hint, apply Bayes' rule to
+        update probabilities, placing a reliability coefficient on the
+        text -- since the text may be false." Mirrors observe_scent's own
+        reweight-then-renormalize pattern, but scaled by `reliability`
+        (kept well below scent's implicit full trust) instead of full
+        trust, so a false hint can never outweigh the unfakeable scent
+        signal. `direction_weights=None`/empty is an honest no-op -- never
+        fabricate a signal the hint text didn't actually contain."""
+        if not direction_weights:
+            return
+        for r in range(self._size):
+            for c in range(self._size):
+                weight = direction_weights.get(f"{r},{c}", 0.0)
+                self._matrix[r][c] *= 1.0 + reliability * weight
         self._normalize()
 
     def diffuse(self) -> None:

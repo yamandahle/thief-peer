@@ -1,9 +1,12 @@
-"""BeliefGrid tests (PRD_4 §2.3, §3, §5). observe_scent() is the only
-update path -- a hint is never accepted as an input at all, which is the
-structural proof that a verbal claim can never outweigh the unfakeable
-scent signal (book Ch.4.4/6.4's lie-detection worked example)."""
+"""BeliefGrid tests (PRD_4 §2.3, §3, §5). observe_scent() takes only the
+scent snapshot -- structural proof scent itself can never be second-guessed
+by a hint at that call site. observe_hint() (book Ch.6.4, page 47) is a
+separate, much weaker, reliability-scaled update path, added specifically
+so a false hint can never outweigh what scent already established."""
 
 from thief_peer.domain.belief import BeliefGrid
+from thief_peer.domain.hint_direction import parse_direction_cue
+from thief_peer.strategy.brain_base import HINT_RELIABILITY
 
 
 def test_init_is_uniform_over_all_cells():
@@ -92,4 +95,40 @@ def test_lie_detection_scent_alone_drives_belief_regardless_of_any_claim():
     assert likely in {(5, 6), (5, 5), (6, 6)}
     # Whatever a hint might have claimed ("I moved north"), the far side of
     # the board is nowhere near the winning cell.
+    assert likely[0] >= 5 and likely[1] >= 5
+
+
+def test_observe_hint_matches_hand_computed_reweighting():
+    belief = BeliefGrid(board_size=3)
+    belief.observe_hint({"1,1": 1.0}, reliability=0.5)
+    matrix = belief.as_matrix()
+
+    # (1/9)*(1+0.5) renormalized against 8 untouched (1/9) cells -> 3/19, 2/19
+    assert abs(matrix[1][1] - 3 / 19) < 1e-9
+    assert abs(matrix[0][0] - 2 / 19) < 1e-9
+    total = sum(sum(row) for row in matrix)
+    assert abs(total - 1.0) < 1e-9
+
+
+def test_observe_hint_is_a_noop_when_no_direction_cue_was_parsed():
+    belief = BeliefGrid(board_size=4)
+    before = [row[:] for row in belief.as_matrix()]
+
+    belief.observe_hint(None, reliability=0.5)
+    belief.observe_hint({}, reliability=0.5)
+
+    assert belief.as_matrix() == before
+
+
+def test_lie_detection_scent_still_wins_over_a_contradicting_hint_direction():
+    # book Ch.6.4 (page 47) requires folding the hint in -- but reliability
+    # (HINT_RELIABILITY) must stay low enough that a false hint pointing the
+    # opposite way still cannot overturn what scent already established.
+    belief = BeliefGrid(board_size=7)
+    belief.observe_scent({"5,6": 0.9, "5,5": 0.62, "6,6": 0.62})  # southeast
+
+    contradicting_cue = parse_direction_cue("I'm hiding in the far northwest corner", 7)
+    belief.observe_hint(contradicting_cue, HINT_RELIABILITY)
+
+    likely = belief.most_likely()
     assert likely[0] >= 5 and likely[1] >= 5
