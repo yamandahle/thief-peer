@@ -76,6 +76,11 @@ def run_opponent_handshake(runtime) -> str:
             runtime.shared_config_path,
             runtime.repos,
         )
+        # Rule 49: Step-0 carries both sides' repo links — stash hers for
+        # the end-of-match declaration/result JSON (never invent URLs).
+        runtime.opponent_repos = dict(response.get("repos") or {})
+        their_hw = (response.get("declaration") or {}).get("hardware") or {}
+        runtime.opponent_llm_model = their_hw.get("llm_model")
         return response["declaration"]["group_name"]
     their_step0 = run_handshake(
         runtime.config, runtime.transport, runtime.group_name, runtime.shared_config_path

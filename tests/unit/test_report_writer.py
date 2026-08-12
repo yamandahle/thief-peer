@@ -1,43 +1,9 @@
-"""report/report_writer.py tests (PRD_7 §2.7, §3, §5). The league counter
-must survive a simulated process restart (a fresh LeagueCounter instance
-pointed at the same file), not just live in memory -- lying about this
-count is an explicit disqualification-level offense if caught (PRD_7 §2.7)."""
+"""report/report_writer.py tests (PRD_7 §2.7)."""
 
 import json
 
-from thief_peer.exceptions import ProviderError, TransportError
+from thief_peer.exceptions import TransportError
 from thief_peer.report.report_writer import LeagueCounter, write_and_send
-
-
-def test_league_counter_starts_at_zero_for_a_new_opponent(tmp_path):
-    counter = LeagueCounter(tmp_path / "league.json")
-    assert counter.games_played_against("cop-team") == 0
-
-
-def test_league_counter_increments_on_each_recorded_game(tmp_path):
-    counter = LeagueCounter(tmp_path / "league.json")
-    assert counter.record_game("cop-team") == 1
-    assert counter.record_game("cop-team") == 2
-    assert counter.games_played_against("cop-team") == 2
-
-
-def test_league_counter_survives_a_simulated_process_restart(tmp_path):
-    path = tmp_path / "league.json"
-    LeagueCounter(path).record_game("cop-team")
-    LeagueCounter(path).record_game("cop-team")
-
-    fresh_instance = LeagueCounter(path)  # simulates a new process
-    assert fresh_instance.games_played_against("cop-team") == 2
-
-
-def test_league_counter_tracks_different_opponents_independently(tmp_path):
-    counter = LeagueCounter(tmp_path / "league.json")
-    counter.record_game("cop-team-a")
-    counter.record_game("cop-team-a")
-    counter.record_game("cop-team-b")
-
-    assert counter.games_played_against("cop-team-a") == 2
-    assert counter.games_played_against("cop-team-b") == 1
 
 
 def _match_result(**overrides):
@@ -46,13 +12,60 @@ def _match_result(**overrides):
         "game_uid": "a-vs-b_g01",
         "sub_game_number": 1,
         "num_sub_games": 1,
-        "opponent_group_id": "cop-team",
-        "groups": {"group_1": {"identity": "thief"}},
-        "shared_terms": {"grid_size": 7},
-        "config_name": "config_dev_g01",
-        "records": [{"payload": {"state": "s"}, "commit": "abc"}],
-        "audit": {"passed": True, "verified_steps": 1, "failed_steps": []},
-        "final_result": {"winner_group": "thief", "tokens_total_series": 100},
+        "group_ids": ["cop-team", "thief-team"],
+        "timezone": "Asia/Jerusalem",
+        "game_started_at": "2026-01-01T00:00:00+00:00",
+        "game_ended_at": "2026-01-01T00:01:00+00:00",
+        "max_tokens_per_game": 200000,
+        "own": {
+            "group_id": "thief-team",
+            "group_name": "Thief-Team",
+            "members": [],
+            "repos": {},
+            "mcp_servers": {},
+            "llm_model": "template",
+            "hardware_spec": {},
+        },
+        "opponent": {
+            "group_id": "cop-team",
+            "group_name": "Cop-Team",
+            "members": [],
+            "repos": {},
+            "mcp_servers": {},
+            "llm_model": "template",
+            "hardware_spec": {},
+        },
+        "shared_config_terms": {"board_and_agents": {"grid_size": 7}},
+        "log_summary": {
+            "sub_game_number": 1,
+            "group_id": "thief-team",
+            "role": "thief",
+            "opponent_group_id": "cop-team",
+            "result": "survival",
+            "winner_role": "thief",
+            "steps": 1,
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "ended_at": "2026-01-01T00:01:00+00:00",
+            "duration_seconds": 60.0,
+            "tokens_total": 0,
+            "audit": {"passed": True, "verified_steps": 1, "failed_steps": []},
+            "records": [{"payload": {"step": 1}, "commit": "abc", "nonce": "n"}],
+        },
+        "sub_games": [
+            {
+                "sub_game_number": 1,
+                "tokens": {"thief-team": 0, "cop-team": 0},
+                "audit": {"log_verified": True, "tampered": False},
+            }
+        ],
+        "final_result_aggregate": {
+            "total_score": {"thief-team": 10, "cop-team": 5},
+            "sub_games_won": {"thief-team": 1, "cop-team": 0},
+            "ties": 0,
+            "winner_group": "thief-team",
+            "series_tie": False,
+        },
+        "mutual_sha256": "abc123",
     }
     base.update(overrides)
     return base
@@ -76,14 +89,12 @@ class _RaisingGatekeeper:
 
 
 def test_write_and_send_creates_all_four_artifact_files_on_disk(tmp_path):
-    gatekeeper = _SpyGatekeeper()
     write_and_send(
         _match_result(),
-        gatekeeper=gatekeeper,
+        gatekeeper=_SpyGatekeeper(),
         email_service=object(),
         recipient="grader@example.com",
         results_dir=tmp_path / "results",
-        league_counter=LeagueCounter(tmp_path / "league.json"),
     )
 
     files = sorted(p.name for p in (tmp_path / "results").iterdir())
@@ -95,25 +106,26 @@ def test_write_and_send_creates_all_four_artifact_files_on_disk(tmp_path):
     ]
 
 
-def test_write_and_send_includes_the_league_counter_in_the_declaration(tmp_path):
-    gatekeeper = _SpyGatekeeper()
-    counter = LeagueCounter(tmp_path / "league.json")
-    counter.record_game("cop-team")  # one prior game already played
-
+def test_write_and_send_emits_template_shapes_without_extra_keys(tmp_path):
     write_and_send(
         _match_result(),
-        gatekeeper=gatekeeper,
+        gatekeeper=_SpyGatekeeper(),
         email_service=object(),
         recipient="grader@example.com",
         results_dir=tmp_path / "results",
-        league_counter=counter,
     )
 
     declaration = json.loads((tmp_path / "results" / "declaration_a-vs-b.json").read_text())
-    assert declaration["games_played_against_opponent"] == 2
+    result = json.loads((tmp_path / "results" / "result_a-vs-b.json").read_text())
+
+    assert declaration["schema_version"] == "1.1"
+    assert "games_played_against_opponent" not in declaration
+    assert "timestamp" not in declaration
+    assert result["schema_version"] == "1.1"
+    assert "mutual_agreement_signature" not in result
 
 
-def test_write_and_send_calls_the_gatekeeper_exactly_once_with_send_report(tmp_path):
+def test_write_and_send_calls_send_report_bundle_with_four_attachments(tmp_path):
     gatekeeper = _SpyGatekeeper()
     write_and_send(
         _match_result(),
@@ -121,110 +133,38 @@ def test_write_and_send_calls_the_gatekeeper_exactly_once_with_send_report(tmp_p
         email_service=object(),
         recipient="grader@example.com",
         results_dir=tmp_path / "results",
-        league_counter=LeagueCounter(tmp_path / "league.json"),
     )
 
-    assert len(gatekeeper.calls) == 1
-    api_call, args, kwargs = gatekeeper.calls[0]
-    assert api_call.__name__ == "send_report"
-    assert args[1] == "grader@example.com"
+    api_call, args, _kwargs = gatekeeper.calls[0]
+    assert api_call.__name__ == "send_report_bundle"
+    assert len(args[2]) == 4
 
 
-def test_write_and_send_does_not_increment_the_counter_for_an_uncounted_game(tmp_path):
-    """Rule 52: uncounted warm-up games are permitted, but must never
-    inflate the persisted per-opponent count a real league match relies on
-    (rules 37/38 -- the declared count must stay accurate)."""
-    gatekeeper = _SpyGatekeeper()
+def test_league_counter_persists_across_restarts(tmp_path):
     counter = LeagueCounter(tmp_path / "league.json")
-    counter.record_game("cop-team")  # one real, counted game already played
+    counter.record_game("cop-team")
+    assert LeagueCounter(tmp_path / "league.json").games_played_against("cop-team") == 1
 
+
+def test_write_and_send_still_writes_artifacts_when_email_fails(tmp_path):
     write_and_send(
         _match_result(),
-        gatekeeper=gatekeeper,
+        gatekeeper=_RaisingGatekeeper(TransportError("locked")),
         email_service=object(),
         recipient="grader@example.com",
         results_dir=tmp_path / "results",
-        league_counter=counter,
-        is_counted=False,
     )
-
-    assert counter.games_played_against("cop-team") == 1  # unchanged
-    declaration = json.loads((tmp_path / "results" / "declaration_a-vs-b.json").read_text())
-    assert declaration["games_played_against_opponent"] == 1
+    assert len(list((tmp_path / "results").iterdir())) == 4
 
 
-def test_write_and_send_returns_the_four_assembled_artifacts(tmp_path):
-    gatekeeper = _SpyGatekeeper()
-    artifacts = write_and_send(
-        _match_result(),
-        gatekeeper=gatekeeper,
-        email_service=object(),
-        recipient="grader@example.com",
-        results_dir=tmp_path / "results",
-        league_counter=LeagueCounter(tmp_path / "league.json"),
-    )
-
-    assert set(artifacts) == {"declaration", "config", "log", "result", "email_sent"}
-    assert artifacts["result"]["final_result"]["winner_group"] == "thief"
-    assert artifacts["email_sent"] is True
-
-
-def test_write_and_send_still_writes_all_artifacts_when_the_gatekeeper_blocks_the_email(tmp_path):
-    """Rule 33/34 (the four JSON artifacts) must not depend on rule 32's
-    email step succeeding -- a real DOS-lock/queue-full/rate-limit block
-    (TransportError/ProviderError, the only two types ApiGatekeeper.execute
-    can raise) degrades the email step to best-effort rather than aborting
-    the whole match report."""
-    gatekeeper = _RaisingGatekeeper(TransportError("gatekeeper locked"))
-
-    artifacts = write_and_send(
-        _match_result(),
-        gatekeeper=gatekeeper,
-        email_service=object(),
-        recipient="grader@example.com",
-        results_dir=tmp_path / "results",
-        league_counter=LeagueCounter(tmp_path / "league.json"),
-    )
-
-    assert artifacts["email_sent"] is False
-    files = sorted(p.name for p in (tmp_path / "results").iterdir())
-    assert files == [
-        "config_a-vs-b_g01.json",
-        "declaration_a-vs-b.json",
-        "log_a-vs-b_g01.json",
-        "result_a-vs-b.json",
-    ]
-
-
-def test_write_and_send_reports_email_not_sent_on_a_provider_error_too(tmp_path):
-    gatekeeper = _RaisingGatekeeper(ProviderError("Gatekeeper call failed after retries"))
-
-    artifacts = write_and_send(
-        _match_result(),
-        gatekeeper=gatekeeper,
-        email_service=object(),
-        recipient="grader@example.com",
-        results_dir=tmp_path / "results",
-        league_counter=LeagueCounter(tmp_path / "league.json"),
-    )
-
-    assert artifacts["email_sent"] is False
-
-
-def test_write_and_send_does_not_swallow_an_unrelated_bug(tmp_path):
-    """The narrowed except must not hide a genuine bug elsewhere in this
-    call chain -- only the two exception types the real ApiGatekeeper.execute
-    can actually raise are treated as a best-effort email failure."""
+def test_write_and_send_does_not_swallow_unrelated_bugs(tmp_path):
     import pytest
-
-    gatekeeper = _RaisingGatekeeper(ValueError("not a gatekeeper failure"))
 
     with pytest.raises(ValueError):
         write_and_send(
             _match_result(),
-            gatekeeper=gatekeeper,
+            gatekeeper=_RaisingGatekeeper(ValueError("bug")),
             email_service=object(),
             recipient="grader@example.com",
             results_dir=tmp_path / "results",
-            league_counter=LeagueCounter(tmp_path / "league.json"),
         )

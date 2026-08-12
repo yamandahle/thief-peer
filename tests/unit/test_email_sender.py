@@ -14,12 +14,16 @@ def _sample_report():
     return {"game_id": "a-vs-b", "result": "survival", "step_count": 12}
 
 
+def _attachments(report=None):
+    return {"report.json": report or _sample_report()}
+
+
 def test_scope_is_least_privilege_send_only():
     assert SCOPES == ["https://www.googleapis.com/auth/gmail.send"]
 
 
 def test_build_message_has_a_json_attachment_part():
-    message = build_message("grader@example.com", "Match report", _sample_report())
+    message = build_message("grader@example.com", "Match report", _attachments())
 
     attachments = [
         part
@@ -32,7 +36,7 @@ def test_build_message_has_a_json_attachment_part():
 
 def test_build_message_attachment_content_matches_the_report_exactly():
     report = _sample_report()
-    message = build_message("grader@example.com", "Match report", report)
+    message = build_message("grader@example.com", "Match report", _attachments(report))
 
     attachment = next(part for part in message.walk() if part.get_content_disposition() == "attachment")
     decoded = json.loads(attachment.get_payload(decode=True).decode("utf-8"))
@@ -40,10 +44,8 @@ def test_build_message_attachment_content_matches_the_report_exactly():
 
 
 def test_build_message_body_text_does_not_contain_the_raw_report_json():
-    # The body is a short human-readable note, never the report data itself
-    # -- the JSON only exists in the attachment part (PRD_7 §2.5, §4).
     report = _sample_report()
-    message = build_message("grader@example.com", "Match report", report)
+    message = build_message("grader@example.com", "Match report", _attachments(report))
 
     body_parts = [
         part
@@ -57,7 +59,7 @@ def test_build_message_body_text_does_not_contain_the_raw_report_json():
 
 
 def test_build_message_sets_recipient_and_subject():
-    message = build_message("grader@example.com", "Match report: g01", _sample_report())
+    message = build_message("grader@example.com", "Match report: g01", _attachments())
     assert message["to"] == "grader@example.com"
     assert message["subject"] == "Match report: g01"
 
@@ -101,8 +103,6 @@ def test_send_report_submits_a_base64_encoded_raw_message():
 
 
 def test_send_report_never_puts_the_report_directly_in_the_send_call_body():
-    # Regression guard against ever "simplifying" this into inlining JSON
-    # as plain text -- the wire body must always be the MIME 'raw' envelope.
     service = _FakeService()
     send_report(service, "grader@example.com", _sample_report())
 

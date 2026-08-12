@@ -1,15 +1,5 @@
-"""report_writer (PRD_7 §2.7, §3): assembles the four artifacts, writes
-them to disk, and sends the result via the Gatekeeper -- triggered after
-every legal match, unconditionally. `LeagueCounter` persists the
-per-opponent games-played count across separate match invocations (PRD_7
-§2.7) -- lying about this count is an explicit disqualification-level
-offense if caught, so it must survive a process restart, not just live in
-memory. `is_counted` (rule 52 fix, found in a compliance re-audit) gates
-whether *this specific* match actually increments that counter -- uncounted
-warm-up/test games are explicitly permitted by the book, but must never
-silently inflate the persisted count a real league match's declaration
-relies on being accurate (rules 37/38).
-"""
+"""report_writer (PRD_7 §2.7): assembles the four Table-20 JSON artifacts
+(PDF / PLAN.md §5 field requirements) and emails them as attachments (rule 34)."""
 
 import json
 from pathlib import Path
@@ -52,49 +42,69 @@ def write_and_send(
     league_counter: LeagueCounter | None = None,
     is_counted: bool = True,
 ) -> dict:
-    counter = league_counter or LeagueCounter()
-    if is_counted:
-        games_played = counter.record_game(match_result["opponent_group_id"])
-    else:
-        games_played = counter.games_played_against(match_result["opponent_group_id"])
+    del league_counter, is_counted  # league bookkeeping stays out of the four JSON files
 
-    declaration = build_declaration(
-        game_id=match_result["game_id"],
-        game_uid=match_result["game_uid"],
-        num_sub_games=match_result["num_sub_games"],
-        groups=match_result["groups"],
-    )
-    declaration["games_played_against_opponent"] = games_played
+    game_id = match_result["game_id"]
+    game_uid = match_result["game_uid"]
+    sub_game_number = match_result["sub_game_number"]
+    group_ids = match_result["group_ids"]
+    timezone = match_result["timezone"]
 
     artifacts = {
-        "declaration": declaration,
-        "config": build_config(match_result["shared_terms"], match_result["config_name"]),
-        "log": build_log(match_result["records"], match_result["audit"]),
+        "declaration": build_declaration(
+            game_id,
+            game_uid,
+            timezone=timezone,
+            game_started_at=match_result["game_started_at"],
+            game_ended_at=match_result["game_ended_at"],
+            num_sub_games=match_result["num_sub_games"],
+            max_tokens_per_game=match_result["max_tokens_per_game"],
+            own=match_result["own"],
+            opponent=match_result["opponent"],
+        ),
+        "config": build_config(
+            match_result["shared_config_terms"],
+            game_id,
+            game_uid,
+            sub_game_number,
+            group_ids,
+        ),
+        "log": build_log(
+            match_result["log_summary"],
+            game_id,
+            game_uid,
+        ),
         "result": build_result(
-            match_result["final_result"], match_result.get("mutual_agreement_signature")
+            game_id,
+            game_uid,
+            timezone,
+            group_ids,
+            match_result["sub_games"],
+            match_result["final_result_aggregate"],
+            match_result["mutual_sha256"],
         ),
     }
 
-    filenames = artifact_filenames(match_result["game_id"], match_result["sub_game_number"])
+    filenames = artifact_filenames(game_id, sub_game_number)
     results_path = Path(results_dir)
     results_path.mkdir(parents=True, exist_ok=True)
     for key, artifact in artifacts.items():
-        (results_path / filenames[key]).write_text(json.dumps(artifact, indent=2), encoding="utf-8")
+        (results_path / filenames[key]).write_text(
+            json.dumps(artifact, indent=2, ensure_ascii=False), encoding="utf-8"
+        )
+
+    email_attachments = {filenames[key]: artifacts[key] for key in filenames}
 
     try:
-        gatekeeper.execute(email_sender.send_report, email_service, recipient, artifacts["result"])
+        gatekeeper.execute(
+            email_sender.send_report_bundle,
+            email_service,
+            recipient,
+            email_attachments,
+            subject=f"Police-Thief match report — {game_uid}",
+        )
         artifacts["email_sent"] = True
     except (TransportError, ProviderError) as exc:
-        # The only two exception types that ever escape ApiGatekeeper.execute
-        # (shared/gatekeeper.py's DOS-lock/queue-full checks raise
-        # TransportError directly; _call_with_retry wraps every other
-        # failure, including a real rate-limit block, as ProviderError after
-        # retries are exhausted) -- narrowed from a bare `except Exception`
-        # so a genuine bug elsewhere in this call chain still surfaces
-        # instead of being silently absorbed here. The four artifacts above
-        # are already on disk regardless (rules 33/34); this only degrades
-        # the rule-32 email step to best-effort, and says so in the return
-        # value rather than only printing once and moving on.
         print(f"[Warning] Email send skipped: {exc}")
         artifacts["email_sent"] = False
 

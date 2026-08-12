@@ -1,14 +1,6 @@
-"""peer/match_end.py tests (PRD_8 §3; post-Stage-8 mutual-audit fix).
+"""peer/match_end.py tests (PRD_8 §3; post-Stage-8 mutual-audit fix)."""
 
-Pins the symmetric game_id fix found while building the Stage-8 live-match
-integration test (order-sensitive derive_game_id), and the mutual-audit fix
-found afterward: finalize_match used to only ever submit this peer's own
-records to the opponent's `submit_audit` (getting audited BY them) without
-ever pulling and auditing the opponent's own revealed log (auditing THEM) --
-rules 19/36 require both directions, not one. `opponent_audit` failing (this
-peer catches the opponent lying) or `self_audit` failing (the opponent
-catches this peer lying) must each override the natural game-outcome winner,
-per rule 19's "any hash mismatch = automatic 0 to the forging team"."""
+import json
 
 from thief_peer.domain.crypto import CommitReveal
 from thief_peer.peer.match_end import finalize_match
@@ -62,15 +54,24 @@ class _FakeGmailService:
 
 
 class _ConfigStub:
+    _SCORING = {
+        "scoring.capture_thief": 5,
+        "scoring.capture_cop": 20,
+        "scoring.survival_thief": 10,
+        "scoring.survival_cop": 5,
+        "board_and_agents.grid_size": 7,
+    }
+
     def get(self, key, default=None):
-        return default
+        return self._SCORING.get(key, default)
 
     def require(self, key):
-        raise AssertionError(f"unexpected require({key!r}) in this test")
+        if key not in self._SCORING:
+            raise AssertionError(f"unexpected require({key!r}) in this test")
+        return self._SCORING[key]
 
 
 def _finalize(tmp_path, monkeypatch, **overrides):
-    monkeypatch.setattr("thief_peer.peer.match_end.canonical_terms", lambda config: {"grid_size": 7})
     kwargs = {
         "group_name": "Thief-Team-A",
         "opponent_group_name": "Thief-Team-B",
@@ -170,23 +171,29 @@ def test_being_caught_lying_by_the_opponent_overrides_the_natural_winner(tmp_pat
     assert result["final_result"]["winner_group"] == "Thief-Team-B"
 
 
-def test_repos_are_included_in_group_1s_own_entry_when_supplied(tmp_path, monkeypatch):
-    """Rule 49 ("four links in both teams' JSON"): report this peer's own
-    known repo URLs -- never invented for the opponent's side, which has no
-    wire channel to learn (same honest limitation the Cop repo's own
-    orchestrator_end_of_game.py docstring documents)."""
-    repos = {"thief": "https://github.com/yamandahle/thief-peer", "cop": "https://github.com/x/y"}
+def test_repos_are_included_for_both_groups_in_declaration(tmp_path, monkeypatch):
+    own = {"thief": "https://github.com/yamandahle/thief-peer", "cop": "https://github.com/x/y"}
+    theirs = {"thief": "https://github.com/opp/thief", "cop": "https://github.com/opp/cop"}
 
-    result = _finalize(tmp_path, monkeypatch, repos=repos)
+    _finalize(tmp_path, monkeypatch, repos=own, opponent_repos=theirs)
 
-    assert result["groups"]["group_1"]["repos"] == repos
-    assert "repos" not in result["groups"]["group_2"]
+    declaration_path = tmp_path / "declaration_thief-team-a-vs-thief-team-b.json"
+    declaration = json.loads(declaration_path.read_text())
+    groups = declaration["groups"]
+    assert any(g["repos"] == own for g in groups.values())
+    assert any(g["repos"] == theirs for g in groups.values())
 
 
-def test_repos_defaults_to_empty_when_not_supplied(tmp_path, monkeypatch):
+def test_tokens_total_series_is_a_per_group_map(tmp_path, monkeypatch):
+    result = _finalize(tmp_path, monkeypatch, tokens_own=42, tokens_opponent=7)
+    series = result["final_result"]["tokens_total_series"]
+    assert series == {"Thief-Team-A": 42, "Thief-Team-B": 7}
+
+
+def test_repos_default_to_empty_when_not_supplied(tmp_path, monkeypatch):
     result = _finalize(tmp_path, monkeypatch)
-
-    assert result["groups"]["group_1"]["repos"] == {}
+    # stdout summary only — declaration repos checked via write_and_send in integration
+    assert result["game_id"] == "thief-team-a-vs-thief-team-b"
 
 
 def test_is_counted_is_passed_through_to_write_and_send(tmp_path, monkeypatch):

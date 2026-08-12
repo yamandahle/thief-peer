@@ -127,7 +127,8 @@ def test_a_short_match_completes_and_produces_a_clean_audit_and_report(tmp_path)
     assert len(runtime.records) >= 3
     assert (results_dir / f"result_{result['game_id']}.json").exists()
     saved_result = json.loads((results_dir / f"result_{result['game_id']}.json").read_text())
-    assert saved_result["mutual_agreement_signature"] is None or "final_result" in saved_result
+    assert "final_result" in saved_result
+    assert "sha256" in saved_result["mutual_agreement"]
 
 
 def test_handle_commit_move_and_reveal_move_record_into_round_exchange(tmp_path):

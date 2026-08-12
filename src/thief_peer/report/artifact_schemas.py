@@ -1,5 +1,8 @@
-"""Report artifact schema constants (PRD_7 §2.6, §3): shared across
-`artifacts.py`'s builders, kept in one small file so a future schema
-version bump touches this, not the builder logic."""
+"""Constants for report artifacts (book Ch.9 / Appendix ו). Shapes mirror the
+book's own reference implementation (github.com/rmisegal/Game-P2P-Cop-Chase,
+docs/sample-run/*.json) exactly."""
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "1.1"
+DEFAULT_TIMEZONE = "Asia/Jerusalem"
+DECLARATION_TYPE = "pre_game_declaration"
+REPORT_TYPE = "final_game_result"

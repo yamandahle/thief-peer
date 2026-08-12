@@ -78,13 +78,59 @@ def test_a_full_scripted_match_produces_all_four_artifacts_and_sends_one_email(t
         "game_uid": game_uid,
         "sub_game_number": 1,
         "num_sub_games": 1,
-        "opponent_group_id": "cop-team",
-        "groups": {"group_1": {"identity": "thief-team"}, "group_2": {"identity": "cop-team"}},
-        "shared_terms": {"grid_size": 9},
-        "config_name": "config_smoke_g01",
-        "records": records,
-        "audit": audit,
-        "final_result": {"winner_group": "thief-team", "tokens_total_series": 0},
+        "group_ids": ["cop-team", "thief-team"],
+        "timezone": "Asia/Jerusalem",
+        "game_started_at": "2026-01-01T00:00:00+00:00",
+        "game_ended_at": "2026-01-01T00:01:00+00:00",
+        "max_tokens_per_game": 200000,
+        "own": {
+            "group_id": "thief-team",
+            "group_name": "Thief-Team",
+            "members": [],
+            "repos": {},
+            "mcp_servers": {},
+            "llm_model": "template",
+            "hardware_spec": {},
+        },
+        "opponent": {
+            "group_id": "cop-team",
+            "group_name": "Cop-Team",
+            "members": [],
+            "repos": {},
+            "mcp_servers": {},
+            "llm_model": "template",
+            "hardware_spec": {},
+        },
+        "shared_config_terms": {"board_and_agents": {"grid_size": 9}},
+        "log_summary": {
+            "sub_game_number": 1,
+            "group_id": "thief-team",
+            "role": "thief",
+            "opponent_group_id": "cop-team",
+            "result": "survival",
+            "winner_role": "thief",
+            "steps": len(records),
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "duration_seconds": 60.0,
+            "tokens_total": 0,
+            "audit": audit,
+            "records": records,
+        },
+        "sub_games": [
+            {
+                "sub_game_number": 1,
+                "tokens": {"thief-team": 0, "cop-team": 0},
+                "audit": {"log_verified": True, "tampered": False},
+            }
+        ],
+        "final_result_aggregate": {
+            "total_score": {"thief-team": 10, "cop-team": 5},
+            "sub_games_won": {"thief-team": 1, "cop-team": 0},
+            "ties": 0,
+            "winner_group": "thief-team",
+            "series_tie": False,
+        },
+        "mutual_sha256": "smoke-test-sha",
     }
 
     # --- Stage 7: report the match ---
@@ -107,18 +153,18 @@ def test_a_full_scripted_match_produces_all_four_artifacts_and_sends_one_email(t
     # All four artifacts landed on disk, sharing the same game_id/game_uid.
     files = sorted(p.name for p in results_dir.iterdir())
     assert files == [
-        f"config_{game_uid}.json",
+        f"config_{game_id}_g01.json",
         f"declaration_{game_id}.json",
-        f"log_{game_uid}.json",
+        f"log_{game_id}_g01.json",
         f"result_{game_id}.json",
     ]
     declaration = json.loads((results_dir / f"declaration_{game_id}.json").read_text())
     assert declaration["game_uid"] == game_uid
-    log = json.loads((results_dir / f"log_{game_uid}.json").read_text())
-    assert log["audit"]["passed"] is True
+    assert declaration["schema_version"] == "1.1"
+    log = json.loads((results_dir / f"log_{game_id}_g01.json").read_text())
+    assert log["summary"]["audit"]["passed"] is True
     assert len(log["records"]) == len(_SCRIPTED_SCENT_FEED)
 
-    # Exactly one email attempt, and it succeeded.
     outcomes = [entry["outcome"] for entry in gatekeeper.call_log]
     assert outcomes == ["success"]
 
@@ -144,18 +190,65 @@ def _play_and_write_log(tmp_path):
 
     game_id = derive_game_id("thief-team", "cop-team")
     game_uid = derive_game_uid(game_id, sub_game_number=1)
+    audit = audit_records(records)
     match_result = {
         "game_id": game_id,
         "game_uid": game_uid,
         "sub_game_number": 1,
         "num_sub_games": 1,
-        "opponent_group_id": "cop-team",
-        "groups": {"group_1": {"identity": "thief-team"}, "group_2": {"identity": "cop-team"}},
-        "shared_terms": {"grid_size": 9},
-        "config_name": "config_smoke_g01",
-        "records": records,
-        "audit": audit_records(records),
-        "final_result": {"winner_group": "thief-team", "tokens_total_series": 0},
+        "group_ids": ["cop-team", "thief-team"],
+        "timezone": "Asia/Jerusalem",
+        "game_started_at": "2026-01-01T00:00:00+00:00",
+        "game_ended_at": "2026-01-01T00:01:00+00:00",
+        "max_tokens_per_game": 200000,
+        "own": {
+            "group_id": "thief-team",
+            "group_name": "Thief-Team",
+            "members": [],
+            "repos": {},
+            "mcp_servers": {},
+            "llm_model": "template",
+            "hardware_spec": {},
+        },
+        "opponent": {
+            "group_id": "cop-team",
+            "group_name": "Cop-Team",
+            "members": [],
+            "repos": {},
+            "mcp_servers": {},
+            "llm_model": "template",
+            "hardware_spec": {},
+        },
+        "shared_config_terms": {"board_and_agents": {"grid_size": 9}},
+        "log_summary": {
+            "sub_game_number": 1,
+            "group_id": "thief-team",
+            "role": "thief",
+            "opponent_group_id": "cop-team",
+            "result": "survival",
+            "winner_role": "thief",
+            "steps": len(records),
+            "started_at": "2026-01-01T00:00:00+00:00",
+            "duration_seconds": 60.0,
+            "tokens_total": 0,
+            "audit": audit,
+            "records": records,
+        },
+        "sub_games": [
+            {
+                "sub_game_number": 1,
+                "tokens": {"thief-team": 0, "cop-team": 0},
+                "audit": {"log_verified": True, "tampered": False},
+            }
+        ],
+        "final_result_aggregate": {
+            "total_score": {"thief-team": 10, "cop-team": 5},
+            "sub_games_won": {"thief-team": 1, "cop-team": 0},
+            "ties": 0,
+            "winner_group": "thief-team",
+            "series_tie": False,
+        },
+        "mutual_sha256": "replay-smoke-sha",
     }
     results_dir = tmp_path / "results"
     gatekeeper = ApiGatekeeper(

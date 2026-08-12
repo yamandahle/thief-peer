@@ -14,6 +14,7 @@ as a private method; reaching into it (or duplicating its formula here) was
 judged out of proportion to this stage's actual scope. Flagged, not hidden.
 """
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from thief_peer.domain.rules import has_survived, is_captured_by_stuck
@@ -31,7 +32,9 @@ from thief_peer.peer.match_end import finalize_match
 from thief_peer.peer.round_exchange import RoundExchange
 from thief_peer.peer.runtime_context import PeerContextMixin
 from thief_peer.peer.runtime_setup import build_game_components
+from thief_peer.peer.sealing import current_git_commit_hash
 from thief_peer.peer.turn_fsm import TurnFsm
+from thief_peer.shared import sysinfo
 
 
 class PeerRuntime(PeerContextMixin):
@@ -82,6 +85,9 @@ class PeerRuntime(PeerContextMixin):
         self._last_opponent_scent: dict[str, float] = {}
         self._match_over = False
         self._captured_by_barrier = False
+        self.opponent_repos: dict = {}
+        self.opponent_llm_model: str | None = None
+        self._tokens_used = 0
 
         self.port = config.require("network.my_port")
         self.opponent_url = config.get("network.opponent_url")
@@ -94,6 +100,7 @@ class PeerRuntime(PeerContextMixin):
     def run(self) -> dict:
         run_server_in_background(self.server_app, self.port)
         self.heartbeat.start()
+        started_at = datetime.now(UTC).isoformat()
         opponent_group_name = run_opponent_handshake(self)
 
         end_reason = "max_moves_reached"
@@ -115,6 +122,7 @@ class PeerRuntime(PeerContextMixin):
 
         self.heartbeat.stop()
         self._match_over = True
+        ended_at = datetime.now(UTC).isoformat()
         self_audit = None
         opponent_audit = None
         if self.opponent_protocol == "cop_v1":
@@ -125,6 +133,7 @@ class PeerRuntime(PeerContextMixin):
             opponent_audit = self._cop_adapter.opponent_audit
         else:
             send_opponent_final_reveal(self, self.records)
+        my_url = f"http://127.0.0.1:{self.port}/mcp"
         result = finalize_match(
             self.group_name,
             opponent_group_name,
@@ -143,6 +152,17 @@ class PeerRuntime(PeerContextMixin):
             self.opponent_protocol,
             precomputed_self_audit=self_audit,
             precomputed_opponent_audit=opponent_audit,
+            opponent_repos=self.opponent_repos,
+            tokens_own=self._tokens_used,
+            game_started_at=started_at,
+            game_ended_at=ended_at,
+            own_llm_model=self.config.get("llm.model", "template"),
+            opponent_llm_model=self.opponent_llm_model,
+            own_mcp_url=my_url,
+            opponent_mcp_url=self.opponent_url,
+            own_spec=sysinfo.collect_spec(),
+            github_commit_own=current_git_commit_hash(),
+            shared_config_path=self.shared_config_path,
         )
         if self.opponent_protocol != "cop_v1":
             cop_shutdown_grace(self)
