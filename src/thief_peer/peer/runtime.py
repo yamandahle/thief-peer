@@ -30,6 +30,7 @@ from thief_peer.interop.cop_opponent import (
 from thief_peer.peer.heartbeat_monitor import HeartbeatMonitor
 from thief_peer.peer.match_end import finalize_match
 from thief_peer.peer.round_exchange import RoundExchange
+from thief_peer.peer.round_reporter import print_match_summary, print_round_summary
 from thief_peer.peer.runtime_context import PeerContextMixin
 from thief_peer.peer.runtime_setup import build_game_components
 from thief_peer.peer.sealing import current_git_commit_hash
@@ -112,6 +113,17 @@ class PeerRuntime(PeerContextMixin):
                 play_opponent_round(self, step)
             )
             self.records.append(record)
+            print_round_summary(
+                step,
+                self.max_moves,
+                self.group_name,
+                opponent_group_name,
+                record,
+                self._last_opponent_hint,
+                len(self.state.known_barriers),
+                self.state.position,
+                self.survival_threshold,
+            )
             self.heartbeat.beat()
             if technical_loss:
                 end_reason = "technical_loss"
@@ -169,6 +181,7 @@ class PeerRuntime(PeerContextMixin):
         )
         if self.opponent_protocol != "cop_v1":
             cop_shutdown_grace(self)
+        print_match_summary(result, self.group_name)
         return result
 
     def view(self):
