@@ -78,6 +78,39 @@ def test_lookahead_score_is_cops_best_response_distance():
     assert score == 2
 
 
+def test_lookahead_score_weights_multiple_candidate_cop_positions_by_belief():
+    # book Ch.6.3.1 (page 45): expectimax against the belief distribution,
+    # not a single collapsed most_likely() point. Two candidates, p=0.6 at
+    # (0,6) and p=0.4 at (6,0), on a 7x7 empty board; Thief candidate (0,3).
+    # Cop at (0,6): legal moves S(1,6)/W(0,5)/STAY(0,6) -- best response
+    # distance to (0,3) is via W -> (0,5), distance 2.
+    # Cop at (6,0): legal moves N(5,0)/E(6,1)/STAY(6,0) -- best response
+    # distance to (0,3) is via N -> (5,0), distance 8.
+    # Expected weighted score: 0.6*2 + 0.4*8 = 4.4 -- strictly different
+    # from either candidate's own answer alone (2 or 8).
+    board = Board(size=7, barriers=set())
+    brain = ThiefBrain()
+    matrix = [[0.0] * 7 for _ in range(7)]
+    matrix[0][6] = 0.6
+    matrix[6][0] = 0.4
+    belief = _FixedBelief(matrix)
+
+    score = brain._lookahead_score((0, 3), belief, board)
+
+    assert abs(score - 4.4) < 1e-9
+
+
+def test_lookahead_score_returns_zero_when_belief_is_entirely_empty():
+    # Defensive: BeliefGrid always normalizes to sum 1 in practice, but an
+    # all-zero matrix must degrade safely (no division by zero) rather than
+    # crash.
+    board = Board(size=5, barriers=set())
+    brain = ThiefBrain()
+    belief = _FixedBelief([[0.0] * 5 for _ in range(5)])
+
+    assert brain._lookahead_score((2, 2), belief, board) == 0.0
+
+
 # ---- combined behaviour --------------------------------------------------
 
 

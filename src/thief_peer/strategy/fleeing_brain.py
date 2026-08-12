@@ -1,9 +1,12 @@
 """ThiefBrain (PRD_3 Ch.6): a custom algorithm beyond the naive "maximize
 distance from the belief peak" baseline the book ships by default (Ch.6.4).
 Combines four signals -- full-distribution expected distance, mobility
-(1-ply lookahead on legal moves from the candidate cell), a 1-ply minimax
-lookahead against the Cop's best response, and a least-recently-visited
-tie-break -- to resist corner-trapping, bimodal belief distributions, and
+(1-ply lookahead on legal moves from the candidate cell), a 1-ply
+expectimax lookahead against the top candidate Cop positions weighted by
+belief probability (book Ch.6.3.1, page 45: "forward search... expectimax
+against the opponent's belief" -- reasons over the distribution itself,
+not a single most_likely() point), and a least-recently-visited tie-break
+-- to resist corner-trapping, bimodal belief distributions, and
 predictable straight-line trails (PRD_3 §2.2-2.3). Never touches an LLM.
 """
 
@@ -21,6 +24,12 @@ EXPECTED_DISTANCE_WEIGHT = 1.0
 MOBILITY_WEIGHT = 1.5
 LOOKAHEAD_WEIGHT = 0.1
 TIE_EPSILON = 1e-6
+
+# Top-N highest-probability belief cells considered as candidate Cop
+# positions in the expectimax lookahead -- keeps the search tractable
+# without discarding the distribution the way a single most_likely()
+# point does.
+LOOKAHEAD_CANDIDATE_COUNT = 5
 
 
 class ThiefBrain(BrainBase):
@@ -69,6 +78,29 @@ class ThiefBrain(BrainBase):
         return total
 
     def _lookahead_score(self, cell: Cell, belief, board: Board) -> float:
-        cop_estimate = belief.most_likely()
-        cop_responses = board.legal_moves(cop_estimate, frozenset())
-        return min(board.distance(cell, cop_next) for _, cop_next in cop_responses)
+        """Expectimax against the opponent's belief distribution (book
+        Ch.6.3.1, page 45): the Cop's best 1-ply response distance,
+        weighted by belief probability across the top candidate positions
+        -- not just a single collapsed guess."""
+        matrix = belief.as_matrix()
+        candidates = sorted(
+            (
+                (p, (r, c))
+                for r, row in enumerate(matrix)
+                for c, p in enumerate(row)
+                if p > 0
+            ),
+            reverse=True,
+        )[:LOOKAHEAD_CANDIDATE_COUNT]
+        if not candidates:
+            return 0.0
+
+        total_weight = sum(p for p, _ in candidates)
+        weighted_sum = 0.0
+        for p, cop_pos in candidates:
+            cop_responses = board.legal_moves(cop_pos, frozenset())
+            best_cop_response = min(
+                board.distance(cell, cop_next) for _, cop_next in cop_responses
+            )
+            weighted_sum += p * best_cop_response
+        return weighted_sum / total_weight
