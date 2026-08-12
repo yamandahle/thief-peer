@@ -271,6 +271,46 @@ def test_handle_receive_capture_claim_confirms_a_genuine_stuck_capture(tmp_path)
     assert response == {"confirmed": True}
 
 
+def test_handle_receive_capture_claim_confirms_a_genuine_landing_capture(tmp_path):
+    # book Table 2 (Ch.3.5): the primary capture condition -- the Cop
+    # lands directly on the Thief's cell.
+    my_config = _config(tmp_path, "mine", port=8924)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    row, col = runtime.state.position
+
+    response = runtime.handle_receive_capture_claim({"reason": "landing", "row": row, "col": col})
+
+    assert response == {"confirmed": True}
+    assert runtime._captured_by_landing is True
+
+
+def test_handle_receive_capture_claim_denies_an_unfounded_landing_claim(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8925)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    row, col = runtime.state.position
+
+    response = runtime.handle_receive_capture_claim(
+        {"reason": "landing", "row": row + 1, "col": col}
+    )
+
+    assert response == {"confirmed": False}
+    assert runtime._captured_by_landing is False
+
+
 def test_handle_receive_capture_claim_denies_an_unknown_reason(tmp_path):
     my_config = _config(tmp_path, "mine", port=8915)
     runtime = PeerRuntime(
@@ -310,6 +350,36 @@ def test_being_captured_by_barrier_ends_the_match_after_the_current_round(tmp_pa
     opponent = _CooperativeStubOpponent(runtime, their_config, their_group_name="Cop-Team")
     runtime.transport = opponent
     runtime._captured_by_barrier = True  # simulates an inbound declaration that already arrived
+
+    result = runtime.run()
+
+    assert result["final_result"]["winner_group"] == "Cop-Team"
+    assert len(runtime.records) == 1
+
+
+def test_being_captured_by_landing_ends_the_match_after_the_current_round(tmp_path):
+    from thief_peer.shared.gatekeeper import ApiGatekeeper
+    from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+
+    my_config = _config(tmp_path, "mine", port=8930)
+    their_config = _config(tmp_path, "theirs", port=8931)
+    gatekeeper = ApiGatekeeper(
+        token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
+        dos_detector=DosDetector(max_calls=100, window_seconds=60),
+        queue=RequestQueue(max_depth=5),
+    )
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=gatekeeper,
+        email_service=_FakeGmailService(),
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+        round_deadline_sec=2.0,
+    )
+    opponent = _CooperativeStubOpponent(runtime, their_config, their_group_name="Cop-Team")
+    runtime.transport = opponent
+    runtime._captured_by_landing = True  # simulates an inbound capture claim that already arrived
 
     result = runtime.run()
 

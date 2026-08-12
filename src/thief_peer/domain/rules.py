@@ -15,6 +15,15 @@ def is_captured_by_barrier(state: OwnGameState, new_barrier_cell: Cell) -> bool:
     return new_barrier_cell == state.position
 
 
+def is_captured_by_landing(state: OwnGameState, cop_cell: Cell) -> bool:
+    """Book Table 2 (Win Conditions and Scoring, Ch.3.5): the primary
+    capture condition -- "the Cop lands on the Thief's cell and declares
+    a Capture Claim." Same check as is_captured_by_barrier, kept as its
+    own named function since the book treats these as two distinct
+    conditions (this one, plus rule 46's barrier-on-cell case)."""
+    return cop_cell == state.position
+
+
 def is_captured_by_stuck(state: OwnGameState, board: Board) -> bool:
     legal = board.legal_moves(state.position, frozenset(state.known_barriers))
     return all(direction is None for direction, _cell in legal)

@@ -87,6 +87,7 @@ class PeerRuntime(PeerContextMixin):
         self._last_opponent_hint: str = ""
         self._match_over = False
         self._captured_by_barrier = False
+        self._captured_by_landing = False
         self.opponent_repos: dict = {}
         self.opponent_llm_model: str | None = None
         self._tokens_used = 0
@@ -131,7 +132,11 @@ class PeerRuntime(PeerContextMixin):
             if has_survived(self.state, self.survival_threshold):
                 end_reason = "survived"
                 break
-            if is_captured_by_stuck(self.state, self.board) or self._captured_by_barrier:
+            if (
+                is_captured_by_stuck(self.state, self.board)
+                or self._captured_by_barrier
+                or self._captured_by_landing
+            ):
                 end_reason = "captured"
                 break
 

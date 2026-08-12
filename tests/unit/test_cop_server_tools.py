@@ -54,6 +54,7 @@ class _SpyContext:
         self.repos = {"cop": "x", "thief": "y"}
         self.state = _State(position)
         self.transport = _FakeTransport()
+        self._captured_by_landing = False
 
         class _Scent:
             def snapshot(self):
@@ -137,6 +138,9 @@ def test_handle_receive_capture_claim_acks_immediately_then_confirms_a_real_capt
     assert context.transport.calls == [
         ("receive_capture_response", {"confirmed": True, "true_thief_col": 5, "true_thief_row": 2})
     ]
+    # book Table 2's primary capture condition -- this side's own match
+    # loop (peer/runtime.py) must also learn it lost, not just ack her.
+    assert context._captured_by_landing is True
 
 
 def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wrong():
@@ -151,6 +155,7 @@ def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wron
     assert context.transport.calls == [
         ("receive_capture_response", {"confirmed": False, "true_thief_col": 9, "true_thief_row": 9})
     ]
+    assert context._captured_by_landing is False
 
 
 def test_handle_receive_final_reveal_audits_peer_and_acks():

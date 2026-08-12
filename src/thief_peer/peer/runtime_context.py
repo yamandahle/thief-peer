@@ -27,7 +27,11 @@ claim, from the other side.
 
 from thief_peer.domain.crypto import hash_config_file
 from thief_peer.domain.negotiation import Negotiation, canonical_terms
-from thief_peer.domain.rules import is_captured_by_barrier, is_captured_by_stuck
+from thief_peer.domain.rules import (
+    is_captured_by_barrier,
+    is_captured_by_landing,
+    is_captured_by_stuck,
+)
 from thief_peer.exceptions import SimulationError
 from thief_peer.peer.sealing import sealed_spec_record
 
@@ -74,6 +78,16 @@ class PeerContextMixin:
             confirmed = self._captured_by_barrier
         elif reason == "stuck":
             confirmed = is_captured_by_stuck(self.state, self.board)
+        elif reason == "landing":
+            # Book Table 2's primary capture condition -- not exercised by
+            # a real match (cop_v1 mode registers its own handler, see
+            # interop/cop_server_tools.py), but this repo's own native
+            # protocol should still recognize it, same reasoning as
+            # handle_receive_barrier_declaration's {row, col} payload.
+            cell = (payload["row"], payload["col"])
+            confirmed = is_captured_by_landing(self.state, cell)
+            if confirmed:
+                self._captured_by_landing = True
         else:
             confirmed = False
         return {"confirmed": confirmed}

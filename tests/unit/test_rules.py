@@ -8,6 +8,7 @@ from thief_peer.domain.own_state import OwnGameState
 from thief_peer.domain.rules import (
     has_survived,
     is_captured_by_barrier,
+    is_captured_by_landing,
     is_captured_by_stuck,
 )
 
@@ -20,6 +21,18 @@ def test_is_captured_by_barrier_true_only_on_current_cell():
 def test_is_captured_by_barrier_false_on_adjacent_cell():
     state = OwnGameState(position=(3, 3))
     assert is_captured_by_barrier(state, (2, 3)) is False
+
+
+def test_is_captured_by_landing_true_only_on_current_cell():
+    # book Table 2 (Ch.3.5): the primary capture condition -- the Cop
+    # lands on the Thief's cell.
+    state = OwnGameState(position=(3, 3))
+    assert is_captured_by_landing(state, (3, 3)) is True
+
+
+def test_is_captured_by_landing_false_on_adjacent_cell():
+    state = OwnGameState(position=(3, 3))
+    assert is_captured_by_landing(state, (2, 3)) is False
 
 
 def test_is_captured_by_stuck_false_when_at_least_one_move_exists():

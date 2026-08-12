@@ -66,6 +66,14 @@ class CopContextAdapter:
     ) -> dict:
         my_row, my_col = self._context.state.position
         confirmed = (my_row, my_col) == (thief_row, thief_col)
+        # Book Table 2's primary capture condition -- the ack below already
+        # correctly told her the truth, but that alone never stopped this
+        # side's own match loop (peer/runtime.py's `or self._captured_by_barrier`
+        # check had no landing-equivalent), so a real landing capture kept
+        # playing to max_moves and risked this side reporting "survived"
+        # against her "capture", a rule-35 [FATAL] reports-must-agree risk.
+        if confirmed:
+            self._context._captured_by_landing = True
         self._capture_response_thread = threading.Thread(
             target=cop_send_capture_response,
             args=(self._context.transport, confirmed, my_row, my_col),

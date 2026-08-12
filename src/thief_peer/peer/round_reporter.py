@@ -31,6 +31,28 @@ def print_round_summary(
     print("-" * 60)
 
 
+def print_score_breakdown(brain, belief, board, state) -> None:
+    """Diagnostic only (not wired in by default): the actual weighted-sum
+    score and its three components for every legal move this turn, so
+    "why did it pick this move" can be answered by reading real numbers
+    instead of guessing."""
+    barriers = frozenset(state.known_barriers)
+    moves = board.legal_moves(state.position, barriers)
+    print(f"  Belief most-likely opponent cell: {belief.most_likely()}")
+    print("  Score breakdown (move: expected_distance / mobility / lookahead -> total):")
+    for direction, cell in moves:
+        expected_distance = brain._expected_distance(cell, belief, board)
+        mobility = brain._mobility_score(cell, board, barriers)
+        lookahead = brain._lookahead_score(cell, belief, board)
+        total = (
+            brain._expected_distance_weight * expected_distance
+            + brain._mobility_weight * mobility
+            + brain._lookahead_weight * lookahead
+        )
+        label = direction.value if direction else "STAY"
+        print(f"    {label:<5}: {expected_distance:6.2f} / {mobility} / {lookahead:5.2f} -> {total:7.2f}")
+
+
 def print_match_summary(result: dict, group_name: str) -> None:
     final = result["final_result"]
     audit = result["audit"]
