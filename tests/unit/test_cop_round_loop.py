@@ -5,6 +5,7 @@ test) -- these are the first direct tests of this round shape."""
 
 from thief_peer.constants import Direction
 from thief_peer.interop.cop_round_loop import play_round_cop
+from thief_peer.peer.round_exchange import RoundExchange
 from thief_peer.peer.turn_fsm import TurnFsm
 from thief_peer.strategy.brain_base import Decision
 
@@ -65,9 +66,12 @@ class _StubTransport:
 def test_play_round_cop_pulls_scent_before_deciding_then_commits_and_reveals():
     turn_handler = _FakeTurnHandler()
     transport = _StubTransport()
+    round_exchange = RoundExchange()
+    round_exchange.record_reveal(1, {})  # her matching-round reveal already landed
 
     record, next_scent, technical_loss = play_round_cop(
-        1, turn_handler, _FakeTurnFsm(), _FakeScent(), _FakeTrashTalk(), transport, {}
+        1, turn_handler, _FakeTurnFsm(), _FakeScent(), _FakeTrashTalk(),
+        round_exchange, transport, 1.0, {}
     )
 
     assert technical_loss is False
@@ -83,9 +87,12 @@ def test_play_round_cop_pulls_scent_before_deciding_then_commits_and_reveals():
 def test_play_round_cop_falls_back_to_last_scent_when_pull_fails():
     turn_handler = _FakeTurnHandler()
     transport = _StubTransport(fail_on="share_scent_map")
+    round_exchange = RoundExchange()
+    round_exchange.record_reveal(1, {})
 
     record, next_scent, technical_loss = play_round_cop(
-        1, turn_handler, _FakeTurnFsm(), _FakeScent(), _FakeTrashTalk(), transport, {"1,1": 0.5}
+        1, turn_handler, _FakeTurnFsm(), _FakeScent(), _FakeTrashTalk(),
+        round_exchange, transport, 1.0, {"1,1": 0.5}
     )
 
     assert technical_loss is False
@@ -103,7 +110,8 @@ def test_play_round_cop_declares_technical_loss_when_commit_fails():
     fsm = TurnFsm()
 
     record, next_scent, technical_loss = play_round_cop(
-        1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(), transport, {}
+        1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
+        RoundExchange(), transport, 1.0, {}
     )
 
     assert technical_loss is True
@@ -116,7 +124,26 @@ def test_play_round_cop_declares_technical_loss_when_reveal_fails():
     fsm = TurnFsm()
 
     record, next_scent, technical_loss = play_round_cop(
-        1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(), transport, {}
+        1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
+        RoundExchange(), transport, 1.0, {}
+    )
+
+    assert technical_loss is True
+    assert fsm.state == "TECHNICAL_LOSS"
+
+
+def test_play_round_cop_declares_technical_loss_when_her_reveal_never_arrives():
+    # The lockstep gate (book Ch.5.3.2/8.3): our own loop must not advance
+    # past step N without proof she completed her own step N too -- a
+    # real live match proved that missing wait let this side race ahead
+    # to its own max_moves while she was still honestly mid-round.
+    turn_handler = _FakeTurnHandler()
+    transport = _StubTransport()
+    fsm = TurnFsm()
+
+    record, next_scent, technical_loss = play_round_cop(
+        1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
+        RoundExchange(), transport, 0.05, {}
     )
 
     assert technical_loss is True
@@ -126,6 +153,11 @@ def test_play_round_cop_declares_technical_loss_when_reveal_fails():
 def test_play_round_cop_advances_this_sides_own_scent_field_at_its_own_position():
     turn_handler = _FakeTurnHandler()
     scent = _FakeScent()
-    play_round_cop(1, turn_handler, _FakeTurnFsm(), scent, _FakeTrashTalk(), _StubTransport(), {})
+    round_exchange = RoundExchange()
+    round_exchange.record_reveal(1, {})
+    play_round_cop(
+        1, turn_handler, _FakeTurnFsm(), scent, _FakeTrashTalk(),
+        round_exchange, _StubTransport(), 1.0, {}
+    )
 
     assert scent.advanced_at == (2, 2)

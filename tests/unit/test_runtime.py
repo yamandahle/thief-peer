@@ -423,11 +423,21 @@ class _CooperativeCopStubOpponent:
     """Stands in for a real Cop peer speaking her actual wire vocabulary --
     builds a genuinely matching declaration (same shared config file, same
     default pheromone params) so Step-0 verification legitimately passes,
-    the real-match precondition `interop/cop_handshake.py` checks for."""
+    the real-match precondition `interop/cop_handshake.py` checks for.
+
+    `runtime` is set after construction (once the real `PeerRuntime` this
+    stub is attached to exists): on `receive_reveal`, a real cooperative
+    Cop peer would separately call *our* `receive_reveal` tool with her
+    own matching-round move -- the lockstep fix's
+    `round_exchange.wait_for_reveal(...)` blocks on exactly that inbound
+    call landing, so this stub must simulate it too, not just ack our
+    outbound reveal, or every round would time out against an opponent
+    who (in this stub) never actually reveals anything back."""
 
     def __init__(self, shared_config_path, group_name="Cop-Team"):
         self._shared_config_path = shared_config_path
         self._group_name = group_name
+        self.runtime = None
 
     def call(self, tool_name: str, payload: dict) -> dict:
         from thief_peer.domain.scent_lock import scent_lock_hash
@@ -459,6 +469,9 @@ class _CooperativeCopStubOpponent:
         if tool_name == "receive_commit":
             return {"acknowledged": True}
         if tool_name == "receive_reveal":
+            self.runtime._cop_adapter.handle_receive_reveal(
+                {"type": "move", "direction": "N"}, "cold"
+            )
             return {"accepted": True, "word_count": 1}
         if tool_name == "share_scent_map":
             return {"cells": []}
@@ -500,7 +513,9 @@ def test_a_short_cop_v1_match_completes_using_her_wire_vocabulary(tmp_path, monk
         round_deadline_sec=2.0,
         shared_config_path=str(json_path),
     )
-    runtime.transport = _CooperativeCopStubOpponent(str(json_path))
+    stub_opponent = _CooperativeCopStubOpponent(str(json_path))
+    stub_opponent.runtime = runtime
+    runtime.transport = stub_opponent
 
     result = runtime.run()
 

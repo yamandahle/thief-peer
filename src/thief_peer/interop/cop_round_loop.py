@@ -5,15 +5,26 @@ scent_grid); scent is a separate, explicitly-pulled channel
 (`share_scent_map`), and her own `take_turn` pulls it *before* deciding,
 not after revealing -- this function follows the same order.
 
-Deliberately does not block on this side's own `round_exchange` to learn
-her per-step reveal (unlike native `play_round`'s `wait_for_reveal`): doing
-so would require this side's inbound `CopContextAdapter`'s own step
-counter to stay lock-step with this loop's `step` numbering, coupling two
-independently-paced call sequences for a guarantee this scope boundary
-doesn't need. A `share_scent_map` pull that lands slightly before or after
-her own current move is the same kind of approximate, time-decayed signal
-scent already is everywhere else in this game -- not a new class of risk
-this loop needs to close.
+Used to deliberately skip waiting on this side's own `round_exchange` for
+her per-step reveal, on the theory that coupling two independently-paced
+call sequences was a guarantee this scope boundary didn't need. A real
+live match proved that wrong: her own event log showed her still honestly
+mid-round-25 (hadn't even called her own `revealed` yet) when this side's
+`receive_final_reveal` call landed on her, because this side's loop had
+already raced ahead to its own local `max_moves` (35) without ever
+checking her progress. That produced a real, cryptographically-honest-on-
+both-sides step-count mismatch (35 vs. 25) every match, which her
+orchestrator correctly refused to accept -- an automatic technical-
+loss/tie under rule 35, every single run, not a race condition (the
+disputed capture claims recur at the exact same steps every time --
+deterministic strategies, not timing noise). Now mirrors native
+`play_round`'s existing `wait_for_reveal` lockstep gate instead: blocks on
+`round_exchange.wait_for_reveal(step, round_deadline_sec)` between
+`AWAITING_REVEAL` and `VERIFYING` -- both edges already legal in
+`turn_fsm.py`'s transition table -- so a stuck or slow peer now produces a
+clean `TECHNICAL_LOSS` at the actual step in question (the Deadline
+Tracker's real job, book Ch.8.4.1) instead of this side silently lapping
+her.
 
 `state`/`move`/`intent` here are built via `interop/cop_wire.py`'s
 `build_cop_state_string`/`build_cop_move_envelope` and a booleanized
@@ -39,7 +50,9 @@ def play_round_cop(
     turn_fsm,
     scent,
     trash_talk,
+    round_exchange,
     transport,
+    round_deadline_sec: float,
     last_opponent_scent: dict,
 ) -> tuple[dict, dict, bool]:
     """Returns (sealed_record, next_opponent_scent, technical_loss)."""
@@ -80,6 +93,12 @@ def play_round_cop(
         return record, peer_scent, True
 
     turn_fsm.transition("AWAITING_REVEAL")
+    try:
+        round_exchange.wait_for_reveal(step, round_deadline_sec)
+    except DeadlineExceededError:
+        turn_fsm.transition("TECHNICAL_LOSS")
+        return record, peer_scent, True
+
     turn_fsm.transition("VERIFYING")
     turn_fsm.transition("WAITING_FOR_OPPONENT")
     return record, peer_scent, False
