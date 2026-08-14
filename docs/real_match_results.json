@@ -1,0 +1,255 @@
+{
+  "games_per_config": "mixed: 6 for shipped_defaults/no_mobility_signal/higher_expected_distance, 3 for no_scent_signal",
+  "configurations": {
+    "shipped_defaults": {
+      "env_overrides": {},
+      "games": [
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        }
+      ],
+      "wins": 6,
+      "win_rate": 1.0
+    },
+    "no_mobility_signal": {
+      "env_overrides": {
+        "THIEF_MOBILITY_WEIGHT": "0.0"
+      },
+      "games": [
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "error": "final line was not valid JSON",
+          "stdout_tail": " vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 25/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 26/35 -- Thief-Team vs dev-team\n  My move:        E      (position now: (6, 6))\n  My hint:        \"I'm still not far from New York, actually.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 26/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 27/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (6, 6))\n  My hint:        \"You're right to check around New York.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 27/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 28/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (6, 6))\n  My hint:        \"You're right to check around New York.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 28/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 29/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (6, 6))\n  My hint:        'Yeah, New York rings a bell -- I was just there.'\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 29/35 toward the survival threshold\n------------------------------------------------------------\n",
+          "stderr_tail": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\__main__.py\", line 15, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\cli.py\", line 63, in main\n    print(json.dumps(sdk.run(args.group_name, is_counted=is_counted, team_code=args.team_code)))\n                     ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\sdk\\sdk.py\", line 54, in run\n    return self._build_runtime(group_name, is_counted, team_code).run()\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\peer\\runtime.py\", line 157, in run\n    self_audit = send_opponent_final_reveal(self, self.records)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_opponent.py\", line 119, in send_opponent_final_reveal\n    response = cop_send_final_reveal(runtime.transport, nonces, intents)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_turn_sender.py\", line 64, in cop_send_final_reveal\n    return transport.call(\"receive_final_reveal\", {\"nonces\": nonces, \"intents\": intents})\n           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\infra\\mcp_client.py\", line 69, in call\n    raise TransportError(\n    ...<2 lines>...\n    )\nthief_peer.exceptions.TransportError: Could not reach http://127.0.0.1:8802/mcp for 'receive_final_reveal' after 3 attempts: Client failed to connect: All connection attempts failed\n"
+        },
+        {
+          "error": "final line was not valid JSON",
+          "stdout_tail": "  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 25/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 26/35 -- Thief-Team vs dev-team\n  My move:        E      (position now: (6, 6))\n  My hint:        \"You're right to check around New York.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 26/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 27/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (6, 6))\n  My hint:        \"You're right to check around New York.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 27/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 28/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (6, 6))\n  My hint:        \"I'm still not far from New York, actually.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 28/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 29/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (6, 6))\n  My hint:        \"I'm still not far from New York, actually.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 29/35 toward the survival threshold\n------------------------------------------------------------\n",
+          "stderr_tail": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\__main__.py\", line 15, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\cli.py\", line 63, in main\n    print(json.dumps(sdk.run(args.group_name, is_counted=is_counted, team_code=args.team_code)))\n                     ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\sdk\\sdk.py\", line 54, in run\n    return self._build_runtime(group_name, is_counted, team_code).run()\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\peer\\runtime.py\", line 157, in run\n    self_audit = send_opponent_final_reveal(self, self.records)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_opponent.py\", line 119, in send_opponent_final_reveal\n    response = cop_send_final_reveal(runtime.transport, nonces, intents)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_turn_sender.py\", line 64, in cop_send_final_reveal\n    return transport.call(\"receive_final_reveal\", {\"nonces\": nonces, \"intents\": intents})\n           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\infra\\mcp_client.py\", line 69, in call\n    raise TransportError(\n    ...<2 lines>...\n    )\nthief_peer.exceptions.TransportError: Could not reach http://127.0.0.1:8802/mcp for 'receive_final_reveal' after 3 attempts: Client failed to connect: All connection attempts failed\n"
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        }
+      ],
+      "wins": 6,
+      "win_rate": 1.0
+    },
+    "higher_expected_distance": {
+      "env_overrides": {
+        "THIEF_EXPECTED_DISTANCE_WEIGHT": "2.0"
+      },
+      "games": [
+        {
+          "error": "final line was not valid JSON",
+          "stdout_tail": "nt:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 6\n  Survival:       step 16/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 17/35 -- Thief-Team vs dev-team\n  My move:        N      (position now: (5, 6))\n  My hint:        'Last seen heading toward New York.'\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 6\n  Survival:       step 17/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 18/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (5, 6))\n  My hint:        'I slipped past New York a few turns back.'\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 7\n  Survival:       step 18/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 19/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (5, 6))\n  My hint:        \"Ask anyone near New York -- they haven't seen me.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 8\n  Survival:       step 19/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 20/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (5, 6))\n  My hint:        \"Ask anyone near New York -- they haven't seen me.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 9\n  Survival:       step 20/35 toward the survival threshold\n------------------------------------------------------------\n",
+          "stderr_tail": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\__main__.py\", line 15, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\cli.py\", line 63, in main\n    print(json.dumps(sdk.run(args.group_name, is_counted=is_counted, team_code=args.team_code)))\n                     ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\sdk\\sdk.py\", line 54, in run\n    return self._build_runtime(group_name, is_counted, team_code).run()\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\peer\\runtime.py\", line 157, in run\n    self_audit = send_opponent_final_reveal(self, self.records)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_opponent.py\", line 119, in send_opponent_final_reveal\n    response = cop_send_final_reveal(runtime.transport, nonces, intents)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_turn_sender.py\", line 64, in cop_send_final_reveal\n    return transport.call(\"receive_final_reveal\", {\"nonces\": nonces, \"intents\": intents})\n           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\infra\\mcp_client.py\", line 69, in call\n    raise TransportError(\n    ...<2 lines>...\n    )\nthief_peer.exceptions.TransportError: Could not reach http://127.0.0.1:8802/mcp for 'receive_final_reveal' after 3 attempts: Client failed to connect: All connection attempts failed\n"
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "error": "final line was not valid JSON",
+          "stdout_tail": "t vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 6\n  Survival:       step 16/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 17/35 -- Thief-Team vs dev-team\n  My move:        N      (position now: (5, 6))\n  My hint:        'I slipped past New York a few turns back.'\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 6\n  Survival:       step 17/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 18/35 -- Thief-Team vs dev-team\n  My move:        S      (position now: (6, 6))\n  My hint:        'I slipped past New York a few turns back.'\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 7\n  Survival:       step 18/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 19/35 -- Thief-Team vs dev-team\n  My move:        N      (position now: (5, 6))\n  My hint:        'Last seen heading toward New York.'\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 8\n  Survival:       step 19/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 20/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (5, 6))\n  My hint:        \"Ask anyone near New York -- they haven't seen me.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 9\n  Survival:       step 20/35 toward the survival threshold\n------------------------------------------------------------\n",
+          "stderr_tail": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\__main__.py\", line 15, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\cli.py\", line 63, in main\n    print(json.dumps(sdk.run(args.group_name, is_counted=is_counted, team_code=args.team_code)))\n                     ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\sdk\\sdk.py\", line 54, in run\n    return self._build_runtime(group_name, is_counted, team_code).run()\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\peer\\runtime.py\", line 157, in run\n    self_audit = send_opponent_final_reveal(self, self.records)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_opponent.py\", line 119, in send_opponent_final_reveal\n    response = cop_send_final_reveal(runtime.transport, nonces, intents)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_turn_sender.py\", line 64, in cop_send_final_reveal\n    return transport.call(\"receive_final_reveal\", {\"nonces\": nonces, \"intents\": intents})\n           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\infra\\mcp_client.py\", line 69, in call\n    raise TransportError(\n    ...<2 lines>...\n    )\nthief_peer.exceptions.TransportError: Could not reach http://127.0.0.1:8802/mcp for 'receive_final_reveal' after 3 attempts: Client failed to connect: All connection attempts failed\n"
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        }
+      ],
+      "wins": 6,
+      "win_rate": 1.0
+    },
+    "no_scent_signal": {
+      "env_overrides": {
+        "THIEF_SCENT_WEIGHT": "0.0"
+      },
+      "games": [
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        },
+        {
+          "error": "final line was not valid JSON",
+          "stdout_tail": "t:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 4\n  Survival:       step 17/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 18/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (5, 5))\n  My hint:        \"I'm still not far from New York, actually.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 4\n  Survival:       step 18/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 19/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (5, 5))\n  My hint:        \"Ask anyone near New York -- they haven't seen me.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 19/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 20/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (5, 5))\n  My hint:        'Last seen heading toward New York.'\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 5\n  Survival:       step 20/35 toward the survival threshold\n------------------------------------------------------------\n\n------------------------------------------------------------\nRound 21/35 -- Thief-Team vs dev-team\n  My move:        STAY   (position now: (5, 5))\n  My hint:        \"Ask anyone near New York -- they haven't seen me.\"\n  Their hint:     ''\n  Hint vs scent:  no signal to compare (no direction word, or no scent yet)\n  Barriers known: 6\n  Survival:       step 21/35 toward the survival threshold\n------------------------------------------------------------\n",
+          "stderr_tail": "Traceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\__main__.py\", line 15, in <module>\n    raise SystemExit(main())\n                     ~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\cli.py\", line 63, in main\n    print(json.dumps(sdk.run(args.group_name, is_counted=is_counted, team_code=args.team_code)))\n                     ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\sdk\\sdk.py\", line 54, in run\n    return self._build_runtime(group_name, is_counted, team_code).run()\n           ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\peer\\runtime.py\", line 157, in run\n    self_audit = send_opponent_final_reveal(self, self.records)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_opponent.py\", line 119, in send_opponent_final_reveal\n    response = cop_send_final_reveal(runtime.transport, nonces, intents)\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\interop\\cop_turn_sender.py\", line 64, in cop_send_final_reveal\n    return transport.call(\"receive_final_reveal\", {\"nonces\": nonces, \"intents\": intents})\n           ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\Users\\ASUS\\Desktop\\thief-peer\\src\\thief_peer\\infra\\mcp_client.py\", line 69, in call\n    raise TransportError(\n    ...<2 lines>...\n    )\nthief_peer.exceptions.TransportError: Could not reach http://127.0.0.1:8802/mcp for 'receive_final_reveal' after 3 attempts: Client failed to connect: All connection attempts failed\n"
+        },
+        {
+          "winner_group": "Thief-Team",
+          "won": true,
+          "total_score": {
+            "Thief-Team": 10,
+            "dev-team": 5
+          },
+          "audit_passed": true
+        }
+      ],
+      "wins": 3,
+      "win_rate": 1.0
+    }
+  },
+  "elapsed_seconds": 314.2889875997789,
+  "complete": true
+}

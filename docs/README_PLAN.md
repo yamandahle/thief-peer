@@ -61,10 +61,15 @@ through the ☐ items in order.
 8. **☐ Weight-tuning experiment writeup** (rule 42's "dilemmas" section):
    the corner-camping regression story (tune once, burned by an incomplete
    simulator, reverted) plus the redone experiment is good, honest
-   "strategy justification" material either way. Write this section
-   *after* item 18's real-match verification actually happens, not
-   before — the current result (`docs/WEIGHT_TUNING_EXPERIMENT.md`) is
-   explicitly not yet adopted. Source: `BOOK_WALKTHROUGH.md`, item 18.
+   "strategy justification" material either way. Real-match verification
+   has now happened (`docs/REAL_MATCH_COMPARISON.md`, 37 real games
+   against her live RL brain, run by direct request outside the numbered
+   backlog) — the mobility signal shows a real, if not yet fully pinned
+   down, effect; no weights were changed. Good report material on its
+   own, plus a second concrete "simulated vs. real can disagree" example
+   alongside `docs/HEURISTIC_ABLATION.md`. Source: `BOOK_WALKTHROUGH.md`
+   item 18, `docs/WEIGHT_TUNING_EXPERIMENT.md`,
+   `docs/HEURISTIC_ABLATION.md`, `docs/REAL_MATCH_COMPARISON.md`.
 
 *(New items get added here as later book sections turn up more things
 worth putting in the README — always cross-link back to the

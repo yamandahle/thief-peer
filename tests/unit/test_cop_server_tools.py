@@ -211,8 +211,8 @@ def test_cop_send_commit_and_cop_send_reveal_actually_land_on_the_registered_ser
     port, context = live_server_with_cop_adapter
     transport = McpTransport(f"http://127.0.0.1:{port}/mcp")
 
-    cop_send_commit(transport, "hash-0")
-    cop_send_reveal(transport, "N", "cold")
+    cop_send_commit(transport, "hash-0", deadline_sec=30.0)
+    cop_send_reveal(transport, "N", "cold", deadline_sec=30.0)
 
     assert context.calls == [
         ("commit_move", {"step": 1, "h_commit": "hash-0"}),

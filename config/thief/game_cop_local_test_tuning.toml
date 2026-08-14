@@ -1,0 +1,20 @@
+# Local-only test double, identical to game_cop_local_test.toml, plus one
+# added [strategy] override so scripts/real_match_harness.py can swap in
+# EnvConfiguredThiefBrain (scripts/variant_brain.py) for a real-match
+# weight comparison -- never used by a real submission run.
+
+[network]
+my_port = 8801
+opponent_url = "http://127.0.0.1:8802/mcp"
+opponent_protocol = "cop_v1"
+
+[strategy]
+thief_class = "variant_brain:EnvConfiguredThiefBrain"
+
+[email]
+recipient = "yamandahle@gmail.com"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"

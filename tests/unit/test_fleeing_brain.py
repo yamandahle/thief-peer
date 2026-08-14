@@ -3,6 +3,8 @@ a small fixed board, mirroring the book's own worked-example style, then
 the combined `_pick_move` is checked against the corner-trap and
 bimodal-belief scenarios the naive single-peak baseline gets wrong."""
 
+import random
+
 from thief_peer.constants import Direction
 from thief_peer.domain.board import Board
 from thief_peer.domain.own_state import OwnGameState
@@ -178,6 +180,65 @@ def test_pick_move_avoids_a_cell_with_a_strong_own_scent_when_otherwise_tied():
     direction, cell = brain._pick_move(moves, state, belief, board, own_scent)
 
     assert cell == spared_cell
+
+
+# ---- genuine-tie randomization -------------------------------------------
+
+
+def test_pick_move_randomizes_among_genuinely_tied_moves():
+    # Same fully-symmetric setup as the scent tie-break test above, minus
+    # any own_scent differentiator -- all four orthogonal neighbors score
+    # exactly equal on every signal, and none has been visited before, so
+    # this is a genuine, unbroken tie. A predictable Thief is easier to
+    # study from replayed warm-up logs than one that isn't -- picking
+    # randomly among equally-good moves costs nothing (there's no worse
+    # option here to accidentally choose) but avoids always making the
+    # identical choice in the identical situation.
+    board = Board(size=7, barriers=set())
+    state = OwnGameState(position=(3, 3))
+    belief = _single_peak_belief(7, (3, 3))
+    moves = [(d, cell) for d, cell in board.legal_moves(state.position, frozenset()) if d is not None]
+    assert len(moves) == 4
+
+    seen_cells = set()
+    for seed in range(20):
+        brain = ThiefBrain(rng=random.Random(seed))
+        _direction, cell = brain._pick_move(moves, state, belief, board, {})
+        seen_cells.add(cell)
+
+    # Over 20 different seeds, a genuinely random choice among 4 equally
+    # good options should visit more than just one of them.
+    assert len(seen_cells) > 1
+
+
+def test_pick_move_is_reproducible_given_the_same_seeded_rng():
+    board = Board(size=7, barriers=set())
+    state = OwnGameState(position=(3, 3))
+    belief = _single_peak_belief(7, (3, 3))
+    moves = [(d, cell) for d, cell in board.legal_moves(state.position, frozenset()) if d is not None]
+
+    first = ThiefBrain(rng=random.Random(42))._pick_move(moves, state, belief, board, {})
+    second = ThiefBrain(rng=random.Random(42))._pick_move(moves, state, belief, board, {})
+
+    assert first == second
+
+
+def test_pick_move_still_prefers_the_least_recently_visited_cell_over_a_random_pick():
+    # The anti-camping signal must still narrow the field *before* any
+    # randomization -- a cell visited more recently must never be chosen
+    # over one that hasn't been, even though both are otherwise tied.
+    board = Board(size=7, barriers=set())
+    state = OwnGameState(position=(3, 3))
+    belief = _single_peak_belief(7, (3, 3))
+    moves = [(d, cell) for d, cell in board.legal_moves(state.position, frozenset()) if d is not None]
+    brain = ThiefBrain(rng=random.Random(0))
+
+    visited_direction, visited_cell = moves[0]
+    brain._last_visited_turn[visited_cell] = 99  # visited very recently
+
+    for _ in range(20):
+        _direction, cell = brain._pick_move(moves, state, belief, board, {})
+        assert cell != visited_cell
 
 
 def test_beats_naive_single_peak_baseline_over_a_scripted_chase():

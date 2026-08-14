@@ -1,0 +1,45 @@
+# Local-only Cop config for scripts/real_match_harness.py's real-match
+# parameter comparison, by direct request. Lives entirely in this repo,
+# not yamanagh-cop's -- deliberately kept out of her working directory so
+# nothing there is ever touched. Identical to her own
+# config/game_thief_local_test.toml, plus one [strategy] line selecting
+# her own already-existing RLCopBrain (her own PRD 13 dotted-path
+# mechanism, exactly like this repo's own --thief_class override) instead
+# of the baseline CopBrain -- a real, harder, less deterministic opponent,
+# using her real promoted checkpoint (training/promoted/rl_cop_qtable.json,
+# already present in her repo).
+#
+# Pairing: cop listens on 8802, dials her at 8801. initiate_step0 = false --
+# her cop_step0_handshake() always actively dials in first, so this side
+# must be the one that waits (same reasoning as her own local-test config).
+
+version = "1.10"
+
+[game]
+group_name = "dev-team"
+group_id = "dev-team"
+sub_game_number = 1
+members = ["dev-1"]
+repos = { cop = "https://github.com/Nagham1023/yamanagh-cop", thief = "https://github.com/yamandahle/thief-peer" }
+
+[network]
+my_port = 8802
+opponent_url = "http://127.0.0.1:8801/mcp"
+turn_timeout_seconds = 180
+initiate_step0 = false
+step0_wait_seconds = 60
+
+[strategy]
+police_class = "cop.reasoning.rl_cop_brain:RLCopBrain"
+
+[trash_talk]
+provider = "template"
+every_n_steps = 1
+
+[llm]
+model = "claude-sonnet-5"
+step_deadline_seconds = 30
+
+[email]
+recipient = "rmisegal+uoh26finalgame@gmail.com"
+mode = "draft"

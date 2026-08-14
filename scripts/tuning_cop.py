@@ -27,9 +27,25 @@ from thief_peer.domain.rules import (
     is_captured_by_stuck,
 )
 from thief_peer.domain.scent import ScentField
+from thief_peer.strategy.brain_base import BrainBase
 from thief_peer.strategy.fleeing_brain import ThiefBrain
 
 MAX_BARRIERS = 14  # PARAMETERS.md floor -- the same cap a real match agrees to
+
+
+class NaiveBrain(BrainBase):
+    """The book's own shipped baseline (PRD_3 §2.1, Ch.6.4's default):
+    flee the single belief peak only -- no mobility, lookahead, or scent
+    signal at all. Mirrors tests/unit/test_fleeing_brain.py's own
+    `_naive_pick_move` exactly; kept as a real `BrainBase` here (rather
+    than a bare function) so `ablation_study.py` can run it through
+    `simulate_match`'s `thief_brain=` injection, the same match loop
+    every weighted configuration runs through -- a genuinely like-for-like
+    comparison, not a separately-scripted one."""
+
+    def _pick_move(self, moves, state, belief, board: Board, own_scent):
+        target = belief.most_likely()
+        return max(moves, key=lambda m: board.distance(m[1], target))
 
 
 class _SinglePeakBelief:
@@ -85,6 +101,7 @@ def simulate_match(
     cop_start: Cell,
     max_moves: int,
     cop_places_barriers: bool = False,
+    thief_brain=None,
 ) -> int | None:
     """Runs one simulated match with real domain objects on both sides.
     Returns the step the Thief was captured on, or None if it survived to
@@ -99,10 +116,14 @@ def simulate_match(
     `known_barriers` is kept in sync each round, mirroring the real
     `handle_receive_barrier_declaration` flow, and its own scent trail is
     now fed back into `decide()` so the scent-avoidance weight (item 15)
-    is actually exercised here too."""
+    is actually exercised here too. `thief_brain`, when given, is used
+    instead of building `ThiefBrain(**thief_weights)` -- lets
+    `ablation_study.py` drop in `NaiveBrain` (or any other `BrainBase`)
+    for a like-for-like comparison through the exact same match loop,
+    without `thief_weights` needing to mean anything for it."""
     thief_state = OwnGameState(position=thief_start)
     cop_state = OwnGameState(position=cop_start)
-    thief_brain = ThiefBrain(**thief_weights)
+    thief_brain = thief_brain if thief_brain is not None else ThiefBrain(**thief_weights)
     thief_belief = BeliefGrid(board.size)
     cop_belief = BeliefGrid(board.size)
     thief_scent = ScentField(board.size)

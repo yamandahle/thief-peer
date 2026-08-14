@@ -352,12 +352,12 @@ much it could actually hurt a real match, worst first.
     `test_team_code.py` (7 cases), plus CLI-level tests proving a valid
     code reaches `sdk.run` and an invalid one raises before `sdk.run` is
     ever called. Full suite passes, ruff clean, coverage 96.82%.
-14. ✅ **FIXED for the native protocol (2026-08-14); ⚠️ cop_v1 needs a
-    small Cop-side change too — flagged below, nothing touched on that
-    side.** ~~games-played-so-far is never declared to the opponent at
-    Step-0~~ (rules 37/38, book p.70: "at the start of every game, each
-    team declares to its opponent how many counted games it has already
-    played"). New `report/report_writer.py::LeagueCounter.
+14. ✅ **FIXED for the native protocol (2026-08-14); cop_v1 half
+    deliberately skipped, by decision (2026-08-14) — not pursuing the
+    Cop-side change.** ~~games-played-so-far is never declared to the
+    opponent at Step-0~~ (rules 37/38, book p.70: "at the start of every
+    game, each team declares to its opponent how many counted games it
+    has already played"). New `report/report_writer.py::LeagueCounter.
     total_games_played()` (a total across every opponent — distinct from
     rule 31's `distinct_opponents_played()`, which only counts unique
     opponents). Threaded into the Step-0 sealed record itself
@@ -382,10 +382,14 @@ much it could actually hurt a real match, worst first.
     cross-repo wire dependency, not something to route around: closing it
     for cop_v1 needs her `receive_step0` (and `Step0Declaration`/
     `step0_wire.py`) to accept one more field, matching how `repos` (rule
-    49) was coordinated between both repos already. **Ask your teammate**
-    if/when she's open to adding an optional `games_played_so_far: int`
-    parameter to her Step-0 wire — nothing on the Cop side was changed or
-    needs to be for this repo's own tests/matches to keep working today.
+    49) was coordinated between both repos already.
+
+    **Decided (2026-08-14): skip entirely, not pursuing this with the
+    Cop team.** Rules 37/38 aren't on either repo's own "automatic zero"
+    sanction list (`CLAUDE.md`'s fourteen zeroes / this repo's own FATAL
+    rules) — a real, missed nice-to-have, not a scoring or disqualification
+    risk. Nothing on the Cop side was touched, and nothing further is
+    planned here.
 
 ### 💡 Algorithm enhancement ideas (not bugs — real strategy upgrades)
 

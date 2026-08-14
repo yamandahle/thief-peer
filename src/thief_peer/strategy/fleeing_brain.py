@@ -13,6 +13,8 @@ to resist corner-trapping, bimodal belief distributions, and predictable
 straight-line trails (PRD_3 §2.2-2.3). Never touches an LLM.
 """
 
+import random
+
 from thief_peer.constants import Direction
 from thief_peer.domain.board import Board, Cell
 from thief_peer.domain.own_state import OwnGameState
@@ -68,6 +70,7 @@ class ThiefBrain(BrainBase):
         lookahead_weight: float = LOOKAHEAD_WEIGHT,
         lookahead_candidate_count: int = LOOKAHEAD_CANDIDATE_COUNT,
         scent_weight: float = SCENT_WEIGHT,
+        rng: random.Random | None = None,
     ):
         # Overridable only for scripts/tune_weights.py's empirical sweep --
         # every real caller (resolve_brain's default) uses the module
@@ -79,6 +82,10 @@ class ThiefBrain(BrainBase):
         self._scent_weight = scent_weight
         self._last_visited_turn: dict[Cell, int] = {}
         self._turn = 0
+        # `rng` is only ever overridden by tests, for determinism -- every
+        # real caller gets a real, unseeded random.Random() (same pattern
+        # strategy/talk_providers.py::TemplateProvider already uses).
+        self._rng = rng or random.Random()
 
     def _pick_move(
         self,
@@ -102,9 +109,18 @@ class ThiefBrain(BrainBase):
         best_score = max(s for _, _, s in scored)
         tied = [(d, cell) for d, cell, s in scored if s >= best_score - TIE_EPSILON]
 
-        direction, cell = min(
-            tied, key=lambda item: self._last_visited_turn.get(item[1], -1)
-        )
+        # Least-recently-visited still narrows the field first (a real
+        # anti-camping signal, not noise) -- only the moves that are STILL
+        # tied after that get a genuinely random pick, instead of always
+        # the same deterministic one. A predictable Thief is easier to
+        # study from replayed warm-up logs than one that isn't; this never
+        # trades away score to get there -- every candidate here already
+        # scored equally, so there's no "worse" option among them to avoid.
+        least_recent = min(self._last_visited_turn.get(cell, -1) for _, cell in tied)
+        fully_tied = [
+            (d, cell) for d, cell in tied if self._last_visited_turn.get(cell, -1) == least_recent
+        ]
+        direction, cell = self._rng.choice(fully_tied)
 
         self._turn += 1
         self._last_visited_turn[cell] = self._turn

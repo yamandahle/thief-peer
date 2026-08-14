@@ -1,0 +1,81 @@
+{
+  "seed_base": 20260815,
+  "trials_per_config": 100,
+  "board_size": 7,
+  "max_moves": 35,
+  "configurations": {
+    "naive_single_peak_baseline": {
+      "weights": null,
+      "win_rate": 0.01,
+      "mean_capture_step": 12.383838383838384,
+      "captures": 99,
+      "survivals": 1
+    },
+    "expected_distance_only": {
+      "weights": {
+        "expected_distance_weight": 1.0,
+        "mobility_weight": 0.0,
+        "lookahead_weight": 0.0,
+        "lookahead_candidate_count": 5,
+        "scent_weight": 0.0
+      },
+      "win_rate": 0.0,
+      "mean_capture_step": 10.13,
+      "captures": 100,
+      "survivals": 0
+    },
+    "no_mobility_signal": {
+      "weights": {
+        "expected_distance_weight": 1.0,
+        "mobility_weight": 0.0,
+        "lookahead_weight": 0.1,
+        "lookahead_candidate_count": 5,
+        "scent_weight": 0.5
+      },
+      "win_rate": 0.62,
+      "mean_capture_step": 11.18421052631579,
+      "captures": 38,
+      "survivals": 62
+    },
+    "no_lookahead_signal": {
+      "weights": {
+        "expected_distance_weight": 1.0,
+        "mobility_weight": 1.5,
+        "lookahead_weight": 0.0,
+        "lookahead_candidate_count": 5,
+        "scent_weight": 0.5
+      },
+      "win_rate": 0.1,
+      "mean_capture_step": 18.133333333333333,
+      "captures": 90,
+      "survivals": 10
+    },
+    "no_scent_signal": {
+      "weights": {
+        "expected_distance_weight": 1.0,
+        "mobility_weight": 1.5,
+        "lookahead_weight": 0.1,
+        "lookahead_candidate_count": 5,
+        "scent_weight": 0.0
+      },
+      "win_rate": 0.0,
+      "mean_capture_step": 11.16,
+      "captures": 100,
+      "survivals": 0
+    },
+    "full_thiefbrain_shipped_defaults": {
+      "weights": {
+        "expected_distance_weight": 1.0,
+        "mobility_weight": 1.5,
+        "lookahead_weight": 0.1,
+        "lookahead_candidate_count": 5,
+        "scent_weight": 0.5
+      },
+      "win_rate": 0.34,
+      "mean_capture_step": 13.893939393939394,
+      "captures": 66,
+      "survivals": 34
+    }
+  },
+  "elapsed_seconds": 4.4934101002290845
+}

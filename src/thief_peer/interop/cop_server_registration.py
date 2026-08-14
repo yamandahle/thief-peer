@@ -30,11 +30,16 @@ def register_cop_tools(mcp: FastMCP, adapter: CopContextAdapter) -> None:
             mcp.local_provider.remove_tool(name)
 
     @mcp.tool
-    def receive_commit(h_commit: str) -> dict:
+    def receive_commit(h_commit: str, sent_at: float, deadline_at: float) -> dict:
+        # sent_at/deadline_at (her PRD 15, ch.8.4): the caller's own declared
+        # request timing -- her own receive_commit docstring says this is
+        # "logged by the callback, never trusted (rule 9)"; accepted here
+        # only so her real send_commit's wire shape validates, never used
+        # for anything on this side either.
         return adapter.handle_receive_commit(h_commit)
 
     @mcp.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
+    def receive_reveal(move: dict, hint_text: str, sent_at: float, deadline_at: float) -> dict:
         return adapter.handle_receive_reveal(move, hint_text)
 
     @mcp.tool

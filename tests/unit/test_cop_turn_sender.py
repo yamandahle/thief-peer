@@ -25,19 +25,28 @@ class _SpyTransport:
         return self._response
 
 
-def test_cop_send_commit_calls_receive_commit_with_flat_kwarg():
+def test_cop_send_commit_calls_receive_commit_with_flat_kwarg(monkeypatch):
+    monkeypatch.setattr("thief_peer.interop.cop_turn_sender.time.time", lambda: 1000.0)
     transport = _SpyTransport()
-    cop_send_commit(transport, "abc123")
-    assert transport.calls == [("receive_commit", {"h_commit": "abc123"})]
+    cop_send_commit(transport, "abc123", deadline_sec=30.0)
+    assert transport.calls == [
+        ("receive_commit", {"h_commit": "abc123", "sent_at": 1000.0, "deadline_at": 1030.0})
+    ]
 
 
-def test_cop_send_reveal_wraps_the_move_as_her_typed_dict():
+def test_cop_send_reveal_wraps_the_move_as_her_typed_dict(monkeypatch):
+    monkeypatch.setattr("thief_peer.interop.cop_turn_sender.time.time", lambda: 1000.0)
     transport = _SpyTransport()
-    cop_send_reveal(transport, "N", "cold, near the wall")
+    cop_send_reveal(transport, "N", "cold, near the wall", deadline_sec=30.0)
     assert transport.calls == [
         (
             "receive_reveal",
-            {"move": {"type": "move", "direction": "N"}, "hint_text": "cold, near the wall"},
+            {
+                "move": {"type": "move", "direction": "N"},
+                "hint_text": "cold, near the wall",
+                "sent_at": 1000.0,
+                "deadline_at": 1030.0,
+            },
         )
     ]
 
@@ -86,21 +95,30 @@ def test_cop_send_capture_response_sends_confirmed_and_true_position():
     ]
 
 
-def test_every_state_mutating_call_opts_out_of_retry_except_the_scent_pull():
-    # infra/mcp_client.py's own docstring: retrying a state-mutating call
-    # could land on her server twice and fold the same evidence into her
-    # belief map twice. cop_request_scent_map is a pure read and is the
-    # one deliberate exception.
+def test_every_per_round_state_mutating_call_opts_out_of_retry():
+    # infra/mcp_client.py's own docstring: retrying a per-round state-
+    # mutating call could land on her server twice and fold the same
+    # evidence into her belief map twice.
     transport = _SpyTransport()
 
-    cop_send_commit(transport, "abc123")
-    cop_send_reveal(transport, "N", "cold")
-    cop_send_final_reveal(transport, {}, {})
+    cop_send_commit(transport, "abc123", deadline_sec=30.0)
+    cop_send_reveal(transport, "N", "cold", deadline_sec=30.0)
     cop_send_barrier_declaration(transport, row=1, col=1)
     cop_send_capture_claim(transport, thief_row=1, thief_col=1, cop_row=1, cop_col=1, claimed_at_step=1)
     cop_send_capture_response(transport, confirmed=True, true_thief_row=1, true_thief_col=1)
 
-    assert transport.retryable_flags == [False] * 6
+    assert transport.retryable_flags == [False] * 5
+
+
+def test_cop_send_final_reveal_and_the_scent_pull_stay_retryable():
+    # Unlike the per-round calls above, receive_final_reveal just records
+    # nonces/intents and reruns the audit against the same trace log
+    # either way -- retrying it is provably harmless, and was found
+    # necessary by a real batch of automated local matches hitting a
+    # transient connection failure right at this exact call.
+    transport = _SpyTransport()
+    cop_send_final_reveal(transport, {}, {})
+    assert transport.retryable_flags == [True]
 
     transport = _SpyTransport(response={"cells": []})
     cop_request_scent_map(transport)

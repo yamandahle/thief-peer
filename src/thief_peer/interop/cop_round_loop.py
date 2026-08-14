@@ -77,9 +77,9 @@ def play_round_cop(
 
     turn_fsm.transition("COMMITTING")
     try:
-        cop_send_commit(transport, record["commit"])
+        cop_send_commit(transport, record["commit"], round_deadline_sec)
         round_exchange.wait_for_commit(step, round_deadline_sec)
-        cop_send_reveal(transport, move, decision.hint)
+        cop_send_reveal(transport, move, decision.hint, round_deadline_sec)
     except (DeadlineExceededError, TransportError):
         # The book's own transition table (also respected by native
         # play_round) has no direct COMMITTING -> TECHNICAL_LOSS edge --

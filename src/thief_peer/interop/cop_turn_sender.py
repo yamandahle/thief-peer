@@ -6,24 +6,51 @@ has for a native Thief opponent, translated to her wire vocabulary. Her
 as-is; whether her end-of-match audit can *verify* them against her own
 7-field commit envelope is a separate, known gap (this package's `__init__.py`).
 
-Every call here that could mutate her state (commit/reveal/final-reveal,
+Every per-round call that could mutate her state (commit/reveal,
 barrier/capture claim-response) goes through as `retryable=False` --
 `infra/mcp_client.py`'s own docstring has the full reasoning: a retried
 reveal could land twice and fold the same evidence into her belief map
-twice. `cop_request_scent_map` is a pure read and stays retryable.
+twice, corrupting a per-round Bayesian update that can't tell "applied
+once" from "applied twice." `cop_send_final_reveal` is the one exception
+(`retryable=True`, found necessary by a real batch of automated local
+matches -- a fast run of many back-to-back games occasionally hit a
+transient "connection refused" right as both processes finish their
+round loops and this side calls hers): her own `receive_final_reveal`
+just records the nonces/intents and reruns the audit against the exact
+same trace log either way, so calling it twice with identical data is
+provably harmless, unlike a per-round belief fold-in. `cop_request_scent_map`
+is a pure read and stays retryable too.
 """
+
+import time
 
 from thief_peer.interop.cop_wire import deserialize_scent_from_cop
 
 
-def cop_send_commit(transport, h_commit: str) -> dict:
-    return transport.call("receive_commit", {"h_commit": h_commit}, retryable=False)
+def cop_send_commit(transport, h_commit: str, deadline_sec: float) -> dict:
+    # sent_at/deadline_at (her PRD 15, ch.8.4): added to her real
+    # receive_commit's wire shape after this adapter was first built --
+    # her own docstring says they're "logged by the callback, never
+    # trusted (rule 9)", so this side only needs to send plausible values,
+    # never anything she'd actually verify against.
+    sent_at = time.time()
+    return transport.call(
+        "receive_commit",
+        {"h_commit": h_commit, "sent_at": sent_at, "deadline_at": sent_at + deadline_sec},
+        retryable=False,
+    )
 
 
-def cop_send_reveal(transport, move: str, hint_text: str) -> dict:
+def cop_send_reveal(transport, move: str, hint_text: str, deadline_sec: float) -> dict:
+    sent_at = time.time()
     return transport.call(
         "receive_reveal",
-        {"move": {"type": "move", "direction": move}, "hint_text": hint_text},
+        {
+            "move": {"type": "move", "direction": move},
+            "hint_text": hint_text,
+            "sent_at": sent_at,
+            "deadline_at": sent_at + deadline_sec,
+        },
         retryable=False,
     )
 
@@ -34,9 +61,7 @@ def cop_request_scent_map(transport) -> dict[str, float]:
 
 
 def cop_send_final_reveal(transport, nonces: dict, intents: dict) -> dict:
-    return transport.call(
-        "receive_final_reveal", {"nonces": nonces, "intents": intents}, retryable=False
-    )
+    return transport.call("receive_final_reveal", {"nonces": nonces, "intents": intents})
 
 
 def cop_send_barrier_declaration(transport, row: int, col: int) -> dict:
