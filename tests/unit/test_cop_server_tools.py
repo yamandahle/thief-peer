@@ -82,8 +82,8 @@ def test_handle_receive_commit_assigns_sequential_steps_and_delegates():
     adapter.handle_receive_commit("hash-1")
 
     assert context.calls == [
-        ("commit_move", {"step": 0, "h_commit": "hash-0"}),
-        ("commit_move", {"step": 1, "h_commit": "hash-1"}),
+        ("commit_move", {"step": 1, "h_commit": "hash-0"}),
+        ("commit_move", {"step": 2, "h_commit": "hash-1"}),
     ]
 
 
@@ -94,7 +94,7 @@ def test_handle_receive_reveal_translates_her_typed_move_into_our_direction_stri
     result = adapter.handle_receive_reveal({"type": "move", "direction": "N"}, "cold")
 
     assert context.calls == [
-        ("reveal_move", {"step": 0, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"})
+        ("reveal_move", {"step": 1, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"})
     ]
     assert result == {"accepted": True, "word_count": 1}
 
@@ -133,10 +133,14 @@ def test_handle_receive_capture_claim_acks_immediately_then_confirms_a_real_capt
     )
 
     assert result == {"acknowledged": True}
-    adapter._capture_response_thread.join(timeout=1)
     assert context.transport.calls == [
         ("receive_capture_response", {"confirmed": True, "true_thief_col": 5, "true_thief_row": 2})
     ]
+    claim = adapter.peer_trace.capture_claims[-1]
+    assert claim.claimed_at_step == 9
+    assert (claim.thief_row, claim.thief_col) == (2, 5)
+    assert (claim.cop_row, claim.cop_col) == (2, 5)
+    assert claim.confirmed is True
 
 
 def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wrong():
@@ -147,9 +151,22 @@ def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wron
         thief_col=5, thief_row=2, cop_col=5, cop_row=2, claimed_at_step=9
     )
 
-    adapter._capture_response_thread.join(timeout=1)
     assert context.transport.calls == [
         ("receive_capture_response", {"confirmed": False, "true_thief_col": 9, "true_thief_row": 9})
+    ]
+    assert adapter.peer_trace.capture_claims[-1].confirmed is False
+
+
+def test_handle_receive_capture_response_records_her_verdict():
+    adapter = CopContextAdapter(_SpyContext(), shared_config_path="unused")
+
+    result = adapter.handle_receive_capture_response(
+        confirmed=True, true_thief_col=3, true_thief_row=4
+    )
+
+    assert result == {"acknowledged": True}
+    assert adapter.peer_trace.capture_responses == [
+        {"confirmed": True, "true_thief_row": 4, "true_thief_col": 3}
     ]
 
 
@@ -205,8 +222,8 @@ def test_cop_send_commit_and_cop_send_reveal_actually_land_on_the_registered_ser
     cop_send_reveal(transport, "N", "cold")
 
     assert context.calls == [
-        ("commit_move", {"step": 0, "h_commit": "hash-0"}),
-        ("reveal_move", {"step": 0, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"}),
+        ("commit_move", {"step": 1, "h_commit": "hash-0"}),
+        ("reveal_move", {"step": 1, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"}),
     ]
 
 

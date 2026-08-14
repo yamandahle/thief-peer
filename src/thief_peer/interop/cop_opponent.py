@@ -97,6 +97,7 @@ def send_opponent_final_reveal(runtime, records: list[dict]) -> dict:
         "passed": False,
         "verified_steps": 0,
         "failed_steps": [],
+        "failed_capture_claims": [],
         "evaluated": False,
     }
     if runtime.opponent_protocol != "cop_v1":
@@ -109,6 +110,7 @@ def send_opponent_final_reveal(runtime, records: list[dict]) -> dict:
         "passed": bool(response.get("passed", False)),
         "verified_steps": int(response.get("verified_steps", 0)),
         "failed_steps": list(response.get("failed_steps") or []),
+        "failed_capture_claims": list(response.get("failed_capture_claims") or []),
         "evaluated": True,
     }
 
@@ -121,7 +123,9 @@ def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool]:
             runtime.turn_fsm,
             runtime.scent,
             runtime.trash_talk,
+            runtime.round_exchange,
             runtime.transport,
+            runtime.round_deadline_sec,
             runtime._last_opponent_scent,
         )
     return play_round(

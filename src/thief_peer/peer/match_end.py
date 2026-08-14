@@ -93,6 +93,7 @@ def finalize_match(
         "passed": False,
         "verified_steps": 0,
         "failed_steps": [],
+        "failed_capture_claims": [],
         "evaluated": False,
     }
     # cop_v1: Ch.5.3.2 Final Reveal carries nonces; both sides audit via

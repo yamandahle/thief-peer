@@ -16,6 +16,7 @@ _NOT_EVALUATED = {
     "passed": False,
     "verified_steps": 0,
     "failed_steps": [],
+    "failed_capture_claims": [],
     "evaluated": False,
 }
 
@@ -25,9 +26,8 @@ class CopContextAdapter:
         self._context = context
         self._shared_config_path = shared_config_path
         self._sub_game_number = sub_game_number
-        self._commit_step = 0
-        self._reveal_step = 0
-        self._capture_response_thread: threading.Thread | None = None
+        self._commit_step = 1
+        self._reveal_step = 1
         self.final_reveal_received = threading.Event()
         self.peer_trace = CopPeerTrace()
         self.opponent_audit: dict = dict(_NOT_EVALUATED)
@@ -66,17 +66,23 @@ class CopContextAdapter:
     ) -> dict:
         my_row, my_col = self._context.state.position
         confirmed = (my_row, my_col) == (thief_row, thief_col)
-        self._capture_response_thread = threading.Thread(
-            target=cop_send_capture_response,
-            args=(self._context.transport, confirmed, my_row, my_col),
-            daemon=True,
+        self.peer_trace.record_capture_claim(
+            claimed_at_step=claimed_at_step,
+            thief_row=thief_row,
+            thief_col=thief_col,
+            cop_row=cop_row,
+            cop_col=cop_col,
+            confirmed=confirmed,
         )
-        self._capture_response_thread.start()
+        cop_send_capture_response(self._context.transport, confirmed, my_row, my_col)
         return {"acknowledged": True}
 
     def handle_receive_capture_response(
         self, confirmed: bool, true_thief_col: int, true_thief_row: int
     ) -> dict:
+        self.peer_trace.record_capture_response(
+            confirmed=confirmed, true_thief_row=true_thief_row, true_thief_col=true_thief_col
+        )
         return {"acknowledged": True}
 
     def handle_receive_final_reveal(self, nonces: dict, intents: dict) -> dict:
