@@ -31,6 +31,36 @@ def test_template_provider_is_deterministic_given_the_same_rng_seed():
     assert a == b
 
 
+def test_template_provider_defaults_to_a_truthful_phrase_when_verdict_is_omitted():
+    provider = TemplateProvider(rng=random.Random(0))
+    truth_line = provider.generate(verdict="truth")
+    default_line = provider.generate()
+
+    assert default_line == truth_line
+
+
+def test_template_provider_never_mixes_lie_and_truth_phrase_pools():
+    # Book ch.6.5: the two intents must draw from genuinely separate pools,
+    # not a shared one filtered after the fact -- exhaustively sample many
+    # draws from each verdict and confirm the pools never overlap.
+    rng = random.Random(1)
+    provider = TemplateProvider(rng=rng)
+    lie_lines = {provider.generate(verdict="lie") for _ in range(50)}
+    truth_lines = {provider.generate(verdict="truth") for _ in range(50)}
+
+    assert lie_lines.isdisjoint(truth_lines)
+
+
+def test_template_provider_lie_and_truth_both_still_respect_the_map_area():
+    provider = TemplateProvider(rng=random.Random(7))
+
+    lie_line = provider.generate(map_area="Tokyo", verdict="lie")
+    truth_line = provider.generate(map_area="Tokyo", verdict="truth")
+
+    assert "Tokyo" in lie_line
+    assert "Tokyo" in truth_line
+
+
 def test_enforce_word_cap_leaves_short_text_untouched():
     text = "I am nowhere near you"
     assert enforce_word_cap(text, max_words=15) == text

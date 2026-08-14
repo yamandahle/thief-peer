@@ -3,6 +3,14 @@
 Records her commit/reveal stream into `CopPeerTrace` and, on Final Reveal
 (Ch.5.3.2), runs rules 19/36 peer audit — returning the summary so mutual
 audit is visible on the wire, not only in her local report.
+
+`_commit_step`/`_reveal_step` start at 1, not 0: `interop/cop_round_loop.py`
+now waits on `round_exchange.wait_for_commit(step, ...)` before revealing
+(the book's Acknowledge step, Fig. 6 p.35-36), keyed by this loop's own
+`step` counter, which starts at 1 (`peer/runtime.py`'s `step = 0; while
+...: step += 1`). Recording her first commit at key 0 while waiting on
+key 1 would wait forever on a commit that will never arrive under that
+key — every real match would time out on round 1.
 """
 
 import threading
@@ -25,8 +33,8 @@ class CopContextAdapter:
         self._context = context
         self._shared_config_path = shared_config_path
         self._sub_game_number = sub_game_number
-        self._commit_step = 0
-        self._reveal_step = 0
+        self._commit_step = 1
+        self._reveal_step = 1
         self._capture_response_thread: threading.Thread | None = None
         self.final_reveal_received = threading.Event()
         self.peer_trace = CopPeerTrace()
@@ -96,6 +104,7 @@ class CopContextAdapter:
             self.peer_trace,
             cop_start=config.require("board_and_agents.cop_start"),
             grid_size=int(config.require("board_and_agents.grid_size")),
+            max_barriers=int(config.require("movement_and_barriers.max_barriers")),
         )
         self.final_reveal_received.set()
         return {"acknowledged": True, **self.opponent_audit}

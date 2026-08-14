@@ -7,11 +7,11 @@ only wiring. Game-component construction, the round loop, the
 rule-7 watchdog's heartbeat producer live in `peer/runtime_setup.py`,
 `peer/round_loop.py`, `peer/runtime_context.py`, `peer/match_end.py`, and
 `peer/heartbeat_monitor.py` respectively, kept out of this class to stay
-under this codebase's file-length convention. `verdict` is left at `Decision`'s
-"truth" default rather than wired to `strategy.trash_talk.choose_verdict` --
-that function needs an expected-distance figure `ThiefBrain` only computes
-as a private method; reaching into it (or duplicating its formula here) was
-judged out of proportion to this stage's actual scope. Flagged, not hidden.
+under this codebase's file-length convention. `verdict` (book ch.6.5/1.4)
+is decided by the brain itself now (`BrainBase._choose_verdict`,
+`ThiefBrain`'s own override reusing its private `_expected_distance`) --
+`decide()` sets it on every `Decision` it returns, so this class never
+needs to reach into the brain's internals.
 """
 
 from datetime import UTC, datetime
@@ -53,6 +53,7 @@ class PeerRuntime(PeerContextMixin):
         num_sub_games: int = 1,
         is_counted: bool = True,
         shared_config_path: str | None = None,
+        team_code: str | None = None,
     ):
         self.config = config
         self.group_name = group_name
@@ -64,6 +65,10 @@ class PeerRuntime(PeerContextMixin):
         self.sub_game_number = sub_game_number
         self.num_sub_games = num_sub_games
         self.is_counted = is_counted
+        # Rule 45 [MUST]: a separate, optional 8-char Moodle/report code --
+        # already validated at the CLI (shared/team_code.py) before this
+        # constructor ever runs, if the caller supplied one at all.
+        self.team_code = team_code
         self.repos = config.get("repos", {})
         # "native" (default) speaks this repo's own vocabulary; "cop_v1"
         # switches to the Cop-repo interop adapter (interop/cop_opponent.py).
@@ -124,6 +129,7 @@ class PeerRuntime(PeerContextMixin):
                 len(self.state.known_barriers),
                 self.state.position,
                 self.survival_threshold,
+                hint_agreement=self.turn_handler.hint_agreement_log[-1],
             )
             self.heartbeat.beat()
             if technical_loss:
@@ -182,14 +188,16 @@ class PeerRuntime(PeerContextMixin):
             opponent_mcp_url=self.opponent_url,
             own_spec=sysinfo.collect_spec(),
             github_commit_own=current_git_commit_hash(),
+            own_team_code=self.team_code,
             shared_config_path=self.shared_config_path,
         )
         if self.opponent_protocol != "cop_v1":
             cop_shutdown_grace(self)
-        print_match_summary(result, self.group_name)
+        print_match_summary(result, self.group_name, self.turn_handler.hint_agreement_log)
         return result
 
     def view(self):
+        from thief_peer.domain.scent import snapshot_to_matrix
         from thief_peer.gui.window import PeerView
 
         return PeerView(
@@ -197,4 +205,6 @@ class PeerRuntime(PeerContextMixin):
             belief_matrix=self.turn_handler.belief.as_matrix(),
             turn_state=self.turn_fsm.state,
             step_count=self.state.step_count,
+            scent_matrix=snapshot_to_matrix(self._last_opponent_scent, self.board.size),
+            hint_text=self._last_opponent_hint,
         )

@@ -45,15 +45,20 @@ def sealed_step_record(
     return {"payload": {**payload, "nonce": sealed["nonce"]}, "commit": sealed["commit"]}
 
 
-def sealed_spec_record(group_name: str) -> dict:
+def sealed_spec_record(group_name: str, games_played_so_far: int = 0) -> dict:
     """Step-0 declaration (PRD_6 §2.5): hardware spec + code version + the
     exact git commit hash of the code playing this match, sealed together
-    so an auditor can reconstruct precisely what competed."""
+    so an auditor can reconstruct precisely what competed. `games_played_so_far`
+    (rules 37/38, book p.70) is this side's own counted-game total *before*
+    this game -- declared to the opponent at Step-0, not just reported to
+    the lecturer afterward; defaults to 0 so an uncoordinated caller (e.g.
+    a direct unit test) still gets a valid record."""
     payload = {
         "spec": sysinfo.collect_spec(),
         "code_version": CODE_VERSION,
         "github_commit_hash": current_git_commit_hash(),
         "group_name": group_name,
+        "games_played_so_far": games_played_so_far,
     }
     sealed = CommitReveal.seal(payload)
     return {"payload": {**payload, "nonce": sealed["nonce"]}, "commit": sealed["commit"]}

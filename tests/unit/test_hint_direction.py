@@ -1,6 +1,7 @@
-"""parse_direction_cue tests (book Ch.6.4, page 47)."""
+"""parse_direction_cue / hint_agrees_with_scent tests (book Ch.6.4, page 47;
+Ch.4.4/6.4 lie-detection side)."""
 
-from thief_peer.domain.hint_direction import parse_direction_cue
+from thief_peer.domain.hint_direction import hint_agrees_with_scent, parse_direction_cue
 
 
 def test_no_direction_word_returns_none():
@@ -57,3 +58,34 @@ def test_conflicting_cardinal_words_place_no_constraint_on_that_axis():
     # unconstrained (full range) rather than guessing.
     cue = parse_direction_cue("north or maybe south, hard to say.", 4)
     assert cue == {f"{r},{c}": 1.0 for r in range(4) for c in range(4)}
+
+
+# ---- hint_agrees_with_scent (book ch.4.4/6.4) -----------------------------
+
+
+def test_hint_agrees_with_scent_true_when_the_scent_peak_is_inside_the_region():
+    region = parse_direction_cue("heading north", 8)
+    scent = {"0,0": 0.9, "6,6": 0.1}  # peak (0,0) is in the north half
+
+    assert hint_agrees_with_scent(region, scent) is True
+
+
+def test_hint_agrees_with_scent_false_when_the_scent_peak_is_outside_the_region():
+    region = parse_direction_cue("heading north", 8)
+    scent = {"6,6": 0.9, "0,0": 0.1}  # peak (6,6) is in the south half -- a lie
+
+    assert hint_agrees_with_scent(region, scent) is False
+
+
+def test_hint_agrees_with_scent_is_none_when_the_hint_has_no_direction_word():
+    region = parse_direction_cue("I'm nowhere near where you think I am.", 8)
+    scent = {"0,0": 0.9}
+
+    assert region is None
+    assert hint_agrees_with_scent(region, scent) is None
+
+
+def test_hint_agrees_with_scent_is_none_when_no_scent_was_reported_yet():
+    region = parse_direction_cue("heading north", 8)
+
+    assert hint_agrees_with_scent(region, {}) is None

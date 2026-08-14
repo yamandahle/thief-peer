@@ -23,7 +23,19 @@ already independently, locally verified (never trusts an unverified
 claim at face value) -- rule 22 (never falsely declare a capture) is the
 *claimant's* obligation; this is this peer's own defense against a false
 claim, from the other side.
+
+`handle_receive_barrier_declaration` also validates the incoming barrier
+before trusting it (book ch.3's own Implementation Tip, p.17-22; rule 12
+[FATAL] on exceeding the agreed cap) -- previously recorded unconditionally,
+so a buggy or dishonest Cop could place an off-board or unlimited number
+of barriers with zero pushback. Raising `SimulationError` here doesn't
+crash this process: FastMCP returns it to the *caller* as a failed tool
+call, the same "reject immediately, don't silently absorb" contract every
+other handler in this file already uses (`handle_receive_control`,
+`handle_get_revealed_records`).
 """
+
+from pathlib import Path
 
 from thief_peer.domain.crypto import hash_config_file
 from thief_peer.domain.negotiation import Negotiation, canonical_terms
@@ -31,9 +43,11 @@ from thief_peer.domain.rules import (
     is_captured_by_barrier,
     is_captured_by_landing,
     is_captured_by_stuck,
+    is_legal_barrier_declaration,
 )
 from thief_peer.exceptions import SimulationError
 from thief_peer.peer.sealing import sealed_spec_record
+from thief_peer.report.report_writer import LeagueCounter
 
 
 class PeerContextMixin:
@@ -46,7 +60,10 @@ class PeerContextMixin:
 
     def handle_receive_control(self, payload: dict) -> dict:
         if payload.get("type") == "step0":
-            return {"record": sealed_spec_record(self.group_name)}
+            games_played_so_far = LeagueCounter(
+                Path(self.results_dir) / "league_counter.json"
+            ).total_games_played()
+            return {"record": sealed_spec_record(self.group_name, games_played_so_far)}
         raise SimulationError(f"Unsupported control message type: {payload.get('type')}")
 
     def handle_commit_move(self, payload: dict) -> dict:
@@ -67,6 +84,15 @@ class PeerContextMixin:
 
     def handle_receive_barrier_declaration(self, payload: dict) -> dict:
         cell = (payload["row"], payload["col"])
+        max_barriers = int(self.config.require("movement_and_barriers.max_barriers"))
+        if not is_legal_barrier_declaration(
+            cell, self.board, len(self.state.known_barriers), max_barriers
+        ):
+            raise SimulationError(
+                f"Illegal barrier declaration at {cell}: off the {self.board.size}x"
+                f"{self.board.size} board, or exceeds the agreed cap of "
+                f"{max_barriers} barriers (book ch.3 Implementation Tip; rule 12)"
+            )
         self.state.record_barrier(cell)
         if is_captured_by_barrier(self.state, cell):
             self._captured_by_barrier = True

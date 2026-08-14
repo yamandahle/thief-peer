@@ -41,3 +41,24 @@ def parse_direction_cue(hint_text: str, board_size: int) -> dict[str, float] | N
         cols = range(0, board_size)
 
     return {f"{r},{c}": 1.0 for r in rows for c in cols}
+
+
+def hint_agrees_with_scent(
+    region: dict[str, float] | None, scent_snapshot: dict[str, float]
+) -> bool | None:
+    """Book ch.4.4/6.4: scent is unforgeable ground truth, unlike the hint,
+    which may lie -- `BeliefGrid.observe_hint`/`observe_scent` already blend
+    the two mathematically every round (a lying hint can never outweigh
+    real scent), but that comparison was previously never made explicit
+    anywhere, logged, or tracked. `region` is the hint's own already-parsed
+    direction cue (`parse_direction_cue`'s output, reused rather than
+    reparsed); `scent_snapshot` is the same opponent-reported trail already
+    folded into the belief this round. Returns `None` when there's nothing
+    to compare -- no direction word in the hint, or no scent reported yet
+    (e.g. the opponent's first move) -- never a fabricated verdict; `True`
+    when the single most-scented cell falls inside the hinted region,
+    `False` otherwise."""
+    if region is None or not scent_snapshot:
+        return None
+    peak_cell = max(scent_snapshot, key=scent_snapshot.get)
+    return peak_cell in region

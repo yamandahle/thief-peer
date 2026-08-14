@@ -1,11 +1,15 @@
-"""Rate-limiting primitives (PRD_7 §2.4, §3): the token-bucket + FIFO
-queue + DOS detector chain feeding `shared/gatekeeper.py`'s single doorway.
-All limits are constructor parameters -- never hardcoded module constants
+"""Rate-limiting primitives (PRD_7 §2.4, §3): the Quota Manager + token-
+bucket + FIFO queue + DOS detector chain feeding `shared/gatekeeper.py`'s
+single doorway, in the book's own Figure 13 order (p.74, ch.9.3.1). All
+limits are constructor parameters -- never hardcoded module constants
 (the standing "no magic values" rule).
 """
 
+import json
 import time
 from collections import deque
+from datetime import UTC, datetime
+from pathlib import Path
 from typing import Any
 
 
@@ -83,3 +87,58 @@ class DosDetector:
     @property
     def is_locked(self) -> bool:
         return self._locked
+
+
+class QuotaManager:
+    """Book's own Figure 13 (p.74, ch.9.3.1), first of the three gates: a
+    counter of actions taken *today*, hard-blocking once the daily cap is
+    reached -- "the last line of defense against account suspension: once
+    the quota is exhausted, no further request goes out," even if the
+    other two gates are somehow bypassed or misconfigured. Resets on a
+    real UTC calendar-day boundary, not "N calls since this process
+    started."
+
+    Persists to disk (mirrors `report/report_writer.py::LeagueCounter`'s
+    own read-check-save pattern, same default-path convention) rather
+    than counting purely in memory -- a real Thief series spans 6 separate
+    sub-game processes (PRD_10), each building its own fresh
+    `ApiGatekeeper`; an in-memory-only counter would silently hand every
+    sub-game its own full daily allowance instead of one shared across
+    the whole day, which is the entire point of a *daily* cap.
+
+    The book gives no concrete daily number anywhere in Appendix F /
+    PARAMETERS.md's own parameter table -- only the architecture (this
+    gate exists, first in the chain), never a value. `max_calls_per_day`
+    is therefore a required, explicit constructor argument, never a
+    baked-in default (I6/I9: never invent an ungrounded quantitative
+    value) -- `shared/gatekeeper.py::ApiGatekeeper` itself leaves this
+    gate optional (`quota_manager=None`, disabled) for exactly the same
+    reason: wiring in an unrequested number would be inventing one."""
+
+    def __init__(self, max_calls_per_day: int, path: str | Path = "results/quota_state.json"):
+        self._max_calls_per_day = max_calls_per_day
+        self._path = Path(path)
+
+    def allow(self) -> bool:
+        state = self._load()
+        today = self._today()
+        if state.get("day") != today:
+            state = {"day": today, "count": 0}
+        if state["count"] >= self._max_calls_per_day:
+            return False
+        state["count"] += 1
+        self._save(state)
+        return True
+
+    def _load(self) -> dict:
+        if not self._path.exists():
+            return {}
+        return json.loads(self._path.read_text(encoding="utf-8"))
+
+    def _save(self, state: dict) -> None:
+        self._path.parent.mkdir(parents=True, exist_ok=True)
+        self._path.write_text(json.dumps(state), encoding="utf-8")
+
+    @staticmethod
+    def _today() -> str:
+        return datetime.now(UTC).date().isoformat()

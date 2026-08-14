@@ -68,6 +68,51 @@ def test_play_turn_defaults_to_no_hint_text():
     assert decision.move_type in (MoveType.MOVE, MoveType.HOLD)
 
 
+def test_play_turn_logs_none_when_theres_nothing_to_compare():
+    board = Board(size=7, barriers=set())
+    state = OwnGameState(position=(3, 3))
+    handler = TurnHandler(board, state, ThiefBrain())
+
+    handler.play_turn(opponent_scent_snapshot={})  # no scent, no hint
+
+    assert handler.hint_agreement_log == [None]
+
+
+def test_play_turn_logs_true_when_the_hint_agrees_with_the_scent_peak():
+    board = Board(size=8, barriers=set())
+    state = OwnGameState(position=(3, 3))
+    handler = TurnHandler(board, state, ThiefBrain())
+
+    handler.play_turn(
+        opponent_scent_snapshot={"0,0": 0.9}, opponent_hint_text="heading north"
+    )
+
+    assert handler.hint_agreement_log == [True]
+
+
+def test_play_turn_logs_false_when_the_hint_contradicts_the_scent_peak():
+    board = Board(size=8, barriers=set())
+    state = OwnGameState(position=(3, 3))
+    handler = TurnHandler(board, state, ThiefBrain())
+
+    handler.play_turn(
+        opponent_scent_snapshot={"6,6": 0.9}, opponent_hint_text="heading north"
+    )
+
+    assert handler.hint_agreement_log == [False]
+
+
+def test_play_turn_accumulates_one_log_entry_per_call():
+    board = Board(size=8, barriers=set())
+    state = OwnGameState(position=(3, 3))
+    handler = TurnHandler(board, state, ThiefBrain())
+
+    handler.play_turn(opponent_scent_snapshot={"0,0": 0.9}, opponent_hint_text="north")
+    handler.play_turn(opponent_scent_snapshot={"7,7": 0.9}, opponent_hint_text="north")
+
+    assert handler.hint_agreement_log == [True, False]
+
+
 def test_run_scripted_match_plays_one_turn_per_scripted_scent_snapshot():
     board = Board(size=5, barriers=set())
     state = OwnGameState(position=(2, 2))

@@ -10,6 +10,7 @@ from thief_peer.domain.rules import (
     is_captured_by_barrier,
     is_captured_by_landing,
     is_captured_by_stuck,
+    is_legal_barrier_declaration,
 )
 
 
@@ -85,3 +86,24 @@ def test_has_survived_true_at_threshold():
     state = OwnGameState(position=(3, 3))
     state.step_count = 35
     assert has_survived(state, survival_threshold=35) is True
+
+
+def test_is_legal_barrier_declaration_true_on_board_and_under_the_cap():
+    board = Board(size=7, barriers=set())
+    assert is_legal_barrier_declaration((3, 3), board, already_placed=5, max_barriers=14) is True
+
+
+def test_is_legal_barrier_declaration_false_off_board():
+    board = Board(size=7, barriers=set())
+    assert is_legal_barrier_declaration((7, 0), board, already_placed=0, max_barriers=14) is False
+    assert is_legal_barrier_declaration((-1, 0), board, already_placed=0, max_barriers=14) is False
+
+
+def test_is_legal_barrier_declaration_false_at_the_cap():
+    board = Board(size=7, barriers=set())
+    assert is_legal_barrier_declaration((3, 3), board, already_placed=14, max_barriers=14) is False
+
+
+def test_is_legal_barrier_declaration_true_one_below_the_cap():
+    board = Board(size=7, barriers=set())
+    assert is_legal_barrier_declaration((3, 3), board, already_placed=13, max_barriers=14) is True

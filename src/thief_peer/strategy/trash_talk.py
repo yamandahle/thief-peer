@@ -44,25 +44,25 @@ class TrashTalk:
         self._step_deadline_seconds = step_deadline_seconds
         self._gatekeeper = gatekeeper
 
-    def generate_hint(self, step: int) -> str:
+    def generate_hint(self, step: int, verdict: str = "truth") -> str:
         use_llm = (
             self._llm is not None
             and self._every_n_steps > 0
             and step % self._every_n_steps == 0
         )
-        text = self._call_llm_bounded() if use_llm else None
+        text = self._call_llm_bounded(verdict) if use_llm else None
         if text is None:
-            text = self._template.generate(self._map_area)
+            text = self._template.generate(self._map_area, verdict)
         return enforce_word_cap(text, self._hint_max_words)
 
-    def _call_llm(self) -> str:
+    def _call_llm(self, verdict: str) -> str:
         if self._gatekeeper is not None:
-            return self._gatekeeper.execute(self._llm.generate, self._map_area)
-        return self._llm.generate(self._map_area)
+            return self._gatekeeper.execute(self._llm.generate, self._map_area, verdict)
+        return self._llm.generate(self._map_area, verdict)
 
-    def _call_llm_bounded(self) -> str | None:
+    def _call_llm_bounded(self, verdict: str) -> str | None:
         pool = ThreadPoolExecutor(max_workers=1)
-        future: Future = pool.submit(self._call_llm)
+        future: Future = pool.submit(self._call_llm, verdict)
         try:
             return future.result(timeout=self._step_deadline_seconds)
         except Exception:

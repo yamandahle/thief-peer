@@ -4,6 +4,13 @@ loop already has, no state of its own, not part of any report artifact or
 wire protocol)."""
 
 
+_HINT_AGREEMENT_LABELS = {
+    True: "AGREES with their scent",
+    False: "CONTRADICTS their scent (possible lie)",
+    None: "no signal to compare (no direction word, or no scent yet)",
+}
+
+
 def print_round_summary(
     step: int,
     max_moves: int,
@@ -14,6 +21,7 @@ def print_round_summary(
     known_barrier_count: int,
     position: tuple[int, int],
     survival_threshold: int,
+    hint_agreement: bool | None = None,
 ) -> None:
     payload = record["payload"]
     move = payload["move"]
@@ -26,6 +34,7 @@ def print_round_summary(
     print(f"  My move:        {move_display:<6} (position now: {position})")
     print(f"  My hint:        {payload['hint_text']!r}")
     print(f"  Their hint:     {opponent_hint!r}")
+    print(f"  Hint vs scent:  {_HINT_AGREEMENT_LABELS[hint_agreement]}")
     print(f"  Barriers known: {known_barrier_count}")
     print(f"  Survival:       step {step}/{survival_threshold} toward the survival threshold")
     print("-" * 60)
@@ -53,9 +62,12 @@ def print_score_breakdown(brain, belief, board, state) -> None:
         print(f"    {label:<5}: {expected_distance:6.2f} / {mobility} / {lookahead:5.2f} -> {total:7.2f}")
 
 
-def print_match_summary(result: dict, group_name: str) -> None:
+def print_match_summary(
+    result: dict, group_name: str, hint_agreement_log: list | None = None
+) -> None:
     final = result["final_result"]
     audit = result["audit"]
+    league = result.get("league_status", {})
     print(f"\n{'=' * 60}")
     winner = final["winner_group"]
     outcome = "WON" if winner == group_name else "LOST"
@@ -63,4 +75,26 @@ def print_match_summary(result: dict, group_name: str) -> None:
     print(f"  Score:        {final['total_score']}")
     print(f"  Audit passed: {audit['passed']}")
     print(f"  Tokens used:  {final['tokens_total_series']}")
+    if hint_agreement_log:
+        # Book ch.4.4/6.4's lie-detection side, surfaced for this opponent
+        # rather than computed and discarded every round -- observability
+        # only (round_reporter.py's own docstring), never part of the
+        # audited report artifacts, which keep the book's own fixed schema.
+        compared = [v for v in hint_agreement_log if v is not None]
+        if compared:
+            contradicted = sum(1 for v in compared if v is False)
+            print(
+                f"  Their hints:  contradicted their own scent in "
+                f"{contradicted}/{len(compared)} comparable round(s)"
+            )
+    if league:
+        # Rule 31/52: informational only -- this repo can't force more
+        # opponents to have been played, only report where things stand.
+        played = league.get("distinct_opponents_played")
+        minimum = league.get("min_games_to_pass")
+        counted_note = "counted" if league.get("counted_this_game") else "NOT counted (repeat opponent)"
+        print(f"  League:       {played} distinct opponent(s) played so far", end="")
+        if minimum is not None:
+            print(f" (minimum to pass: {minimum})", end="")
+        print(f" -- this game was {counted_note}")
     print("=" * 60)

@@ -12,9 +12,11 @@ from thief_peer.strategy.brain_base import Decision
 class _SpyTransport:
     def __init__(self):
         self.calls = []
+        self.retryable_flags = []
 
-    def call(self, tool_name, payload):
+    def call(self, tool_name, payload, retryable=True):
         self.calls.append((tool_name, payload))
+        self.retryable_flags.append(retryable)
         return {"ok": True}
 
 
@@ -65,3 +67,17 @@ def test_send_reveal_uses_stay_for_a_hold_decision():
 
     _, args = transport.calls[0]
     assert args["payload"]["move"] == "STAY"
+
+
+def test_send_commit_and_send_reveal_are_never_retried():
+    # infra/mcp_client.py's own docstring: a retried reveal could land on
+    # the opponent's server twice and fold the same hint evidence into
+    # their belief map twice -- both calls must opt out of retry.
+    transport = _SpyTransport()
+    sealed = {"nonce": "n", "commit": "c"}
+    decision = Decision(move_type=MoveType.MOVE, direction=Direction.N, hint="h", verdict="truth")
+
+    send_commit(transport, step=1, sender="thief", sealed=sealed)
+    send_reveal(transport, step=1, sender="thief", decision=decision, scent_snapshot={})
+
+    assert transport.retryable_flags == [False, False]

@@ -12,7 +12,7 @@ _CANVAS_SIZE = 400
 class BoardView:
     def __init__(self, parent: tk.Widget):
         self.canvas = tk.Canvas(parent, width=_CANVAS_SIZE, height=_CANVAS_SIZE, bg="white")
-        self.canvas.pack()
+        self.canvas.pack(side=tk.LEFT)  # sits beside ScentView's own canvas in PeerWindow's shared frame
 
     def render(self, view) -> None:
         self.canvas.delete("all")

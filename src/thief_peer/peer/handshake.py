@@ -23,6 +23,7 @@ def run_handshake(
     transport,
     group_name: str,
     shared_config_path: str | None = None,
+    games_played_so_far: int = 0,
 ) -> dict:
     my_terms = canonical_terms(config)
     my_config_sha256 = hash_config_file(shared_config_path) if shared_config_path else None
@@ -39,6 +40,6 @@ def run_handshake(
         their_config_sha256=their_negotiation.get("config_sha256"),
     )
 
-    my_spec = sealed_spec_record(group_name)
+    my_spec = sealed_spec_record(group_name, games_played_so_far)
     their_step0 = transport.call("receive_control", {"type": "step0", "record": my_spec})
     return their_step0["record"]

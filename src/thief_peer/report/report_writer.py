@@ -1,5 +1,14 @@
 """report_writer (PRD_7 §2.7): assembles the four Table-20 JSON artifacts
-(PDF / PLAN.md §5 field requirements) and emails them as attachments (rule 34)."""
+(PDF / PLAN.md §5 field requirements) and emails them as attachments (rule 34).
+
+`send_email=False` (`match_end.py` passes this on every sub-game except
+the series' last one, book ch.9.4) still writes all four files to disk --
+each sub-game is a separate process, so persisting is never optional --
+but skips the Gatekeeper/Gmail dispatch entirely. `artifacts["email_sent"]`
+is `None` in that case, distinct from `False` (which means a real attempt
+was made and genuinely failed, e.g. a 429) -- a caller checking this field
+can tell "not due yet" apart from "tried and failed."
+"""
 
 import json
 from pathlib import Path
@@ -10,12 +19,37 @@ from thief_peer.report.artifact_helpers import artifact_filenames
 from thief_peer.report.artifacts import build_config, build_declaration, build_log, build_result
 
 
+def load_previous_result(result_path: Path) -> dict:
+    """Read-merge-write's read half: an empty dict (never a missing-file
+    error) when this is the series' first sub-game -- there's nothing to
+    merge into yet, and that's the expected, common case, not a fault."""
+    if not result_path.exists():
+        return {}
+    return json.loads(result_path.read_text(encoding="utf-8"))
+
+
 class LeagueCounter:
     def __init__(self, path: str | Path = "results/league_counter.json"):
         self._path = Path(path)
 
     def games_played_against(self, opponent_group_id: str) -> int:
         return self._load().get(opponent_group_id, 0)
+
+    def distinct_opponents_played(self) -> int:
+        """Rule 31: how many *different* opponents this side has a counted
+        game against so far -- the number a passing project grade is
+        actually measured against (config's own
+        `network_and_league.min_games_to_pass`)."""
+        return len(self._load())
+
+    def total_games_played(self) -> int:
+        """Rules 37/38 (book p.70): "at the start of every game, each team
+        declares to its opponent how many counted games it has already
+        played" -- a total across every opponent, not the distinct-opponent
+        count `distinct_opponents_played()` answers. Read by
+        `peer/handshake.py` before this game's own Step-0 is sealed, so it
+        never includes the in-progress game."""
+        return sum(self._load().values())
 
     def record_game(self, opponent_group_id: str) -> int:
         data = self._load()
@@ -41,6 +75,7 @@ def write_and_send(
     results_dir: str | Path = "results",
     league_counter: LeagueCounter | None = None,
     is_counted: bool = True,
+    send_email: bool = True,
 ) -> dict:
     del league_counter, is_counted  # league bookkeeping stays out of the four JSON files
 
@@ -92,6 +127,14 @@ def write_and_send(
         (results_path / filenames[key]).write_text(
             json.dumps(artifact, indent=2, ensure_ascii=False), encoding="utf-8"
         )
+
+    if not send_email:
+        # Book ch.9.4: result_<game_id>.json is the series' own summary,
+        # sent once -- earlier sub-games persist their share of it (above)
+        # but never reach the Gatekeeper. `None`, not `False`: this is
+        # "not due yet," not a failed attempt.
+        artifacts["email_sent"] = None
+        return artifacts
 
     email_attachments = {filenames[key]: artifacts[key] for key in filenames}
 

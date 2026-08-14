@@ -111,6 +111,27 @@ def test_lookahead_score_returns_zero_when_belief_is_entirely_empty():
     assert brain._lookahead_score((2, 2), belief, board) == 0.0
 
 
+# ---- verdict (book ch.6.5/1.4) --------------------------------------------
+
+
+def test_choose_verdict_lies_when_the_candidate_cell_is_already_close_to_the_belief_peak():
+    # Peak right next to the candidate cell -> small expected_distance
+    # relative to the 7x7 board's corner-to-corner span -> lie.
+    board = Board(size=7, barriers=set())
+    brain = ThiefBrain()
+    belief = _single_peak_belief(7, (0, 1))
+
+    assert brain._choose_verdict((0, 0), belief, board) == "lie"
+
+
+def test_choose_verdict_tells_the_truth_when_the_candidate_cell_is_far_from_the_belief_peak():
+    board = Board(size=7, barriers=set())
+    brain = ThiefBrain()
+    belief = _single_peak_belief(7, (6, 6))
+
+    assert brain._choose_verdict((0, 0), belief, board) == "truth"
+
+
 # ---- combined behaviour --------------------------------------------------
 
 
@@ -120,8 +141,43 @@ def test_pick_move_never_returns_a_move_outside_the_legal_list():
     brain = ThiefBrain()
     belief = _single_peak_belief(5, (0, 0))
     moves = board.legal_moves(state.position, frozenset())
-    chosen = brain._pick_move(moves, state, belief, board)
+    chosen = brain._pick_move(moves, state, belief, board, {})
     assert chosen in moves
+
+
+# ---- scent-avoidance (book ch.1.4, p.6) -----------------------------------
+
+
+def test_scent_score_is_the_negated_intensity_already_at_that_cell():
+    brain = ThiefBrain()
+    own_scent = {"2,3": 0.62, "4,4": 0.9}
+    assert brain._scent_score((2, 3), own_scent) == -0.62
+    assert brain._scent_score((4, 4), own_scent) == -0.9
+    assert brain._scent_score((0, 0), own_scent) == 0.0  # no recorded trail there
+
+
+def test_pick_move_avoids_a_cell_with_a_strong_own_scent_when_otherwise_tied():
+    # Belief peak placed exactly on the Thief's own current cell so all four
+    # orthogonal neighbors are equidistant from it (expected_distance ties),
+    # have equal mobility (all interior cells), and an equal 1-ply lookahead
+    # (the believed Cop, also at the current cell, can step directly onto
+    # any of the four with distance 0) -- isolating the own-scent signal as
+    # the only thing left to break the tie, matching the book's "staying/
+    # returning only makes your own trail stronger, which is a cost"
+    # framing (ch.1.4, p.6).
+    board = Board(size=7, barriers=set())
+    state = OwnGameState(position=(3, 3))
+    brain = ThiefBrain()
+    belief = _single_peak_belief(7, (3, 3))
+    moves = [(d, cell) for d, cell in board.legal_moves(state.position, frozenset()) if d is not None]
+    assert len(moves) == 4  # N, S, E, W -- STAY deliberately excluded
+
+    spared_direction, spared_cell = moves[0]
+    own_scent = {f"{r},{c}": 0.9 for _, (r, c) in moves if (r, c) != spared_cell}
+
+    direction, cell = brain._pick_move(moves, state, belief, board, own_scent)
+
+    assert cell == spared_cell
 
 
 def test_beats_naive_single_peak_baseline_over_a_scripted_chase():
@@ -152,7 +208,9 @@ def test_beats_naive_single_peak_baseline_over_a_scripted_chase():
         return total_distance / 30
 
     thief_brain = ThiefBrain()
-    smart_avg = run(lambda moves, state, belief, board: thief_brain._pick_move(moves, state, belief, board))
+    smart_avg = run(
+        lambda moves, state, belief, board: thief_brain._pick_move(moves, state, belief, board, {})
+    )
     naive_avg = run(lambda moves, state, belief, board: _naive_pick_move(moves, belief, board))
 
     assert smart_avg > naive_avg
@@ -172,7 +230,7 @@ def test_corner_avoidance_prefers_higher_mobility_over_raw_distance():
     moves = board.legal_moves(state.position, frozenset())
 
     naive_direction, naive_dest = _naive_pick_move(moves, belief, board)
-    smart_direction, smart_dest = brain._pick_move(moves, state, belief, board)
+    smart_direction, smart_dest = brain._pick_move(moves, state, belief, board, {})
 
     naive_mobility = brain._mobility_score(naive_dest, board, frozenset())
     smart_mobility = brain._mobility_score(smart_dest, board, frozenset())
@@ -197,7 +255,7 @@ def test_bimodal_belief_produces_better_expected_distance_than_naive_peak_target
     moves = board.legal_moves(state.position, frozenset())
 
     naive_direction, naive_dest = _naive_pick_move(moves, belief, board)
-    smart_direction, smart_dest = brain._pick_move(moves, state, belief, board)
+    smart_direction, smart_dest = brain._pick_move(moves, state, belief, board, {})
 
     naive_expected = brain._expected_distance(naive_dest, belief, board)
     smart_expected = brain._expected_distance(smart_dest, belief, board)

@@ -9,7 +9,7 @@ import tkinter as tk
 import pytest
 
 from thief_peer.domain.crypto import CommitReveal
-from thief_peer.gui.replay_view import ReplayView, replay, verify_step
+from thief_peer.gui.replay_view import ReplayView, _first_tampered_index, replay, verify_step
 
 
 def _clean_log(n: int) -> list[dict]:
@@ -54,6 +54,17 @@ def test_replay_on_an_empty_log_returns_verified_ok_trivially():
     assert replay([]) == "Verified OK"
 
 
+def test_first_tampered_index_is_none_on_a_fully_clean_log():
+    assert _first_tampered_index(_clean_log(4)) is None
+
+
+def test_first_tampered_index_finds_the_earliest_one_not_just_any():
+    log = _clean_log(5)
+    log[3]["payload"]["state"] = "tampered"
+    log[1]["payload"]["state"] = "also-tampered"
+    assert _first_tampered_index(log) == 1
+
+
 @pytest.fixture
 def hidden_root():
     try:
@@ -95,8 +106,63 @@ def test_replay_view_flags_tampered_at_the_corrupted_step(hidden_root):
     view.step_forward()  # now at the tampered step
     assert "TAMPERED" in view.label.cget("text")
 
-    view.step_forward()  # step 2 was never touched, still clean on its own
+
+def test_replay_view_forward_halts_at_the_first_tampered_step_no_appeal(hidden_root):
+    # Book ch.7.4: "disqualified on the first mismatch, no appeal" -- step 2
+    # is individually clean on its own, but Forward must not be able to
+    # reach it once step 1 is tampered; that would misleadingly read as
+    # "it recovered."
+    log = _clean_log(3)
+    log[1]["payload"]["move"] = "S"
+    view = ReplayView(hidden_root, log)
+
+    view.step_forward()  # step 0 -> step 1 (the tampered step)
+    assert view.index == 1
+    view.step_forward()  # blocked -- must not reach step 2
+    assert view.index == 1
+    view.step_forward()  # still blocked, repeated clicks don't creep forward
+    assert view.index == 1
+
+
+def test_replay_view_forward_still_works_normally_on_a_fully_clean_log(hidden_root):
+    view = ReplayView(hidden_root, _clean_log(3))
+    view.step_forward()
+    view.step_forward()
+    assert view.index == 2  # unrestricted when nothing is tampered
+
+
+def test_replay_view_shows_the_disqualified_label_at_the_tampered_step(hidden_root):
+    log = _clean_log(3)
+    log[1]["payload"]["move"] = "S"
+    view = ReplayView(hidden_root, log)
+
+    view.step_forward()
+
+    assert "disqualified" in view.label.cget("text").lower()
+
+
+def test_replay_view_back_is_never_restricted_by_a_tampered_step_ahead(hidden_root):
+    # Reviewing the clean history before the tamper point is exactly what
+    # establishes where it happened -- only Forward past it is blocked.
+    log = _clean_log(3)
+    log[1]["payload"]["move"] = "S"
+    view = ReplayView(hidden_root, log)
+
+    view.step_forward()  # at the tampered step (index 1)
+    view.step_back()
+    assert view.index == 0
     assert "Verified OK" in view.label.cget("text")
+
+
+def test_replay_view_tamper_at_the_very_first_step_blocks_all_forward_movement(hidden_root):
+    log = _clean_log(3)
+    log[0]["payload"]["move"] = "S"
+    view = ReplayView(hidden_root, log)
+
+    assert view.index == 0
+    assert "TAMPERED" in view.label.cget("text")
+    view.step_forward()
+    assert view.index == 0  # never left step 0
 
 
 def test_replay_view_handles_an_empty_log_without_raising(hidden_root):

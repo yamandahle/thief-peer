@@ -1,19 +1,23 @@
 """ThiefBrain (PRD_3 Ch.6): a custom algorithm beyond the naive "maximize
 distance from the belief peak" baseline the book ships by default (Ch.6.4).
-Combines four signals -- full-distribution expected distance, mobility
+Combines five signals -- full-distribution expected distance, mobility
 (1-ply lookahead on legal moves from the candidate cell), a 1-ply
 expectimax lookahead against the top candidate Cop positions weighted by
 belief probability (book Ch.6.3.1, page 45: "forward search... expectimax
 against the opponent's belief" -- reasons over the distribution itself,
-not a single most_likely() point), and a least-recently-visited tie-break
--- to resist corner-trapping, bimodal belief distributions, and
-predictable straight-line trails (PRD_3 §2.2-2.3). Never touches an LLM.
+not a single most_likely() point), a scent-concentration cost (book
+ch.1.4, p.6: staying in or returning to a cell only makes that cell's own
+trail *stronger*, which helps the opponent find it -- a real cost, unlike
+the verbal hint, which can lie), and a least-recently-visited tie-break --
+to resist corner-trapping, bimodal belief distributions, and predictable
+straight-line trails (PRD_3 §2.2-2.3). Never touches an LLM.
 """
 
 from thief_peer.constants import Direction
 from thief_peer.domain.board import Board, Cell
 from thief_peer.domain.own_state import OwnGameState
 from thief_peer.strategy.brain_base import BrainBase
+from thief_peer.strategy.trash_talk import choose_verdict
 
 # Weighted-sum combination (PRD_3 §3): expected distance dominates in open
 # space, but a large mobility gap (the signature of a real dead end, not
@@ -39,6 +43,14 @@ from thief_peer.strategy.brain_base import BrainBase
 EXPECTED_DISTANCE_WEIGHT = 1.0
 MOBILITY_WEIGHT = 1.5
 LOOKAHEAD_WEIGHT = 0.1
+# Not yet empirically tuned (see scripts/tune_weights.py's own open item,
+# item 18 in docs/BOOK_WALKTHROUGH.md) -- picked in between LOOKAHEAD_WEIGHT
+# and EXPECTED_DISTANCE_WEIGHT deliberately, so a heavily-revisited cell
+# gets a real, felt penalty without ever being able to outweigh a genuine
+# mobility-based escape route (MOBILITY_WEIGHT) the way an over-tuned
+# EXPECTED_DISTANCE_WEIGHT once did -- see this file's own corner-camping
+# history above.
+SCENT_WEIGHT = 0.5
 TIE_EPSILON = 1e-6
 
 # Top-N highest-probability belief cells considered as candidate Cop
@@ -55,6 +67,7 @@ class ThiefBrain(BrainBase):
         mobility_weight: float = MOBILITY_WEIGHT,
         lookahead_weight: float = LOOKAHEAD_WEIGHT,
         lookahead_candidate_count: int = LOOKAHEAD_CANDIDATE_COUNT,
+        scent_weight: float = SCENT_WEIGHT,
     ):
         # Overridable only for scripts/tune_weights.py's empirical sweep --
         # every real caller (resolve_brain's default) uses the module
@@ -63,6 +76,7 @@ class ThiefBrain(BrainBase):
         self._mobility_weight = mobility_weight
         self._lookahead_weight = lookahead_weight
         self._lookahead_candidate_count = lookahead_candidate_count
+        self._scent_weight = scent_weight
         self._last_visited_turn: dict[Cell, int] = {}
         self._turn = 0
 
@@ -72,6 +86,7 @@ class ThiefBrain(BrainBase):
         state: OwnGameState,
         belief,
         board: Board,
+        own_scent: dict[str, float],
     ) -> tuple[Direction | None, Cell]:
         barriers = frozenset(state.known_barriers)
 
@@ -80,6 +95,7 @@ class ThiefBrain(BrainBase):
                 self._expected_distance_weight * self._expected_distance(cell, belief, board)
                 + self._mobility_weight * self._mobility_score(cell, board, barriers)
                 + self._lookahead_weight * self._lookahead_score(cell, belief, board)
+                + self._scent_weight * self._scent_score(cell, own_scent)
             )
 
         scored = [(d, cell, score(cell)) for d, cell in moves]
@@ -94,8 +110,32 @@ class ThiefBrain(BrainBase):
         self._last_visited_turn[cell] = self._turn
         return direction, cell
 
+    def _choose_verdict(self, cell: Cell, belief, board: Board) -> str:
+        """Book ch.6.5/1.4: reuses the same expected-distance signal already
+        computed for movement (`_expected_distance`) rather than a second,
+        separately-tuned figure -- lying is worth more when the opponent's
+        belief is already close to the truth, honesty costs little when
+        it's already far off. `max_possible_distance` is the board's own
+        corner-to-corner distance, the same normalization scale
+        `choose_verdict` expects."""
+        max_possible_distance = board.distance((0, 0), (board.size - 1, board.size - 1))
+        expected_distance = self._expected_distance(cell, belief, board)
+        return choose_verdict(expected_distance, max_possible_distance)
+
     def _mobility_score(self, cell: Cell, board: Board, barriers: frozenset[Cell]) -> int:
         return len(board.legal_moves(cell, barriers))
+
+    def _scent_score(self, cell: Cell, own_scent: dict[str, float]) -> float:
+        """Book ch.1.4, p.6: a scent trail can't be faked -- staying in or
+        returning to a cell only reinforces this side's *own* trail there,
+        which is a cost (easier for the opponent to find), never an
+        advantage. `own_scent` is this side's own pre-move snapshot
+        (`ScentField.snapshot()`, the same sparse `{"r,c": intensity}` shape
+        sent to the opponent), so a candidate cell already carrying a
+        strong residual trail scores negatively here -- the higher the
+        existing intensity, the stronger the discouragement."""
+        r, c = cell
+        return -own_scent.get(f"{r},{c}", 0.0)
 
     def _expected_distance(self, cell: Cell, belief, board: Board) -> float:
         matrix = belief.as_matrix()

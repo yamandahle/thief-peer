@@ -15,7 +15,7 @@ class _FixedTemplate(TemplateProvider):
     def __init__(self):
         pass
 
-    def generate(self, map_area: str = "") -> str:
+    def generate(self, map_area: str = "", verdict: str = "truth") -> str:
         return "template line"
 
 
@@ -26,7 +26,7 @@ class _StubLlm:
         self._sleep_seconds = sleep_seconds
         self.calls = 0
 
-    def generate(self, map_area: str = "") -> str:
+    def generate(self, map_area: str = "", verdict: str = "truth") -> str:
         self.calls += 1
         if self._sleep_seconds:
             time.sleep(self._sleep_seconds)
@@ -38,6 +38,21 @@ class _StubLlm:
 def test_uses_template_when_no_llm_provider_configured():
     talk = TrashTalk(_FixedTemplate(), llm_provider=None, every_n_steps=1)
     assert talk.generate_hint(step=1) == "template line"
+
+
+def test_generate_hint_passes_the_verdict_through_to_the_template():
+    class _EchoingVerdictTemplate(TemplateProvider):
+        def __init__(self):
+            pass
+
+        def generate(self, map_area: str = "", verdict: str = "truth") -> str:
+            return f"verdict was {verdict}"
+
+    talk = TrashTalk(_EchoingVerdictTemplate(), llm_provider=None, every_n_steps=1)
+
+    assert talk.generate_hint(step=1, verdict="lie") == "verdict was lie"
+    assert talk.generate_hint(step=1, verdict="truth") == "verdict was truth"
+    assert talk.generate_hint(step=1) == "verdict was truth"  # default
 
 
 def test_uses_llm_on_matching_steps():
@@ -110,7 +125,7 @@ def test_routes_the_llm_call_through_the_gatekeeper_when_one_is_configured():
     assert len(gatekeeper.calls) == 1
     api_call, args, kwargs = gatekeeper.calls[0]
     assert api_call == llm.generate
-    assert args == ("NYC",)
+    assert args == ("NYC", "truth")
 
 
 def test_falls_back_to_template_when_the_gatekeeper_blocks_the_call():
@@ -148,7 +163,7 @@ def test_hint_is_word_capped_regardless_of_source():
         def __init__(self):
             pass
 
-        def generate(self, map_area: str = "") -> str:
+        def generate(self, map_area: str = "", verdict: str = "truth") -> str:
             return "one two three four five six seven eight nine ten eleven"
 
     talk = TrashTalk(_LongTemplate(), llm_provider=None, every_n_steps=1, hint_max_words=3)

@@ -1,0 +1,361 @@
+{
+  "seed_base": 20260814,
+  "trials_per_config": 30,
+  "defaults": {
+    "expected_distance_weight": 1.0,
+    "mobility_weight": 1.5,
+    "lookahead_weight": 0.1,
+    "lookahead_candidate_count": 5,
+    "scent_weight": 0.5
+  },
+  "start_vs_barrier_placing": {
+    "win_rate": 0.3333333333333333,
+    "mean_capture_step": 12.95
+  },
+  "start_vs_barrier_free": {
+    "win_rate": 0.3,
+    "mean_capture_step": 14.857142857142858
+  },
+  "start_naive_avg_distance": 4.432380952380954,
+  "final_chosen": {
+    "expected_distance_weight": 2.0,
+    "mobility_weight": 1.5,
+    "lookahead_weight": 0.1,
+    "lookahead_candidate_count": 5,
+    "scent_weight": 0.5
+  },
+  "final_vs_barrier_placing": {
+    "win_rate": 0.8333333333333334,
+    "mean_capture_step": 23.8
+  },
+  "final_vs_barrier_free": {
+    "win_rate": 0.6333333333333333,
+    "mean_capture_step": 28.363636363636363
+  },
+  "final_naive_avg_distance": 5.263809523809525,
+  "history": [
+    {
+      "pass": 1,
+      "param": "expected_distance_weight",
+      "value": 0.5,
+      "win_rate": 0.8,
+      "mean_capture_step": 23.666666666666668
+    },
+    {
+      "pass": 1,
+      "param": "expected_distance_weight",
+      "value": 1.0,
+      "win_rate": 0.3333333333333333,
+      "mean_capture_step": 12.95
+    },
+    {
+      "pass": 1,
+      "param": "expected_distance_weight",
+      "value": 1.5,
+      "win_rate": 0.5333333333333333,
+      "mean_capture_step": 12.857142857142858
+    },
+    {
+      "pass": 1,
+      "param": "expected_distance_weight",
+      "value": 2.0,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 1,
+      "param": "mobility_weight",
+      "value": 0.5,
+      "win_rate": 0.5,
+      "mean_capture_step": 10.666666666666666
+    },
+    {
+      "pass": 1,
+      "param": "mobility_weight",
+      "value": 1.0,
+      "win_rate": 0.6333333333333333,
+      "mean_capture_step": 23.727272727272727
+    },
+    {
+      "pass": 1,
+      "param": "mobility_weight",
+      "value": 1.5,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 1,
+      "param": "mobility_weight",
+      "value": 2.0,
+      "win_rate": 0.1,
+      "mean_capture_step": 16.074074074074073
+    },
+    {
+      "pass": 1,
+      "param": "mobility_weight",
+      "value": 3.0,
+      "win_rate": 0.0,
+      "mean_capture_step": 13.266666666666667
+    },
+    {
+      "pass": 1,
+      "param": "lookahead_weight",
+      "value": 0.0,
+      "win_rate": 0.7666666666666667,
+      "mean_capture_step": 30.571428571428573
+    },
+    {
+      "pass": 1,
+      "param": "lookahead_weight",
+      "value": 0.1,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 1,
+      "param": "lookahead_weight",
+      "value": 0.3,
+      "win_rate": 0.6333333333333333,
+      "mean_capture_step": 28.545454545454547
+    },
+    {
+      "pass": 1,
+      "param": "lookahead_weight",
+      "value": 0.5,
+      "win_rate": 0.7666666666666667,
+      "mean_capture_step": 32.142857142857146
+    },
+    {
+      "pass": 1,
+      "param": "lookahead_weight",
+      "value": 1.0,
+      "win_rate": 0.43333333333333335,
+      "mean_capture_step": 14.705882352941176
+    },
+    {
+      "pass": 1,
+      "param": "lookahead_candidate_count",
+      "value": 1,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 1,
+      "param": "lookahead_candidate_count",
+      "value": 3,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 1,
+      "param": "lookahead_candidate_count",
+      "value": 5,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 1,
+      "param": "lookahead_candidate_count",
+      "value": 10,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 1,
+      "param": "scent_weight",
+      "value": 0.0,
+      "win_rate": 0.5,
+      "mean_capture_step": 16.933333333333334
+    },
+    {
+      "pass": 1,
+      "param": "scent_weight",
+      "value": 0.25,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 25.2
+    },
+    {
+      "pass": 1,
+      "param": "scent_weight",
+      "value": 0.5,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 1,
+      "param": "scent_weight",
+      "value": 1.0,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 19.6
+    },
+    {
+      "pass": 1,
+      "param": "scent_weight",
+      "value": 2.0,
+      "win_rate": 0.7666666666666667,
+      "mean_capture_step": 17.714285714285715
+    },
+    {
+      "pass": 2,
+      "param": "expected_distance_weight",
+      "value": 0.5,
+      "win_rate": 0.8,
+      "mean_capture_step": 23.666666666666668
+    },
+    {
+      "pass": 2,
+      "param": "expected_distance_weight",
+      "value": 1.0,
+      "win_rate": 0.3333333333333333,
+      "mean_capture_step": 12.95
+    },
+    {
+      "pass": 2,
+      "param": "expected_distance_weight",
+      "value": 1.5,
+      "win_rate": 0.5333333333333333,
+      "mean_capture_step": 12.857142857142858
+    },
+    {
+      "pass": 2,
+      "param": "expected_distance_weight",
+      "value": 2.0,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 2,
+      "param": "mobility_weight",
+      "value": 0.5,
+      "win_rate": 0.5,
+      "mean_capture_step": 10.666666666666666
+    },
+    {
+      "pass": 2,
+      "param": "mobility_weight",
+      "value": 1.0,
+      "win_rate": 0.6333333333333333,
+      "mean_capture_step": 23.727272727272727
+    },
+    {
+      "pass": 2,
+      "param": "mobility_weight",
+      "value": 1.5,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 2,
+      "param": "mobility_weight",
+      "value": 2.0,
+      "win_rate": 0.1,
+      "mean_capture_step": 16.074074074074073
+    },
+    {
+      "pass": 2,
+      "param": "mobility_weight",
+      "value": 3.0,
+      "win_rate": 0.0,
+      "mean_capture_step": 13.266666666666667
+    },
+    {
+      "pass": 2,
+      "param": "lookahead_weight",
+      "value": 0.0,
+      "win_rate": 0.7666666666666667,
+      "mean_capture_step": 30.571428571428573
+    },
+    {
+      "pass": 2,
+      "param": "lookahead_weight",
+      "value": 0.1,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 2,
+      "param": "lookahead_weight",
+      "value": 0.3,
+      "win_rate": 0.6333333333333333,
+      "mean_capture_step": 28.545454545454547
+    },
+    {
+      "pass": 2,
+      "param": "lookahead_weight",
+      "value": 0.5,
+      "win_rate": 0.7666666666666667,
+      "mean_capture_step": 32.142857142857146
+    },
+    {
+      "pass": 2,
+      "param": "lookahead_weight",
+      "value": 1.0,
+      "win_rate": 0.43333333333333335,
+      "mean_capture_step": 14.705882352941176
+    },
+    {
+      "pass": 2,
+      "param": "lookahead_candidate_count",
+      "value": 1,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 2,
+      "param": "lookahead_candidate_count",
+      "value": 3,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 2,
+      "param": "lookahead_candidate_count",
+      "value": 5,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 2,
+      "param": "lookahead_candidate_count",
+      "value": 10,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 2,
+      "param": "scent_weight",
+      "value": 0.0,
+      "win_rate": 0.5,
+      "mean_capture_step": 16.933333333333334
+    },
+    {
+      "pass": 2,
+      "param": "scent_weight",
+      "value": 0.25,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 25.2
+    },
+    {
+      "pass": 2,
+      "param": "scent_weight",
+      "value": 0.5,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 23.8
+    },
+    {
+      "pass": 2,
+      "param": "scent_weight",
+      "value": 1.0,
+      "win_rate": 0.8333333333333334,
+      "mean_capture_step": 19.6
+    },
+    {
+      "pass": 2,
+      "param": "scent_weight",
+      "value": 2.0,
+      "win_rate": 0.7666666666666667,
+      "mean_capture_step": 17.714285714285715
+    }
+  ],
+  "elapsed_seconds": 46.45285340026021
+}

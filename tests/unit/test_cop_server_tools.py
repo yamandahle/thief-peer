@@ -33,7 +33,7 @@ class _FakeTransport:
     def __init__(self):
         self.calls = []
 
-    def call(self, name, payload):
+    def call(self, name, payload, retryable=True):
         self.calls.append((name, payload))
         return {"acknowledged": True}
 
@@ -43,6 +43,7 @@ class _Cfg:
         return {
             "board_and_agents.cop_start": [0, 0],
             "board_and_agents.grid_size": 7,
+            "movement_and_barriers.max_barriers": 14,
         }[key]
 
 
@@ -76,6 +77,10 @@ class _SpyContext:
 
 
 def test_handle_receive_commit_assigns_sequential_steps_and_delegates():
+    # Starts at 1, not 0: interop/cop_round_loop.py now waits on
+    # round_exchange.wait_for_commit(step, ...) keyed by its own step
+    # counter, which starts at 1 (peer/runtime.py's step = 0; step += 1
+    # before the first round) -- see cop_server_tools.py's own docstring.
     context = _SpyContext()
     adapter = CopContextAdapter(context, shared_config_path="unused")
 
@@ -83,8 +88,8 @@ def test_handle_receive_commit_assigns_sequential_steps_and_delegates():
     adapter.handle_receive_commit("hash-1")
 
     assert context.calls == [
-        ("commit_move", {"step": 0, "h_commit": "hash-0"}),
-        ("commit_move", {"step": 1, "h_commit": "hash-1"}),
+        ("commit_move", {"step": 1, "h_commit": "hash-0"}),
+        ("commit_move", {"step": 2, "h_commit": "hash-1"}),
     ]
 
 
@@ -95,7 +100,7 @@ def test_handle_receive_reveal_translates_her_typed_move_into_our_direction_stri
     result = adapter.handle_receive_reveal({"type": "move", "direction": "N"}, "cold")
 
     assert context.calls == [
-        ("reveal_move", {"step": 0, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"})
+        ("reveal_move", {"step": 1, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"})
     ]
     assert result == {"accepted": True, "word_count": 1}
 
@@ -210,8 +215,8 @@ def test_cop_send_commit_and_cop_send_reveal_actually_land_on_the_registered_ser
     cop_send_reveal(transport, "N", "cold")
 
     assert context.calls == [
-        ("commit_move", {"step": 0, "h_commit": "hash-0"}),
-        ("reveal_move", {"step": 0, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"}),
+        ("commit_move", {"step": 1, "h_commit": "hash-0"}),
+        ("reveal_move", {"step": 1, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"}),
     ]
 
 

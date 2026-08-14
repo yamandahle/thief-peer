@@ -34,9 +34,21 @@ def test_ollama_provider_returns_the_calls_text_on_success(monkeypatch):
 
 def test_ollama_provider_prompt_includes_the_map_area():
     provider = OllamaProvider()
-    prompt = provider._build_prompt(map_area="Paris")
+    prompt = provider._build_prompt(map_area="Paris", verdict="truth")
 
     assert "Paris" in prompt
+
+
+def test_ollama_provider_prompt_differs_between_lie_and_truth_verdicts():
+    # Book ch.6.5: a lie round's prompt must actually ask for something
+    # misleading, not the same instruction regardless of intent.
+    provider = OllamaProvider()
+    lie_prompt = provider._build_prompt(map_area="Paris", verdict="lie")
+    truth_prompt = provider._build_prompt(map_area="Paris", verdict="truth")
+
+    assert lie_prompt != truth_prompt
+    assert "misleading" in lie_prompt
+    assert "honest" in truth_prompt
 
 
 def test_ollama_provider_wraps_call_failures_in_provider_error(monkeypatch):

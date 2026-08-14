@@ -7,7 +7,12 @@ the same *values* for this documented set of wire-level keys."""
 import pytest
 
 from thief_peer.domain.crypto import CommitReveal
-from thief_peer.domain.negotiation import CANONICAL_TERM_KEYS, Negotiation, canonical_terms
+from thief_peer.domain.negotiation import (
+    CANONICAL_TERM_KEYS,
+    MINIMUM_FLOORS,
+    Negotiation,
+    canonical_terms,
+)
 from thief_peer.exceptions import ConfigError
 from thief_peer.shared.config import ConfigManager
 
@@ -168,6 +173,53 @@ def test_verify_peer_rejects_a_config_sha256_mismatch_even_with_matching_terms(t
             my_config_sha256="my-hash",
             their_config_sha256="a-different-hash",
         )
+
+
+def test_verify_peer_rejects_two_teams_mutually_agreeing_to_lower_a_minimum(tmp_path):
+    # Rule 12 [FATAL]: the term-by-term symmetry check alone can't catch
+    # this -- both sides genuinely match each other, they just agreed on
+    # an illegal value *together*. grid_size's real floor is 7.
+    my_terms = canonical_terms(_config(tmp_path))
+    my_terms["grid_size"] = 5  # both "teams" agree on this, identically
+    signed = Negotiation.signed(my_terms)
+
+    with pytest.raises(ConfigError, match="minimum floor"):
+        Negotiation.verify_peer(
+            signed["terms"], signed["nonce"], signed["commit"], my_terms, signed["scent_lock_hash"]
+        )
+
+
+@pytest.mark.parametrize("key", sorted(MINIMUM_FLOORS))
+def test_verify_peer_rejects_each_minimum_status_field_one_below_its_floor(tmp_path, key):
+    my_terms = canonical_terms(_config(tmp_path))
+    my_terms[key] = MINIMUM_FLOORS[key] - 1
+    signed = Negotiation.signed(my_terms)
+
+    with pytest.raises(ConfigError, match=key):
+        Negotiation.verify_peer(
+            signed["terms"], signed["nonce"], signed["commit"], my_terms, signed["scent_lock_hash"]
+        )
+
+
+def test_verify_peer_accepts_a_minimum_status_value_raised_above_the_floor(tmp_path):
+    # Rule 12 permits raising a minimum, only forbids lowering it.
+    my_terms = canonical_terms(_config(tmp_path))
+    my_terms["max_barriers"] = 20  # raised above the 14 floor, by agreement
+    signed = Negotiation.signed(my_terms)
+
+    Negotiation.verify_peer(
+        signed["terms"], signed["nonce"], signed["commit"], my_terms, signed["scent_lock_hash"]
+    )
+
+
+def test_verify_peer_accepts_exactly_at_the_floor_not_just_above_it(tmp_path):
+    my_terms = canonical_terms(_config(tmp_path))
+    my_terms["survival_threshold"] = MINIMUM_FLOORS["survival_threshold"]  # exactly at the floor
+    signed = Negotiation.signed(my_terms)
+
+    Negotiation.verify_peer(
+        signed["terms"], signed["nonce"], signed["commit"], my_terms, signed["scent_lock_hash"]
+    )
 
 
 def test_verify_peer_skips_the_config_sha256_check_when_either_side_has_none(tmp_path):

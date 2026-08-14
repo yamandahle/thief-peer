@@ -1,4 +1,33 @@
-"""finalize_match (PRD_8 §2.5): end-of-match audit + Table-20 JSON report."""
+"""finalize_match (PRD_8 §2.5): end-of-match audit + Table-20 JSON report.
+
+Rule 19 (book p.129, [FATAL]): any hash mismatch found during the audit
+is "the iron law dictating score 0 for the forging team" -- not just a
+`winner`/`tampered` flag written honestly into the report while the score
+numbers carry on as if nothing happened. `winner` already correctly
+flipped to the honest side on a failed audit; the score itself didn't.
+Fixed below: whichever side's audit fails has its own score entry forced
+to 0, independent of `result_word` -- the other side keeps whatever the
+real board outcome (capture/survival) earned them. `end_reason ==
+"technical_loss"` already scores 0-0 through the ordinary `_score_pair`
+path (a separate, pre-existing mechanism); this only covers the case a
+technical loss doesn't -- a match that looked clean while it was being
+played, tampered log discovered only at the very end.
+
+Book ch.9.4: `result_<game_id>.json` is "the summary and final result for
+the WHOLE series" (up to 6 sub-games, PARAMETERS.md Table 18), and rule
+32/9.3 only requires ONE automatic report per legal series, not one per
+sub-game. This used to build `result_` fresh from just this one sub-game
+and email it every single time. Fixed: every call now reads back whatever
+`result_<game_id>.json` the previous sub-game(s) already left on disk
+(each sub-game is a separate process, so this is the only way to
+accumulate across them), merges this sub-game's own entry in
+(`artifact_helpers.merge_sub_games`), recomputes the real series totals
+over the full merged list (`artifact_helpers.aggregate_series`), and
+persists that -- every call, unconditionally, since the running series
+state has to be somewhere between processes. Only the Gatekeeper/email
+dispatch is gated to `sub_game_number == num_sub_games`; every earlier
+call returns without sending.
+"""
 
 from datetime import UTC, datetime
 from pathlib import Path
@@ -7,12 +36,16 @@ from thief_peer.domain.crypto import audit_records
 from thief_peer.domain.game_ids import derive_game_id, derive_game_uid
 from thief_peer.domain.protocol import build_audit_payload
 from thief_peer.report.artifact_helpers import (
+    aggregate_series,
     consensus_signature,
     load_shared_config_terms,
     log_filename,
+    merge_sub_games,
+    result_filename,
+    tokens_series,
 )
 from thief_peer.report.artifact_schemas import DEFAULT_TIMEZONE
-from thief_peer.report.report_writer import LeagueCounter, write_and_send
+from thief_peer.report.report_writer import LeagueCounter, load_previous_result, write_and_send
 from thief_peer.shared import sysinfo
 
 _SENDER = "thief"
@@ -79,6 +112,7 @@ def finalize_match(
     github_commit_own: str | None = None,
     github_commit_opponent: str | None = None,
     shared_config_path: str | None = None,
+    own_team_code: str | None = None,
 ) -> dict:
     game_id = derive_game_id(*sorted([group_name, opponent_group_name]))
     game_uid = derive_game_uid(game_id, sub_game_number)
@@ -111,9 +145,16 @@ def finalize_match(
     }
     log_verified = log_audit["passed"] and audit_was_evaluated
 
-    if audit_was_evaluated and opponent_audit.get("evaluated", True) and not opponent_audit["passed"]:
+    opponent_forged = bool(
+        audit_was_evaluated and opponent_audit.get("evaluated", True) and not opponent_audit["passed"]
+    )
+    we_forged = bool(
+        audit_was_evaluated and self_audit.get("evaluated", True) and not self_audit["passed"]
+    )
+
+    if opponent_forged:
         winner = group_name
-    elif audit_was_evaluated and self_audit.get("evaluated", True) and not self_audit["passed"] or end_reason in _WINNER_IS_OPPONENT:
+    elif we_forged or end_reason in _WINNER_IS_OPPONENT:
         winner = opponent_group_name
     else:
         winner = group_name
@@ -122,6 +163,12 @@ def finalize_match(
     tokens_opp = 0 if tokens_opponent is None else tokens_opponent
     tokens_map = {group_name: int(tokens_own), opponent_group_name: int(tokens_opp)}
     score_map = _score_pair(config, result_word, group_name, opponent_group_name)
+    # Rule 19 [FATAL], "iron law": whichever side's data fails the audit
+    # scores 0, regardless of what the board outcome would have earned it.
+    if opponent_forged:
+        score_map[opponent_group_name] = 0
+    if we_forged:
+        score_map[group_name] = 0
     group_ids = sorted([group_name, opponent_group_name])
 
     try:
@@ -169,19 +216,10 @@ def finalize_match(
         "audit": {"log_verified": log_verified, "tampered": not log_verified},
     }
 
-    final_result_aggregate = {
-        "total_score": {
-            group_name: score_map[group_name],
-            opponent_group_name: score_map[opponent_group_name],
-        },
-        "sub_games_won": {
-            group_name: 1 if winner == group_name else 0,
-            opponent_group_name: 1 if winner == opponent_group_name else 0,
-        },
-        "ties": 0,
-        "winner_group": winner,
-        "series_tie": False,
-    }
+    previous_result = load_previous_result(Path(results_dir) / result_filename(game_id))
+    merged_sub_games = merge_sub_games(previous_result.get("sub_games", []), sub_game)
+    final_result_aggregate = aggregate_series(merged_sub_games, group_name, opponent_group_name)
+    tokens_total_series = tokens_series(merged_sub_games, group_ids)
 
     mutual_sha256 = consensus_signature(records)
 
@@ -218,6 +256,7 @@ def finalize_match(
             "mcp_servers": own_mcp,
             "llm_model": own_llm_model or config.get("llm.model", "template"),
             "hardware_spec": own_spec if own_spec is not None else sysinfo.collect_spec(),
+            "team_code": own_team_code,
         },
         "opponent": {
             "group_id": opponent_group_name,
@@ -230,15 +269,37 @@ def finalize_match(
         },
         "shared_config_terms": shared_config_terms,
         "log_summary": log_summary,
-        "sub_games": [sub_game],
+        "sub_games": merged_sub_games,
         "final_result_aggregate": final_result_aggregate,
         "mutual_sha256": mutual_sha256,
     }
 
+    # Rule 52 [FATAL]: exactly one counted game per opponent -- warm-ups
+    # (is_counted=False) may repeat freely. A second *counted* attempt
+    # against an opponent already recorded doesn't get a second league
+    # credit, but the match's own report/audit/log still write in full
+    # below; this is a league-bookkeeping guard, not a reason to lose the
+    # documentation of what actually happened.
     league_counter = LeagueCounter(Path(results_dir) / "league_counter.json")
-    if is_counted:
+    already_counted = league_counter.games_played_against(opponent_group_name) > 0
+    if is_counted and already_counted:
+        print(
+            f"[Warning] Rule 52: a counted game against {opponent_group_name!r} "
+            f"was already recorded -- exactly one counted game per opponent is "
+            f"allowed. This match's report is still written and sent in full, "
+            f"but it will NOT be recorded as an additional counted game."
+        )
+    elif is_counted:
         league_counter.record_game(opponent_group_name)
 
+    min_games_to_pass = config.get("network_and_league.min_games_to_pass")
+    league_status = {
+        "distinct_opponents_played": league_counter.distinct_opponents_played(),
+        "min_games_to_pass": min_games_to_pass,
+        "counted_this_game": bool(is_counted and not already_counted),
+    }
+
+    is_final_sub_game = sub_game_number >= num_sub_games
     write_and_send(
         match_result,
         gatekeeper,
@@ -247,6 +308,7 @@ def finalize_match(
         results_dir,
         league_counter,
         is_counted=is_counted,
+        send_email=is_final_sub_game,
     )
 
     return {
@@ -259,8 +321,9 @@ def finalize_match(
         },
         "final_result": {
             **final_result_aggregate,
-            "tokens_total_series": tokens_map,
+            "tokens_total_series": tokens_total_series,
         },
+        "league_status": league_status,
         "mutual_agreement": {
             "sha256": mutual_sha256,
             "confirmed": log_verified,

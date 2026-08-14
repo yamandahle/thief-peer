@@ -93,15 +93,28 @@ def test_sealed_step_record_carries_the_given_values():
 
 
 def test_sealed_spec_record_has_the_step0_fields_and_a_verifiable_commit():
-    record = sealed_spec_record(group_name="My-Team")
+    record = sealed_spec_record(group_name="My-Team", games_played_so_far=3)
 
     payload = record["payload"]
-    assert set(payload) == {"spec", "code_version", "github_commit_hash", "group_name", "nonce"}
+    assert set(payload) == {
+        "spec",
+        "code_version",
+        "github_commit_hash",
+        "group_name",
+        "games_played_so_far",
+        "nonce",
+    }
     assert payload["group_name"] == "My-Team"
+    assert payload["games_played_so_far"] == 3
     assert isinstance(payload["spec"], dict)
 
     content = {k: v for k, v in payload.items() if k != "nonce"}
     assert CommitReveal.verify(content, payload["nonce"], record["commit"])
+
+
+def test_sealed_spec_record_games_played_so_far_defaults_to_zero():
+    record = sealed_spec_record(group_name="My-Team")
+    assert record["payload"]["games_played_so_far"] == 0
 
 
 def test_sealed_spec_record_github_commit_hash_matches_real_git_head():

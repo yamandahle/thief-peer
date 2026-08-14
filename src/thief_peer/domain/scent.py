@@ -65,3 +65,16 @@ class ScentField:
 def _cell_from_key(key: str) -> Cell:
     r, c = key.split(",")
     return int(r), int(c)
+
+
+def snapshot_to_matrix(snapshot: dict[str, float], size: int) -> list[list[float]]:
+    """Sparse `{"r,c": intensity}` -> dense matrix, same shape convention
+    as `BeliefGrid.as_matrix()` -- lets the Live GUI render a currently-
+    sensed scent heatmap next to the belief heatmap (book ch.7.2's own
+    three-item Local Truth definition: own position, scent sensed, hints
+    received -- the GUI previously only ever showed the first two)."""
+    matrix = [[0.0] * size for _ in range(size)]
+    for key, value in snapshot.items():
+        r, c = _cell_from_key(key)
+        matrix[r][c] = value
+    return matrix

@@ -3,7 +3,7 @@ book's Figure 4 kernel exactly and the additive (not max-merge) recurrence
 -- rule 23 is [FATAL] on a decay-formula deviation, and an earlier draft of
 this PRD got this wrong (see PRD_4 §4)."""
 
-from thief_peer.domain.scent import ScentField
+from thief_peer.domain.scent import ScentField, snapshot_to_matrix
 
 
 def test_advance_on_empty_field_produces_exact_figure_4_kernel():
@@ -109,3 +109,15 @@ def test_center_intensity_scales_the_whole_kernel_proportionally():
 
     assert snap["4,4"] == 0.45
     assert snap["3,4"] == 0.31  # 0.62 * 0.5
+
+
+def test_snapshot_to_matrix_places_each_value_at_its_own_cell():
+    matrix = snapshot_to_matrix({"0,0": 0.9, "1,2": 0.5}, size=3)
+
+    assert matrix == [[0.9, 0.0, 0.0], [0.0, 0.0, 0.5], [0.0, 0.0, 0.0]]
+
+
+def test_snapshot_to_matrix_empty_snapshot_is_all_zeros():
+    matrix = snapshot_to_matrix({}, size=2)
+
+    assert matrix == [[0.0, 0.0], [0.0, 0.0]]

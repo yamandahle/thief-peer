@@ -6,7 +6,10 @@ job)."""
 
 import json
 
+import pytest
+
 from thief_peer.cli import main
+from thief_peer.exceptions import ConfigError
 
 
 def test_smoke_test_subcommand_delegates_to_sdk_and_prints_result(
@@ -41,7 +44,7 @@ def test_run_subcommand_delegates_to_sdk_with_the_group_name_and_prints_result(
 
     captured = {}
 
-    def fake_run(self, group_name, is_counted=True):
+    def fake_run(self, group_name, is_counted=True, team_code=None):
         captured["group_name"] = group_name
         captured["is_counted"] = is_counted
         return {"final_result": {"winner_group": "Thief-Team"}}
@@ -57,6 +60,72 @@ def test_run_subcommand_delegates_to_sdk_with_the_group_name_and_prints_result(
     assert printed == {"final_result": {"winner_group": "Thief-Team"}}
 
 
+def test_run_subcommand_with_a_valid_team_code_passes_it_through_to_sdk_run(
+    tmp_path, monkeypatch, capsys
+):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        '[network]\nmy_port = 8809\nopponent_url = "http://127.0.0.1:8809/mcp"\n',
+        encoding="utf-8",
+    )
+
+    captured = {}
+
+    def fake_run(self, group_name, is_counted=True, team_code=None):
+        captured["team_code"] = team_code
+        return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.ThiefSdk.run", fake_run)
+
+    exit_code = main(
+        [
+            "--config",
+            str(toml_path),
+            "run",
+            "--group-name",
+            "Thief-Team",
+            "--team-code",
+            "ABCD1234",
+        ]
+    )
+
+    assert exit_code == 0
+    assert captured["team_code"] == "ABCD1234"
+
+
+def test_run_subcommand_with_an_invalid_team_code_raises_before_sdk_run_is_ever_called(
+    tmp_path, monkeypatch
+):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        '[network]\nmy_port = 8810\nopponent_url = "http://127.0.0.1:8810/mcp"\n',
+        encoding="utf-8",
+    )
+
+    called = {"run": False}
+
+    def fake_run(self, group_name, is_counted=True, team_code=None):
+        called["run"] = True
+        return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.ThiefSdk.run", fake_run)
+
+    with pytest.raises(ConfigError):
+        main(
+            [
+                "--config",
+                str(toml_path),
+                "run",
+                "--group-name",
+                "Thief-Team",
+                "--team-code",
+                "short",
+            ]
+        )
+
+    assert called["run"] is False
+
+
 def test_run_subcommand_with_warmup_flag_marks_the_match_uncounted(
     tmp_path, monkeypatch, capsys
 ):
@@ -68,7 +137,7 @@ def test_run_subcommand_with_warmup_flag_marks_the_match_uncounted(
 
     captured = {}
 
-    def fake_run(self, group_name, is_counted=True):
+    def fake_run(self, group_name, is_counted=True, team_code=None):
         captured["is_counted"] = is_counted
         return {}
 
@@ -91,11 +160,11 @@ def test_run_subcommand_with_gui_flag_delegates_to_run_with_gui(
 
     captured = {}
 
-    def fake_run(self, group_name, is_counted=True):
+    def fake_run(self, group_name, is_counted=True, team_code=None):
         captured["headless_called"] = True
         return {}
 
-    def fake_run_with_gui(self, group_name, is_counted=True):
+    def fake_run_with_gui(self, group_name, is_counted=True, team_code=None):
         captured["group_name"] = group_name
         return {"final_result": {"winner_group": "Thief-Team"}}
 

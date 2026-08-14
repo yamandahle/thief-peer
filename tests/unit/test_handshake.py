@@ -68,6 +68,29 @@ def test_run_handshake_returns_the_opponents_verified_step0_record(tmp_path):
     assert their_record["payload"]["group_name"] == "Cop-Team"
 
 
+def test_run_handshake_declares_our_own_games_played_so_far_at_step0(tmp_path):
+    # Rules 37/38 (book p.70): declared to the opponent at Step-0, not just
+    # reported to the lecturer afterward. Checked via a spy transport since
+    # _StubPeerTransport only exposes what *they* declare back to us.
+    my_config = _config(tmp_path, "mine")
+    their_config = _config(tmp_path, "theirs")
+    transport = _StubPeerTransport(their_config, their_group_name="Cop-Team")
+    sent_payloads = []
+    original_call = transport.call
+
+    def spying_call(tool_name, payload):
+        if tool_name == "receive_control":
+            sent_payloads.append(payload)
+        return original_call(tool_name, payload)
+
+    transport.call = spying_call
+
+    run_handshake(my_config, transport, group_name="Thief-Team", games_played_so_far=5)
+
+    [step0_call] = sent_payloads
+    assert step0_call["record"]["payload"]["games_played_so_far"] == 5
+
+
 def test_run_handshake_raises_on_a_terms_mismatch_before_any_step0_exchange(tmp_path):
     my_config = _config(tmp_path, "mine", grid_size=7)
     their_config = _config(tmp_path, "theirs", grid_size=9)  # deliberately different

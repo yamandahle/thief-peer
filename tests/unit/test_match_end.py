@@ -35,7 +35,11 @@ class _ExplodingTransport:
 
 
 class _SpyGatekeeper:
+    def __init__(self):
+        self.call_count = 0
+
     def execute(self, api_call, *args, **kwargs):
+        self.call_count += 1
         return api_call(*args, **kwargs)
 
 
@@ -60,6 +64,7 @@ class _ConfigStub:
         "scoring.survival_thief": 10,
         "scoring.survival_cop": 5,
         "board_and_agents.grid_size": 7,
+        "network_and_league.min_games_to_pass": 2,
     }
 
     def get(self, key, default=None):
@@ -154,6 +159,11 @@ def test_catching_the_opponent_lying_overrides_the_natural_winner(tmp_path, monk
     assert result["audit"]["opponent_audited_by_me"]["passed"] is False
     assert result["audit"]["passed"] is False
     assert result["final_result"]["winner_group"] == "Thief-Team-A"
+    # Rule 19's actual "iron law": the forging team's SCORE is 0, not just
+    # the winner label -- a "captured" outcome would normally give the
+    # opponent (the forger here) 20 points; they get 0 instead.
+    assert result["final_result"]["total_score"]["Thief-Team-B"] == 0
+    assert result["final_result"]["total_score"]["Thief-Team-A"] == 5  # honest side keeps its earned points
 
 
 def test_being_caught_lying_by_the_opponent_overrides_the_natural_winner(tmp_path, monkeypatch):
@@ -169,6 +179,23 @@ def test_being_caught_lying_by_the_opponent_overrides_the_natural_winner(tmp_pat
     assert result["audit"]["self_audited_by_opponent"]["passed"] is False
     assert result["audit"]["passed"] is False
     assert result["final_result"]["winner_group"] == "Thief-Team-B"
+    # Same iron law, the other direction: a "survived" outcome would
+    # normally give this peer (the forger here) 10 points; 0 instead.
+    assert result["final_result"]["total_score"]["Thief-Team-A"] == 0
+    assert result["final_result"]["total_score"]["Thief-Team-B"] == 5  # honest side keeps its earned points
+
+
+def test_both_sides_score_zero_when_both_audits_fail(tmp_path, monkeypatch):
+    tampered = _sealed_record(state="s0")
+    tampered["payload"]["move"] = "S"
+    transport = _SpyTransport(
+        opponent_records=[tampered],
+        self_audit_result={"passed": False, "verified_steps": 1, "failed_steps": [0]},
+    )
+
+    result = _finalize(tmp_path, monkeypatch, end_reason="captured", transport=transport)
+
+    assert result["final_result"]["total_score"] == {"Thief-Team-A": 0, "Thief-Team-B": 0}
 
 
 def test_repos_are_included_for_both_groups_in_declaration(tmp_path, monkeypatch):
@@ -218,3 +245,96 @@ def test_is_counted_defaults_to_true(tmp_path, monkeypatch):
     _finalize(tmp_path, monkeypatch)
 
     assert captured["is_counted"] is True
+
+
+def test_a_second_counted_game_against_the_same_opponent_is_not_double_counted(tmp_path, monkeypatch):
+    # Rule 52 [FATAL]: exactly one counted game per opponent.
+    result_1 = _finalize(tmp_path, monkeypatch, is_counted=True)
+    assert result_1["league_status"]["counted_this_game"] is True
+    assert result_1["league_status"]["distinct_opponents_played"] == 1
+
+    result_2 = _finalize(tmp_path, monkeypatch, is_counted=True)  # same opponent, same results_dir
+    assert result_2["league_status"]["counted_this_game"] is False
+    assert result_2["league_status"]["distinct_opponents_played"] == 1  # unchanged -- no 2nd credit
+
+
+def test_a_second_counted_game_still_writes_its_report_in_full(tmp_path, monkeypatch):
+    # The league-bookkeeping guard must not cost the match its own
+    # documentation -- only the extra league credit is withheld.
+    _finalize(tmp_path, monkeypatch, is_counted=True)
+    result_2 = _finalize(tmp_path, monkeypatch, is_counted=True)
+
+    assert result_2["audit"]["passed"] is True
+    assert (tmp_path / f"result_{result_2['game_id']}.json").exists()
+
+
+def test_warm_up_games_can_repeat_freely_against_the_same_opponent(tmp_path, monkeypatch):
+    # Rule 52's other half: uncounted warm-ups are explicitly allowed to
+    # repeat, no warning, no guard triggered.
+    result_1 = _finalize(tmp_path, monkeypatch, is_counted=False)
+    result_2 = _finalize(tmp_path, monkeypatch, is_counted=False)
+
+    assert result_1["league_status"]["counted_this_game"] is False
+    assert result_2["league_status"]["counted_this_game"] is False
+    assert result_2["league_status"]["distinct_opponents_played"] == 0  # never actually counted
+
+
+def test_league_status_tracks_distinct_opponents_across_different_matches(tmp_path, monkeypatch):
+    # Rule 31: a passing grade is measured on distinct opponents.
+    result_1 = _finalize(
+        tmp_path, monkeypatch, is_counted=True, opponent_group_name="Thief-Team-B"
+    )
+    assert result_1["league_status"]["distinct_opponents_played"] == 1
+
+    result_2 = _finalize(
+        tmp_path, monkeypatch, is_counted=True, opponent_group_name="Thief-Team-C"
+    )
+    assert result_2["league_status"]["distinct_opponents_played"] == 2
+
+
+def test_league_status_reports_the_configured_minimum_to_pass(tmp_path, monkeypatch):
+    result = _finalize(tmp_path, monkeypatch)
+    assert result["league_status"]["min_games_to_pass"] == _ConfigStub._SCORING.get(
+        "network_and_league.min_games_to_pass"
+    )
+
+
+def test_a_second_counted_game_prints_a_rule_52_warning(tmp_path, monkeypatch, capsys):
+    _finalize(tmp_path, monkeypatch, is_counted=True)
+    capsys.readouterr()  # discard the first match's own output
+    _finalize(tmp_path, monkeypatch, is_counted=True)
+
+    printed = capsys.readouterr().out
+    assert "Rule 52" in printed
+    assert "already recorded" in printed
+
+
+def test_a_two_sub_game_series_only_emails_once_on_the_last_sub_game(tmp_path, monkeypatch):
+    # Book ch.9.4: result_<game_id>.json is the summary for the WHOLE
+    # series, sent once -- not once per sub-game. Both calls share the
+    # same results_dir (real cross-process persistence) and the same
+    # Gatekeeper (to count total email attempts across both).
+    gatekeeper = _SpyGatekeeper()
+
+    result_1 = _finalize(
+        tmp_path, monkeypatch, sub_game_number=1, num_sub_games=2,
+        end_reason="captured", gatekeeper=gatekeeper,
+    )
+    assert gatekeeper.call_count == 0  # not the last sub-game yet
+
+    result_2 = _finalize(
+        tmp_path, monkeypatch, sub_game_number=2, num_sub_games=2,
+        end_reason="survived", gatekeeper=gatekeeper,
+    )
+    assert gatekeeper.call_count == 1  # the series' last sub-game
+
+    # Sub-game 1: captured -> Thief-Team-B (opponent) is the natural winner
+    # in _WINNER_IS_OPPONENT, scoring 5/20. Sub-game 2: survived -> this
+    # side wins, 10/5. Real series total: A=15, B=25.
+    assert result_1["final_result"]["total_score"] == {"Thief-Team-A": 5, "Thief-Team-B": 20}
+    assert result_2["final_result"]["total_score"] == {"Thief-Team-A": 15, "Thief-Team-B": 25}
+
+    on_disk = json.loads((tmp_path / "result_thief-team-a-vs-thief-team-b.json").read_text())
+    assert [sg["sub_game_number"] for sg in on_disk["sub_games"]] == [1, 2]
+    assert on_disk["final_result"]["total_score"] == {"Thief-Team-A": 15, "Thief-Team-B": 25}
+    assert on_disk["final_result"]["winner_group"] == "Thief-Team-B"

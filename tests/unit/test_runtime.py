@@ -31,12 +31,32 @@ _GAME_JSON = """
 }
 """
 
+# grid_size=5/survival_threshold=3 above are deliberately below the book's
+# own Minimum floors (7/35, PARAMETERS.md) for test speed/simplicity --
+# fine for the many tests below that construct a PeerRuntime and call a
+# specific handler directly, never negotiating with anyone. Any test that
+# calls the real runtime.run() DOES negotiate for real
+# (domain/negotiation.py::Negotiation.verify_peer, rule 12 [FATAL] since
+# this fix) and needs genuinely floor-compliant terms instead.
+_GAME_JSON_COMPLIANT = """
+{
+  "board_and_agents": {"grid_size": 7, "num_agents": 2, "axis_origin_corner": "top-left",
+                        "axis_start_index": 0, "thief_start": [2, 2], "cop_start": [0, 0]},
+  "world": {"map_area": "New York", "hint_max_words": 15},
+  "movement_and_barriers": {"move_set": ["N", "S", "E", "W", "STAY"], "max_barriers": 14,
+                             "max_moves": 35, "survival_threshold": 35},
+  "scoring": {"capture_cop": 20, "capture_thief": 5, "survival_cop": 5, "survival_thief": 10,
+              "tie_score": 2, "technical_loss": 0},
+  "pheromones": {"pheromone_center_intensity": 0.9, "pheromone_decay": 0.10, "pheromone_grid_size": 5}
+}
+"""
 
-def _config(tmp_path, name="thief", port=8901):
+
+def _config(tmp_path, name="thief", port=8901, game_json=None):
     toml_path = tmp_path / f"{name}.toml"
     toml_path.write_text(f"[network]\nmy_port = {port}\n", encoding="utf-8")
     json_path = tmp_path / f"{name}.json"
-    json_path.write_text(_GAME_JSON, encoding="utf-8")
+    json_path.write_text(game_json or _GAME_JSON, encoding="utf-8")
     return ConfigManager(toml_path, json_path)
 
 
@@ -65,12 +85,17 @@ class _CooperativeStubOpponent:
         self._their_config = their_config
         self._their_group_name = their_group_name
 
-    def call(self, tool_name: str, payload: dict) -> dict:
+    def call(self, tool_name: str, payload: dict, retryable: bool = True) -> dict:
         if tool_name == "negotiate":
             return Negotiation.signed(canonical_terms(self._their_config))
         if tool_name == "receive_control" and payload.get("type") == "step0":
             return {"record": sealed_spec_record(self._their_group_name)}
         if tool_name == "commit_move":
+            # Book Fig. 6 (p.35-36): the round loop now waits for the
+            # opponent's own commit before revealing -- inject it into the
+            # mailbox exactly as its real inbound MCP handler would, same
+            # pattern as the reveal injection below.
+            self._runtime.handle_commit_move(payload["payload"])
             return {"ok": True}
         if tool_name == "reveal_move":
             step = payload["payload"]["step"]
@@ -95,8 +120,8 @@ class _CooperativeStubOpponent:
 
 
 def test_a_short_match_completes_and_produces_a_clean_audit_and_report(tmp_path):
-    my_config = _config(tmp_path, "mine", port=8901)
-    their_config = _config(tmp_path, "theirs", port=8902)
+    my_config = _config(tmp_path, "mine", port=8901, game_json=_GAME_JSON_COMPLIANT)
+    their_config = _config(tmp_path, "theirs", port=8902, game_json=_GAME_JSON_COMPLIANT)
 
     results_dir = tmp_path / "results"
     from thief_peer.shared.gatekeeper import ApiGatekeeper
@@ -123,8 +148,8 @@ def test_a_short_match_completes_and_produces_a_clean_audit_and_report(tmp_path)
     result = runtime.run()
 
     assert result["audit"]["passed"] is True
-    assert has_survived(runtime.state, survival_threshold=3)
-    assert len(runtime.records) >= 3
+    assert has_survived(runtime.state, survival_threshold=35)
+    assert len(runtime.records) >= 35
     assert (results_dir / f"result_{result['game_id']}.json").exists()
     saved_result = json.loads((results_dir / f"result_{result['game_id']}.json").read_text())
     assert "final_result" in saved_result
@@ -199,6 +224,44 @@ def test_handle_receive_barrier_declaration_records_a_barrier_elsewhere(tmp_path
     assert response == {"ok": True}
     assert (0, 0) in runtime.state.known_barriers
     assert runtime._captured_by_barrier is False
+
+
+def test_handle_receive_barrier_declaration_rejects_an_off_board_cell(tmp_path):
+    # Book ch.3's own Implementation Tip: the receiving engine must catch
+    # an opponent's illegal move, not silently accept it. grid_size=5, so
+    # row/col 5 is one past the edge.
+    my_config = _config(tmp_path, "mine", port=8924)
+    runtime = PeerRuntime(
+        config=my_config, group_name="Thief-Team", gatekeeper=None, email_service=None,
+        recipient="grader@example.com", results_dir=tmp_path / "results",
+    )
+
+    with pytest.raises(SimulationError, match="off the"):
+        runtime.handle_receive_barrier_declaration({"row": 5, "col": 0})
+
+    assert (5, 0) not in runtime.state.known_barriers
+
+
+def test_handle_receive_barrier_declaration_rejects_exceeding_the_agreed_cap(tmp_path):
+    # _GAME_JSON's max_barriers is 14 -- the 15th *distinct* declaration
+    # must be rejected, not silently accepted past the negotiated ceiling
+    # (rule 12). known_barriers is a set, so this needs genuinely distinct
+    # cells -- a repeated cell wouldn't actually grow the count.
+    my_config = _config(tmp_path, "mine", port=8925)
+    runtime = PeerRuntime(
+        config=my_config, group_name="Thief-Team", gatekeeper=None, email_service=None,
+        recipient="grader@example.com", results_dir=tmp_path / "results",
+    )
+    all_cells = [(r, c) for r in range(5) for c in range(5) if (r, c) != (2, 2)]
+    for row, col in all_cells[:14]:
+        runtime.handle_receive_barrier_declaration({"row": row, "col": col})
+    assert len(runtime.state.known_barriers) == 14
+
+    fifteenth_row, fifteenth_col = all_cells[14]
+    with pytest.raises(SimulationError, match="exceeds the agreed cap"):
+        runtime.handle_receive_barrier_declaration({"row": fifteenth_row, "col": fifteenth_col})
+
+    assert len(runtime.state.known_barriers) == 14  # the 15th was never recorded
 
 
 def test_handle_receive_barrier_declaration_flags_capture_on_my_own_cell(tmp_path):
@@ -331,8 +394,8 @@ def test_being_captured_by_barrier_ends_the_match_after_the_current_round(tmp_pa
     from thief_peer.shared.gatekeeper import ApiGatekeeper
     from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
 
-    my_config = _config(tmp_path, "mine", port=8916)
-    their_config = _config(tmp_path, "theirs", port=8917)
+    my_config = _config(tmp_path, "mine", port=8916, game_json=_GAME_JSON_COMPLIANT)
+    their_config = _config(tmp_path, "theirs", port=8917, game_json=_GAME_JSON_COMPLIANT)
     gatekeeper = ApiGatekeeper(
         token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
         dos_detector=DosDetector(max_calls=100, window_seconds=60),
@@ -361,8 +424,8 @@ def test_being_captured_by_landing_ends_the_match_after_the_current_round(tmp_pa
     from thief_peer.shared.gatekeeper import ApiGatekeeper
     from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
 
-    my_config = _config(tmp_path, "mine", port=8930)
-    their_config = _config(tmp_path, "theirs", port=8931)
+    my_config = _config(tmp_path, "mine", port=8930, game_json=_GAME_JSON_COMPLIANT)
+    their_config = _config(tmp_path, "theirs", port=8931, game_json=_GAME_JSON_COMPLIANT)
     gatekeeper = ApiGatekeeper(
         token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
         dos_detector=DosDetector(max_calls=100, window_seconds=60),
@@ -418,11 +481,34 @@ def test_handle_receive_control_returns_my_own_step0_record(tmp_path):
     response = runtime.handle_receive_control({"type": "step0", "record": {}})
 
     assert response["record"]["payload"]["group_name"] == "Thief-Team"
+    assert response["record"]["payload"]["games_played_so_far"] == 0
+
+
+def test_handle_receive_control_declares_the_real_games_played_so_far_count(tmp_path):
+    # Rules 37/38: must read the *real* league counter, not always report 0.
+    from thief_peer.report.report_writer import LeagueCounter
+
+    results_dir = tmp_path / "results"
+    LeagueCounter(results_dir / "league_counter.json").record_game("Cop-Team-Other")
+
+    my_config = _config(tmp_path, "mine", port=8906)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=results_dir,
+    )
+
+    response = runtime.handle_receive_control({"type": "step0", "record": {}})
+
+    assert response["record"]["payload"]["games_played_so_far"] == 1
 
 
 def test_heartbeat_monitor_beats_during_a_real_match_and_stops_after(tmp_path):
-    my_config = _config(tmp_path, "mine", port=8918)
-    their_config = _config(tmp_path, "theirs", port=8919)
+    my_config = _config(tmp_path, "mine", port=8918, game_json=_GAME_JSON_COMPLIANT)
+    their_config = _config(tmp_path, "theirs", port=8919, game_json=_GAME_JSON_COMPLIANT)
     from thief_peer.shared.gatekeeper import ApiGatekeeper
     from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
 
@@ -496,11 +582,13 @@ class _CooperativeCopStubOpponent:
     default pheromone params) so Step-0 verification legitimately passes,
     the real-match precondition `interop/cop_handshake.py` checks for."""
 
-    def __init__(self, shared_config_path, group_name="Cop-Team"):
+    def __init__(self, shared_config_path, runtime: PeerRuntime, group_name="Cop-Team"):
         self._shared_config_path = shared_config_path
+        self._runtime = runtime
         self._group_name = group_name
+        self._commit_step = 0
 
-    def call(self, tool_name: str, payload: dict) -> dict:
+    def call(self, tool_name: str, payload: dict, retryable: bool = True) -> dict:
         from thief_peer.domain.scent_lock import scent_lock_hash
         from thief_peer.interop.cop_wire import (
             build_cop_declaration,
@@ -528,6 +616,15 @@ class _CooperativeCopStubOpponent:
                 "repos": {"cop": "x", "thief": "y"},
             }
         if tool_name == "receive_commit":
+            # This call is our own outbound commit landing on her (simulated)
+            # server. A real cooperative Cop would have her own commit ready
+            # at roughly the same time -- inject it into our round_exchange
+            # exactly as her real inbound receive_commit call would (book
+            # Fig. 6 p.35-36's Acknowledge step; play_round_cop now waits on
+            # this before revealing). Step numbering matches
+            # interop/cop_round_loop.py's own loop, which starts at 1.
+            self._commit_step += 1
+            self._runtime.handle_commit_move({"step": self._commit_step, "h_commit": "her-fake-commit"})
             return {"acknowledged": True}
         if tool_name == "receive_reveal":
             return {"accepted": True, "word_count": 1}
@@ -571,7 +668,7 @@ def test_a_short_cop_v1_match_completes_using_her_wire_vocabulary(tmp_path, monk
         round_deadline_sec=2.0,
         shared_config_path=str(json_path),
     )
-    runtime.transport = _CooperativeCopStubOpponent(str(json_path))
+    runtime.transport = _CooperativeCopStubOpponent(str(json_path), runtime)
 
     result = runtime.run()
 
@@ -594,3 +691,42 @@ def test_view_never_exposes_an_opponent_position_field(tmp_path):
 
     assert view.own_position == (2, 2)
     assert not hasattr(view, "opponent_position")
+
+
+def test_view_populates_scent_matrix_and_hint_text_from_the_last_reveal(tmp_path):
+    # PRD_7 round 2: book ch.7.2's own three-item Local Truth definition
+    # (own position, scent sensed, hints received) -- the view previously
+    # only ever carried the first two.
+    my_config = _config(tmp_path, "mine", port=8926)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    runtime._last_opponent_scent = {"0,0": 0.9}
+    runtime._last_opponent_hint = "closing in"
+
+    view = runtime.view()
+
+    assert view.scent_matrix[0][0] == 0.9
+    assert view.hint_text == "closing in"
+
+
+def test_view_scent_matrix_is_all_zero_before_any_reveal_arrives(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8927)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+
+    view = runtime.view()
+
+    assert all(value == 0.0 for row in view.scent_matrix for value in row)
+    assert view.hint_text == ""

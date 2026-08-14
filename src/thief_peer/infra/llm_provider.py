@@ -10,17 +10,28 @@ is dangerous to leave lying around.
 
 from thief_peer.exceptions import ProviderError
 
-_PROMPT_TEMPLATE = (
-    "You are the Thief in a pursuit game. Give one short, possibly "
-    "misleading line about your location. Area: {map_area}. Stay in "
-    "character, no more than a sentence."
+# Book ch.6.5: the verbal layer's actual job differs by round -- a lie round
+# wants "plausible but misleading" (pulls the opponent away from the real
+# position); a truth round should stay honest, not just non-committal, so
+# `Decision.verdict` (`strategy.trash_talk.choose_verdict`) is fed straight
+# into the prompt rather than left for the LLM to guess at.
+_LIE_PROMPT_TEMPLATE = (
+    "You are the Thief in a pursuit game. Give one short, plausible but "
+    "misleading line about your location, meant to pull the Cop away from "
+    "where you really are. Area: {map_area}. Stay in character, no more "
+    "than a sentence."
+)
+_TRUTH_PROMPT_TEMPLATE = (
+    "You are the Thief in a pursuit game. Give one short, honest line "
+    "about your location that does not mislead the Cop. Area: {map_area}. "
+    "Stay in character, no more than a sentence."
 )
 
 
 class LlmProvider:
     """Common interface every provider adapter implements."""
 
-    def generate(self, map_area: str = "") -> str:
+    def generate(self, map_area: str = "", verdict: str = "truth") -> str:
         raise NotImplementedError
 
 
@@ -30,15 +41,16 @@ class OllamaProvider(LlmProvider):
         self._model = model
         self._timeout = timeout
 
-    def generate(self, map_area: str = "") -> str:
-        prompt = self._build_prompt(map_area)
+    def generate(self, map_area: str = "", verdict: str = "truth") -> str:
+        prompt = self._build_prompt(map_area, verdict)
         try:
             return self._call(prompt)
         except Exception as exc:
             raise ProviderError(f"Ollama call failed: {exc}") from exc
 
-    def _build_prompt(self, map_area: str) -> str:
-        return _PROMPT_TEMPLATE.format(map_area=map_area or "unspecified")
+    def _build_prompt(self, map_area: str, verdict: str) -> str:
+        template = _LIE_PROMPT_TEMPLATE if verdict == "lie" else _TRUTH_PROMPT_TEMPLATE
+        return template.format(map_area=map_area or "unspecified")
 
     def _call(self, prompt: str) -> str:
         import httpx
@@ -57,7 +69,7 @@ class ClaudeApiProvider(LlmProvider):
         self._api_key = api_key
         self._model = model
 
-    def generate(self, map_area: str = "") -> str:
+    def generate(self, map_area: str = "", verdict: str = "truth") -> str:
         raise ProviderError(
             "claude_api is interface-only until Stage 7's Gatekeeper exists "
             "to rate-limit it (PRD_4 §4) -- use 'template' or 'ollama' for now."
@@ -68,7 +80,7 @@ class ClaudeCliProvider(LlmProvider):
     def __init__(self, command: str = "claude"):
         self._command = command
 
-    def generate(self, map_area: str = "") -> str:
+    def generate(self, map_area: str = "", verdict: str = "truth") -> str:
         raise ProviderError(
             "claude_cli is interface-only until Stage 7's Gatekeeper exists "
             "to rate-limit it (PRD_4 §4) -- use 'template' or 'ollama' for now."

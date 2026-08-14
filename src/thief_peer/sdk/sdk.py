@@ -50,14 +50,16 @@ class ThiefSdk:
         transport = McpTransport(opponent_url)
         return transport.call("ping", {"payload": {"smoke_test": True}})
 
-    def run(self, group_name: str, is_counted: bool = True) -> dict:
-        return self._build_runtime(group_name, is_counted).run()
+    def run(self, group_name: str, is_counted: bool = True, team_code: str | None = None) -> dict:
+        return self._build_runtime(group_name, is_counted, team_code).run()
 
-    def run_with_gui(self, group_name: str, is_counted: bool = True) -> dict:
+    def run_with_gui(
+        self, group_name: str, is_counted: bool = True, team_code: str | None = None
+    ) -> dict:
         from thief_peer.gui.live_session import LiveSession
         from thief_peer.gui.window import PeerWindow
 
-        runtime = self._build_runtime(group_name, is_counted)
+        runtime = self._build_runtime(group_name, is_counted, team_code)
         session = LiveSession(runtime, PeerWindow())
         session.start()
         return session.match_result
@@ -66,7 +68,9 @@ class ThiefSdk:
         token_path = self._config.get("email.token_path", "token.json")
         return str(gmail_auth.ensure_token(credentials_path, token_path))
 
-    def _build_runtime(self, group_name: str, is_counted: bool = True) -> PeerRuntime:
+    def _build_runtime(
+        self, group_name: str, is_counted: bool = True, team_code: str | None = None
+    ) -> PeerRuntime:
         # rate_limiter_gatekeeper.* (PRD_10 fix): this block was added to the
         # *shared*, negotiated game.json in Stage 9 specifically to match the
         # book's Appendix-F numbers (identical on the Cop side) -- but this
@@ -106,6 +110,7 @@ class ThiefSdk:
             recipient,
             is_counted=is_counted,
             shared_config_path=self._shared_config_path,
+            team_code=team_code,
         )
 
 

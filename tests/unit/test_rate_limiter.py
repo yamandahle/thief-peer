@@ -4,8 +4,9 @@ mathematically identical to continuous refill, deterministic to test with
 no sleeping (PRD_7 §4)."""
 
 import time
+from datetime import UTC, datetime
 
-from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+from thief_peer.shared.rate_limiter import DosDetector, QuotaManager, RequestQueue, TokenBucket
 
 
 def test_token_bucket_starts_full_and_allows_up_to_capacity():
@@ -114,3 +115,59 @@ def test_dos_detector_uses_real_time_by_default():
     detector.record_call()
     assert detector.is_locked is False
     time.sleep(0)  # no-op, just confirms real time.monotonic() doesn't error
+
+
+def test_quota_manager_allows_up_to_the_daily_cap_then_blocks(tmp_path):
+    quota = QuotaManager(max_calls_per_day=3, path=tmp_path / "quota.json")
+    assert quota.allow() is True
+    assert quota.allow() is True
+    assert quota.allow() is True
+    assert quota.allow() is False
+
+
+def test_quota_manager_stays_blocked_for_the_rest_of_the_day(tmp_path):
+    quota = QuotaManager(max_calls_per_day=1, path=tmp_path / "quota.json")
+    assert quota.allow() is True
+    assert quota.allow() is False
+    assert quota.allow() is False  # doesn't self-heal within the same day
+
+
+class _FakeDatetimeAt:
+    """Stands in for the module's `datetime` name so QuotaManager's real
+    UTC-calendar-day logic can be tested without waiting for a real
+    midnight -- `_current` is swapped mid-test to simulate a day boundary."""
+
+    def __init__(self, current: datetime):
+        self._current = current
+
+    def now(self, tz=None):
+        return self._current
+
+
+def test_quota_manager_resets_on_a_real_utc_calendar_day_boundary(monkeypatch, tmp_path):
+    import thief_peer.shared.rate_limiter as rate_limiter_module
+
+    fake = _FakeDatetimeAt(datetime(2026, 8, 14, 23, 59, tzinfo=UTC))
+    monkeypatch.setattr(rate_limiter_module, "datetime", fake)
+
+    quota = QuotaManager(max_calls_per_day=1, path=tmp_path / "quota.json")
+    assert quota.allow() is True
+    assert quota.allow() is False  # exhausted for 2026-08-14
+
+    fake._current = datetime(2026, 8, 15, 0, 1, tzinfo=UTC)  # crossed midnight UTC
+    assert quota.allow() is True  # fresh quota for the new calendar day
+
+
+def test_quota_manager_persists_the_days_count_across_a_process_restart(tmp_path):
+    # A real Thief series spans 6 separate sub-game processes (PRD_10),
+    # each building its own fresh ApiGatekeeper/QuotaManager -- the whole
+    # point of a *daily* cap is that a process restart mid-day must not
+    # silently hand back a fresh allowance. Two instances sharing the same
+    # path simulate that: the second must see the first's usage.
+    path = tmp_path / "quota.json"
+    quota_process_1 = QuotaManager(max_calls_per_day=2, path=path)
+    assert quota_process_1.allow() is True
+
+    quota_process_2 = QuotaManager(max_calls_per_day=2, path=path)  # "process restart"
+    assert quota_process_2.allow() is True  # the shared day's 2nd (and last) call
+    assert quota_process_2.allow() is False  # cap already spent by process 1 + this one

@@ -33,6 +33,21 @@ from thief_peer.shared.config import ConfigManager
 # agree on the wire keys (the left column); each is free to name its own
 # local schema however it likes (the right column is purely internal to
 # this repo).
+MINIMUM_FLOORS: dict[str, float] = {
+    "grid_size": 7,
+    "max_barriers": 14,
+    "max_moves": 35,
+    "survival_threshold": 35,
+}
+"""Book Appendix F / PARAMETERS.md's own "Minimum"-status floors (Tables
+13/15) -- rule 12 [FATAL]: may only be raised by mutual agreement, never
+lowered. Only the subset that's actually part of these negotiated wire
+terms (CANONICAL_TERM_KEYS); Table 19's rate-limiter minimums aren't part
+of this specific wire vocabulary. The existing term-by-term symmetry
+check below only catches a *mismatch* between the two sides -- it can't
+catch two teams mutually agreeing on an equally-illegal value, which is
+exactly what rule 12 forbids and what this floor check closes."""
+
 CANONICAL_TERM_KEYS: dict[str, str] = {
     "grid_size": "board_and_agents.grid_size",
     "num_agents": "board_and_agents.num_agents",
@@ -100,6 +115,17 @@ class Negotiation:
             if actual != expected:
                 raise ConfigError(
                     f"Negotiated terms mismatch on {key!r}: mine={expected!r} theirs={actual!r}"
+                )
+        # Rule 12 [FATAL]: symmetry alone (checked above) can't catch two
+        # teams mutually agreeing to lower a Minimum-status value together
+        # -- both sides would match, and pass, while still being illegal.
+        for key, floor in MINIMUM_FLOORS.items():
+            agreed_value = my_terms.get(key)
+            if agreed_value is not None and agreed_value < floor:
+                raise ConfigError(
+                    f"Negotiated {key!r}={agreed_value!r} is below the book's own "
+                    f"minimum floor of {floor!r} (rule 12 [FATAL]: a minimum-status "
+                    f"value may only be raised by mutual agreement, never lowered)."
                 )
         if not secrets.compare_digest(_scent_lock_hash_of(my_terms), their_scent_lock_hash):
             raise ConfigError(

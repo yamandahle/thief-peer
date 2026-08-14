@@ -7,6 +7,7 @@ to `peer/runtime.py`, arriving in a later stage; this module is the
 checker, built and unit-tested now (PRD_5 "Open items").
 """
 
+import os
 import time
 from pathlib import Path
 
@@ -34,9 +35,19 @@ def persist_state() -> None:
     )
 
 
-def controlled_shutdown() -> None:
-    """Release the MCP server/client cleanly, close any open log handles --
-    never a bare process kill (PRD_5 §3). Full resource release is wired
-    once `PeerRuntime` owns real server/client handles (later stages); for
-    now this is the single, named chokepoint every future stage extends."""
+def controlled_shutdown(exit_fn=None) -> None:
+    """Actually end the frozen process -- book ch.8.4.2's own point is that
+    the *main* thread is the one that's hung, and this function runs on
+    the watchdog's own background thread (`peer/heartbeat_monitor.py::
+    HeartbeatMonitor._loop`). Nothing on a genuinely frozen main thread
+    will ever check a flag this function might set instead of exiting;
+    `sys.exit()` only raises `SystemExit` in whichever thread calls it,
+    which would do nothing to a frozen *different* thread either. A hard
+    `os._exit()` from the watchdog thread is the only mechanism that
+    reliably ends the process regardless of what the main thread is
+    doing -- previously this printed a message and returned, leaving the
+    frozen process running indefinitely with no real shutdown at all.
+    `exit_fn` is injectable (real callers never override it) so tests can
+    spy on this without actually terminating the test process."""
     print("[watchdog] controlled shutdown: heartbeat stale, stopping cleanly.")
+    (exit_fn or os._exit)(1)

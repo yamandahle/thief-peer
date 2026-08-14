@@ -13,7 +13,7 @@ later stages add; this version only exercises state + belief + brain.
 
 from thief_peer.domain.belief import BeliefGrid
 from thief_peer.domain.board import Board
-from thief_peer.domain.hint_direction import parse_direction_cue
+from thief_peer.domain.hint_direction import hint_agrees_with_scent, parse_direction_cue
 from thief_peer.domain.own_state import OwnGameState
 from thief_peer.strategy.brain_base import HINT_RELIABILITY, BrainBase, Decision
 
@@ -24,15 +24,27 @@ class TurnHandler:
         self.state = state
         self.brain = brain
         self.belief = BeliefGrid(board.size)
+        # Book ch.4.4/6.4 lie-detection side: one entry per call to
+        # play_turn, True/False when there was something to compare
+        # (a direction word in the hint AND a reported scent), None
+        # otherwise -- never discarded the way the implicit belief-update
+        # comparison previously was.
+        self.hint_agreement_log: list[bool | None] = []
 
     def play_turn(
-        self, opponent_scent_snapshot: dict[str, float], opponent_hint_text: str = ""
+        self,
+        opponent_scent_snapshot: dict[str, float],
+        opponent_hint_text: str = "",
+        own_scent_snapshot: dict[str, float] | None = None,
     ) -> Decision:
         self.belief.diffuse()
         self.belief.observe_scent(opponent_scent_snapshot)
         cue = parse_direction_cue(opponent_hint_text, self.board.size)
+        self.hint_agreement_log.append(hint_agrees_with_scent(cue, opponent_scent_snapshot))
         self.belief.observe_hint(cue, HINT_RELIABILITY)
-        decision = self.brain.decide(self.state, self.board, self.belief, opponent_hint_text)
+        decision = self.brain.decide(
+            self.state, self.board, self.belief, opponent_hint_text, own_scent_snapshot
+        )
         self.state.apply_move(decision.direction, self.board)
         return decision
 

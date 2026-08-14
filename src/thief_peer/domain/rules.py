@@ -31,3 +31,16 @@ def is_captured_by_stuck(state: OwnGameState, board: Board) -> bool:
 
 def has_survived(state: OwnGameState, survival_threshold: int) -> bool:
     return state.step_count >= survival_threshold
+
+
+def is_legal_barrier_declaration(
+    cell: Cell, board: Board, already_placed: int, max_barriers: int
+) -> bool:
+    """Book ch.3's own Implementation Tip (p.17-22): the receiving engine
+    must check an incoming barrier for board edges before accepting it,
+    and rule 12 [FATAL] forbids exceeding the agreed cap -- neither was
+    ever checked before this (a barrier was recorded unconditionally,
+    live and even in the end-of-match audit replay). `already_placed` is
+    the count *before* this one; adding it must not push the total past
+    `max_barriers`."""
+    return board.in_bounds(cell) and already_placed < max_barriers

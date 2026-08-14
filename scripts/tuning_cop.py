@@ -4,23 +4,32 @@ into a real match; runs entirely offline against synthetic opponents, not
 a real Cop implementation (respects rule 1/2's "one role per process" in
 spirit by staying purely a local simulation).
 
-KNOWN LIMITATION (found 2026-08-12, after the first real tuning attempt
-regressed real match performance -- see fleeing_brain.py's revert note):
-book_baseline_cop_move only ever moves, never places a barrier, so this
-simulator can never punish a Thief for camping in a corner. A weight
-configuration that scores well here is not proven safe against a real
-barrier-placing Cop. Before tuning again, this needs a capture mode that
-can wall the Thief in (e.g. a simple heuristic: when adjacent to the
-believed Thief cell, place a barrier there instead of moving), not just
-direct-collision capture.
+FORMER KNOWN LIMITATION, CLOSED (2026-08-14, backlog item 18): found
+2026-08-12, after the first real tuning attempt regressed real match
+performance (see fleeing_brain.py's revert note) -- book_baseline_cop_move
+only ever moved, never placed a barrier, so the simulator could never
+punish a Thief for camping in a corner, and a weight configuration that
+scored well here was never proven safe against a real barrier-placing Cop.
+`book_baseline_cop_decision` now also places a barrier (the exact heuristic
+this docstring previously proposed: when adjacent to the believed Thief
+cell, wall it in instead of moving), and `simulate_match`'s new
+`cop_places_barriers` flag wires that in and keeps the Thief's own
+`known_barriers` in sync each round, mirroring the real
+`handle_receive_barrier_declaration` flow.
 """
 
 from thief_peer.domain.belief import BeliefGrid
 from thief_peer.domain.board import Board, Cell
 from thief_peer.domain.own_state import OwnGameState
-from thief_peer.domain.rules import is_captured_by_stuck
+from thief_peer.domain.rules import (
+    is_captured_by_barrier,
+    is_captured_by_landing,
+    is_captured_by_stuck,
+)
 from thief_peer.domain.scent import ScentField
 from thief_peer.strategy.fleeing_brain import ThiefBrain
+
+MAX_BARRIERS = 14  # PARAMETERS.md floor -- the same cap a real match agrees to
 
 
 class _SinglePeakBelief:
@@ -52,6 +61,22 @@ def book_baseline_cop_move(moves, belief, board: Board):
     return min(moves, key=lambda m: board.distance(m[1], target))
 
 
+def book_baseline_cop_decision(
+    cop_position: Cell, belief, board: Board, barriers: frozenset[Cell], barriers_used: int
+):
+    """Book-baseline pursuit, extended with the one heuristic needed to
+    close this module's former KNOWN LIMITATION: when already adjacent to
+    the believed Thief cell, wall it in with a barrier instead of moving --
+    the only way a simulated Cop can ever punish camping. Returns
+    `("barrier", cell)` or `("move", direction)`."""
+    target = belief.most_likely()
+    if board.distance(cop_position, target) == 1 and barriers_used < MAX_BARRIERS and target not in barriers:
+        return "barrier", target
+    moves = board.legal_moves(cop_position, barriers)
+    direction, _dest = min(moves, key=lambda m: board.distance(m[1], target))
+    return "move", direction
+
+
 def simulate_match(
     thief_weights: dict,
     cop_uses_belief: bool,
@@ -59,6 +84,7 @@ def simulate_match(
     thief_start: Cell,
     cop_start: Cell,
     max_moves: int,
+    cop_places_barriers: bool = False,
 ) -> int | None:
     """Runs one simulated match with real domain objects on both sides.
     Returns the step the Thief was captured on, or None if it survived to
@@ -67,7 +93,13 @@ def simulate_match(
     `False` selects the existing weak floor opponent (cheats by pursuing
     the Thief's real position directly, no belief modeling at all --
     the same scripted-chase Cop already used in
-    tests/unit/test_fleeing_brain.py)."""
+    tests/unit/test_fleeing_brain.py). `cop_places_barriers=True` (only
+    meaningful when `cop_uses_belief` is also True) additionally lets her
+    wall the Thief in per `book_baseline_cop_decision`; the Thief's own
+    `known_barriers` is kept in sync each round, mirroring the real
+    `handle_receive_barrier_declaration` flow, and its own scent trail is
+    now fed back into `decide()` so the scent-avoidance weight (item 15)
+    is actually exercised here too."""
     thief_state = OwnGameState(position=thief_start)
     cop_state = OwnGameState(position=cop_start)
     thief_brain = ThiefBrain(**thief_weights)
@@ -75,27 +107,47 @@ def simulate_match(
     cop_belief = BeliefGrid(board.size)
     thief_scent = ScentField(board.size)
     cop_scent = ScentField(board.size)
+    barriers: set[Cell] = set()
 
     for step in range(1, max_moves + 1):
+        for cell in barriers - thief_state.known_barriers:
+            thief_state.record_barrier(cell)
         thief_belief.diffuse()
         thief_belief.observe_scent(cop_scent.snapshot())
-        decision = thief_brain.decide(thief_state, board, thief_belief)
+        decision = thief_brain.decide(
+            thief_state, board, thief_belief, own_scent=thief_scent.snapshot()
+        )
         thief_state.apply_move(decision.direction, board)
         thief_scent.advance(thief_state.position)
 
-        cop_moves = board.legal_moves(cop_state.position, frozenset())
+        placed_barrier = None
         if cop_uses_belief:
             cop_belief.diffuse()
             cop_belief.observe_scent(thief_scent.snapshot())
-            cop_direction, _ = book_baseline_cop_move(cop_moves, cop_belief, board)
+            if cop_places_barriers:
+                action, result = book_baseline_cop_decision(
+                    cop_state.position, cop_belief, board, frozenset(barriers), len(barriers)
+                )
+                if action == "barrier":
+                    barriers.add(result)
+                    placed_barrier = result
+                else:
+                    cop_state.apply_move(result, board)
+            else:
+                cop_moves = board.legal_moves(cop_state.position, frozenset(barriers))
+                cop_direction, _ = book_baseline_cop_move(cop_moves, cop_belief, board)
+                cop_state.apply_move(cop_direction, board)
         else:
+            cop_moves = board.legal_moves(cop_state.position, frozenset(barriers))
             cop_direction, _ = min(
                 cop_moves, key=lambda m: board.distance(m[1], thief_state.position)
             )
-        cop_state.apply_move(cop_direction, board)
-        cop_scent.advance(cop_state.position)
+            cop_state.apply_move(cop_direction, board)
+        cop_scent.advance(cop_state.position)  # a barrier-placing turn still deposits scent, like STAY
 
-        if cop_state.position == thief_state.position:
+        if placed_barrier is not None and is_captured_by_barrier(thief_state, placed_barrier):
+            return step
+        if is_captured_by_landing(thief_state, cop_state.position):
             return step
         if is_captured_by_stuck(thief_state, board):
             return step

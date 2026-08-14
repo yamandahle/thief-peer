@@ -13,6 +13,7 @@ import json
 
 from thief_peer.sdk.sdk import ThiefSdk, run_replay
 from thief_peer.shared.config import ConfigManager
+from thief_peer.shared.team_code import validate_team_code
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -23,6 +24,13 @@ def main(argv: list[str] | None = None) -> int:
     subparsers.add_parser("smoke-test")
     run_parser = subparsers.add_parser("run")
     run_parser.add_argument("--group-name", required=True)
+    run_parser.add_argument(
+        "--team-code",
+        default=None,
+        help="Rule 45 [MUST]: your unique 8-character Moodle submission "
+        "code, no spaces -- separate from --group-name, only needed for "
+        "a real counted match, not every dev/warm-up run.",
+    )
     run_parser.add_argument("--gui", action="store_true")
     run_parser.add_argument("--warmup", action="store_true")
     auth_parser = subparsers.add_parser("auth-gmail")
@@ -43,10 +51,16 @@ def main(argv: list[str] | None = None) -> int:
         print(json.dumps(sdk.smoke_test()))
     elif args.command == "run":
         is_counted = not args.warmup
+        if args.team_code is not None:
+            validate_team_code(args.team_code)
         if args.gui:
-            print(json.dumps(sdk.run_with_gui(args.group_name, is_counted=is_counted)))
+            print(
+                json.dumps(
+                    sdk.run_with_gui(args.group_name, is_counted=is_counted, team_code=args.team_code)
+                )
+            )
         else:
-            print(json.dumps(sdk.run(args.group_name, is_counted=is_counted)))
+            print(json.dumps(sdk.run(args.group_name, is_counted=is_counted, team_code=args.team_code)))
     elif args.command == "auth-gmail":
         print(json.dumps({"token_path": sdk.auth_gmail(args.credentials)}))
 

@@ -17,6 +17,8 @@ not a claim that this constitutes real Cop-vs-Thief gameplay.
 import socket
 import threading
 
+import pytest
+
 from thief_peer.peer.runtime import PeerRuntime
 from thief_peer.shared.config import ConfigManager
 from thief_peer.shared.gatekeeper import ApiGatekeeper
@@ -24,16 +26,21 @@ from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucke
 
 _GAME_JSON = """
 {
-  "board_and_agents": {"grid_size": 5, "num_agents": 2, "axis_origin_corner": "top-left",
+  "board_and_agents": {"grid_size": 7, "num_agents": 2, "axis_origin_corner": "top-left",
                         "axis_start_index": 0, "thief_start": [2, 2], "cop_start": [0, 0]},
   "world": {"map_area": "New York", "hint_max_words": 15},
   "movement_and_barriers": {"move_set": ["N", "S", "E", "W", "STAY"], "max_barriers": 14,
-                             "max_moves": 35, "survival_threshold": 3},
+                             "max_moves": 35, "survival_threshold": 35},
   "scoring": {"capture_cop": 20, "capture_thief": 5, "survival_cop": 5, "survival_thief": 10,
               "tie_score": 2, "technical_loss": 0},
   "pheromones": {"pheromone_center_intensity": 0.9, "pheromone_decay": 0.10, "pheromone_grid_size": 5}
 }
 """
+# grid_size/survival_threshold bumped to the book's own Minimum floors
+# (7/35, PARAMETERS.md) -- domain/negotiation.py::Negotiation.verify_peer
+# now enforces rule 12 [FATAL] during the real handshake this test
+# exercises, so a below-floor value no longer negotiates successfully at
+# all (this test's whole point is a genuine two-process match completing).
 
 
 class _FakeGmailService:
@@ -87,7 +94,12 @@ def _make_peer(tmp_path, name: str, my_port: int, opponent_port: int) -> PeerRun
     )
 
 
+@pytest.mark.slow
 def test_two_real_peer_runtimes_play_a_full_match_to_completion(tmp_path):
+    # Real sockets, 35 real rounds each way now that the negotiated terms
+    # must be floor-compliant (rule 12) -- ~80s, up from a few seconds
+    # when this used a below-floor survival_threshold=3 shortcut. First
+    # real user of pyproject.toml's own "slow" marker.
     port_a, port_b = _free_port(), _free_port()
     runtime_a = _make_peer(tmp_path, "a", port_a, port_b)
     runtime_b = _make_peer(tmp_path, "b", port_b, port_a)

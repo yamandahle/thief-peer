@@ -1,14 +1,22 @@
 """ApiGatekeeper (PRD_7 §2.4, §3; PLAN.md ADR-4): the *sole* doorway
 `infra/email_sender.py` and `infra/llm_provider.py` are allowed to be
-called through. Routes every call through the DOS detector, then the
-token-bucket + FIFO queue, then real retry/backoff on the way out --
-every attempt logged, gate or no gate.
+called through. Routes every call through the book's own Figure 13 order
+(p.74, ch.9.3.1) -- Quota Manager, then token-bucket + FIFO queue, then
+the DOS detector -- then real retry/backoff on the way out; every attempt
+logged, gate or no gate.
+
+Quota Manager was previously missing entirely (Cop team review; the book's
+own diagram independently confirms it's a real, named third gate, not
+optional) -- `quota_manager` is opt-in (`None` = disabled) since the book
+gives no concrete daily number to wire in by default (I6/I9: never invent
+one). The token-bucket/DOS-detector check order was also silently reversed
+from the book's own diagram before this fix; now matches it exactly.
 """
 
 import time
 
 from thief_peer.exceptions import ProviderError, RateLimitedError, TransportError
-from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+from thief_peer.shared.rate_limiter import DosDetector, QuotaManager, RequestQueue, TokenBucket
 
 
 class ApiGatekeeper:
@@ -17,6 +25,7 @@ class ApiGatekeeper:
         token_bucket: TokenBucket,
         dos_detector: DosDetector,
         queue: RequestQueue,
+        quota_manager: QuotaManager | None = None,
         max_retries: int = 3,
         backoff_sec: float = 5.0,
         poll_interval_sec: float = 0.1,
@@ -25,6 +34,7 @@ class ApiGatekeeper:
         self._token_bucket = token_bucket
         self._dos_detector = dos_detector
         self._queue = queue
+        self._quota_manager = quota_manager
         self._max_retries = max_retries
         self._backoff_sec = backoff_sec
         self._poll_interval_sec = poll_interval_sec
@@ -32,6 +42,14 @@ class ApiGatekeeper:
         self.call_log: list[dict] = []
 
     def execute(self, api_call, *args, **kwargs):
+        if self._quota_manager is not None and not self._quota_manager.allow():
+            self._log("rejected_quota_exhausted")
+            raise TransportError("Gatekeeper locked: daily quota exhausted")
+
+        if not self._wait_for_token():
+            self._log("rejected_queue_full")
+            raise TransportError("Gatekeeper request queue is full; call rejected")
+
         if self._dos_detector.is_locked:
             self._log("rejected_dos_lock")
             raise TransportError("Gatekeeper locked: anomalous call volume detected")
@@ -40,10 +58,6 @@ class ApiGatekeeper:
         if self._dos_detector.is_locked:
             self._log("rejected_dos_lock")
             raise TransportError("Gatekeeper locked: anomalous call volume detected")
-
-        if not self._wait_for_token():
-            self._log("rejected_queue_full")
-            raise TransportError("Gatekeeper request queue is full; call rejected")
 
         return self._call_with_retry(api_call, args, kwargs)
 

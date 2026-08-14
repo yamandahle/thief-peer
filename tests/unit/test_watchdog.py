@@ -77,7 +77,41 @@ def test_persist_state_writes_a_diagnosable_file(tmp_path, monkeypatch):
     assert "timestamp" in content
 
 
-def test_controlled_shutdown_runs_without_raising(capsys):
-    watchdog.controlled_shutdown()
+def test_controlled_shutdown_actually_ends_the_process(capsys):
+    # Real production behavior must be a hard os._exit -- printing and
+    # returning left a genuinely frozen process running forever. exit_fn
+    # is a spy here specifically so this test doesn't kill the test
+    # runner itself.
+    exit_calls = []
+    watchdog.controlled_shutdown(exit_fn=lambda code: exit_calls.append(code))
+
+    assert exit_calls == [1]
     captured = capsys.readouterr()
     assert "shutdown" in captured.out.lower()
+
+
+def test_controlled_shutdown_defaults_to_a_real_os_exit(monkeypatch):
+    # Confirms the *default* (what every real caller actually gets) is the
+    # real os._exit, not just that the injection point exists.
+    exit_calls = []
+    monkeypatch.setattr(watchdog.os, "_exit", lambda code: exit_calls.append(code))
+
+    watchdog.controlled_shutdown()
+
+    assert exit_calls == [1]
+
+
+def test_watchdog_check_end_to_end_a_stale_heartbeat_really_ends_the_process(monkeypatch, tmp_path):
+    # Full real path, nothing monkeypatched out except the actual OS call
+    # (needed so this test doesn't kill the test runner) -- persist_state
+    # genuinely writes, controlled_shutdown genuinely runs, and the process
+    # would genuinely have exited.
+    monkeypatch.setattr(watchdog, "_STATE_PATH", tmp_path / "watchdog_state.json")
+    exit_calls = []
+    monkeypatch.setattr(watchdog.os, "_exit", lambda code: exit_calls.append(code))
+
+    result = watchdog.watchdog_check(last_heartbeat=time.time() - 120, timeout_sec=60)
+
+    assert result == "SHUTDOWN"
+    assert exit_calls == [1]
+    assert (tmp_path / "watchdog_state.json").exists()

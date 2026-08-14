@@ -20,6 +20,7 @@ this repo's own extensions (e.g. the 7-field Commit-Reveal envelope, see
 """
 
 import time
+from pathlib import Path
 
 from thief_peer.interop.cop_handshake import cop_step0_handshake
 from thief_peer.interop.cop_round_loop import play_round_cop
@@ -29,6 +30,7 @@ from thief_peer.interop.cop_turn_sender import cop_send_final_reveal
 from thief_peer.interop.cop_wire import build_cop_final_reveal_payload
 from thief_peer.peer.handshake import run_handshake
 from thief_peer.peer.round_loop import play_round
+from thief_peer.report.report_writer import LeagueCounter
 
 _SENDER = "thief"
 
@@ -82,8 +84,15 @@ def run_opponent_handshake(runtime) -> str:
         their_hw = (response.get("declaration") or {}).get("hardware") or {}
         runtime.opponent_llm_model = their_hw.get("llm_model")
         return response["declaration"]["group_name"]
+    games_played_so_far = LeagueCounter(
+        Path(runtime.results_dir) / "league_counter.json"
+    ).total_games_played()
     their_step0 = run_handshake(
-        runtime.config, runtime.transport, runtime.group_name, runtime.shared_config_path
+        runtime.config,
+        runtime.transport,
+        runtime.group_name,
+        runtime.shared_config_path,
+        games_played_so_far,
     )
     return their_step0["payload"]["group_name"]
 
@@ -133,6 +142,8 @@ def play_opponent_round(runtime, step: int) -> tuple[dict, dict, str, bool]:
             runtime.trash_talk,
             runtime.transport,
             runtime._last_opponent_scent,
+            runtime.round_exchange,
+            runtime.round_deadline_sec,
         )
         return record, next_scent, runtime._last_opponent_hint, technical_loss
     return play_round(

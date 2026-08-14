@@ -12,7 +12,12 @@ exiting the instant it fires still cut her connection mid-response."""
 
 import threading
 
-from thief_peer.interop.cop_opponent import cop_shutdown_grace, send_opponent_final_reveal
+from thief_peer.interop.cop_opponent import (
+    cop_shutdown_grace,
+    run_opponent_handshake,
+    send_opponent_final_reveal,
+)
+from thief_peer.report.report_writer import LeagueCounter
 
 
 class _FakeAdapter:
@@ -24,7 +29,7 @@ class _FakeTransport:
     def __init__(self):
         self.calls = []
 
-    def call(self, name, payload):
+    def call(self, name, payload, retryable=True):
         self.calls.append((name, payload))
         return {"acknowledged": True}
 
@@ -56,6 +61,39 @@ def test_cop_shutdown_grace_does_nothing_in_native_mode():
     runtime = _FakeRuntime("native")
 
     cop_shutdown_grace(runtime)  # must not touch _cop_adapter at all (it's unset for native)
+
+
+class _NativeFakeRuntime:
+    def __init__(self, results_dir):
+        self.opponent_protocol = "native"
+        self.config = object()
+        self.transport = object()
+        self.group_name = "Thief-Team"
+        self.shared_config_path = None
+        self.results_dir = results_dir
+
+
+def test_run_opponent_handshake_declares_the_real_games_played_so_far_in_native_mode(
+    tmp_path, monkeypatch
+):
+    # Rules 37/38: the native-mode initiator side must read the real
+    # league counter, not always declare 0.
+    results_dir = tmp_path / "results"
+    LeagueCounter(results_dir / "league_counter.json").record_game("Cop-Team-Other")
+    LeagueCounter(results_dir / "league_counter.json").record_game("Cop-Team-Other-2")
+    runtime = _NativeFakeRuntime(results_dir)
+    captured = {}
+
+    def fake_run_handshake(config, transport, group_name, shared_config_path, games_played_so_far):
+        captured["games_played_so_far"] = games_played_so_far
+        return {"payload": {"group_name": "Cop-Team"}}
+
+    monkeypatch.setattr("thief_peer.interop.cop_opponent.run_handshake", fake_run_handshake)
+
+    opponent_group_name = run_opponent_handshake(runtime)
+
+    assert captured["games_played_so_far"] == 2
+    assert opponent_group_name == "Cop-Team"
 
 
 def test_send_opponent_final_reveal_sends_nonces_and_intents_in_cop_v1_mode():

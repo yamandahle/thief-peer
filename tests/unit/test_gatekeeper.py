@@ -7,7 +7,7 @@ import pytest
 
 from thief_peer.exceptions import ProviderError, RateLimitedError, TransportError
 from thief_peer.shared.gatekeeper import ApiGatekeeper
-from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+from thief_peer.shared.rate_limiter import DosDetector, QuotaManager, RequestQueue, TokenBucket
 
 
 def _gatekeeper(**overrides):
@@ -131,3 +131,46 @@ def test_every_call_attempt_is_logged_even_rejections():
 
     assert len(gate.call_log) == 1
     assert gate.call_log[0]["outcome"] == "rejected_dos_lock"
+
+
+def test_quota_manager_is_disabled_by_default_matching_every_prior_test_above():
+    # None of the tests above ever pass quota_manager -- confirms the
+    # opt-in default (I6/I9: the book gives no daily number to wire in
+    # unasked) doesn't change any pre-existing behavior.
+    gate = _gatekeeper()
+    assert gate.execute(lambda: "ok") == "ok"
+
+
+def test_execute_raises_once_the_daily_quota_is_exhausted(tmp_path):
+    quota = QuotaManager(max_calls_per_day=1, path=tmp_path / "quota.json")
+    gate = _gatekeeper(quota_manager=quota)
+
+    assert gate.execute(lambda: "first") == "first"
+    with pytest.raises(TransportError, match="quota"):
+        gate.execute(lambda: "unreachable")
+
+
+def test_quota_exhaustion_is_checked_before_the_token_bucket_book_figure_13_order(tmp_path):
+    # Book's own Figure 13 (p.74): Quota Manager is the *first* gate --
+    # confirmed here by using a token bucket that would actually allow the
+    # call, proving the rejection came from quota, not a coincidental
+    # bucket exhaustion.
+    quota = QuotaManager(max_calls_per_day=0, path=tmp_path / "quota.json")  # exhausted from the start
+    bucket = TokenBucket(capacity=10, refill_rate=0.0)  # plenty of tokens available
+    gate = _gatekeeper(quota_manager=quota, token_bucket=bucket)
+
+    with pytest.raises(TransportError, match="quota"):
+        gate.execute(lambda: "unreachable")
+
+    assert bucket.allow() is True  # untouched -- quota rejected before the bucket was even consulted
+
+
+def test_every_call_attempt_is_logged_even_quota_rejections(tmp_path):
+    quota = QuotaManager(max_calls_per_day=0, path=tmp_path / "quota.json")
+    gate = _gatekeeper(quota_manager=quota)
+
+    with pytest.raises(TransportError):
+        gate.execute(lambda: "unreachable")
+
+    assert len(gate.call_log) == 1
+    assert gate.call_log[0]["outcome"] == "rejected_quota_exhausted"

@@ -18,7 +18,7 @@ class _FixedBrain(BrainBase):
     """Minimal concrete BrainBase for testing decide()'s own plumbing in
     isolation from ThiefBrain's actual scoring logic."""
 
-    def _pick_move(self, moves, state, belief, board):
+    def _pick_move(self, moves, state, belief, board, own_scent):
         return moves[0]
 
 
@@ -53,9 +53,36 @@ def test_decide_returns_move_type_move_for_a_direction():
     assert decision.direction is not None
 
 
+def test_decide_defaults_verdict_to_truth_when_the_brain_does_not_override_it():
+    board = Board(size=5, barriers=set())
+    state = OwnGameState(position=(2, 2))
+    belief = _FixedBelief((0, 0), 5)
+
+    decision = _FixedBrain().decide(state, board, belief)
+
+    assert decision.verdict == "truth"
+
+
+def test_decide_uses_the_brains_own_choose_verdict_override():
+    class _AlwaysLies(BrainBase):
+        def _pick_move(self, moves, state, belief, board, own_scent):
+            return moves[0]
+
+        def _choose_verdict(self, cell, belief, board):
+            return "lie"
+
+    board = Board(size=5, barriers=set())
+    state = OwnGameState(position=(2, 2))
+    belief = _FixedBelief((0, 0), 5)
+
+    decision = _AlwaysLies().decide(state, board, belief)
+
+    assert decision.verdict == "lie"
+
+
 def test_decide_returns_move_type_hold_when_pick_move_chooses_stay():
     class _AlwaysStay(BrainBase):
-        def _pick_move(self, moves, state, belief, board):
+        def _pick_move(self, moves, state, belief, board, own_scent):
             return next((d, c) for d, c in moves if d is None)
 
     board = Board(size=5, barriers=set())

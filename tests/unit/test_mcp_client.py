@@ -108,6 +108,48 @@ def test_call_uses_linear_backoff_between_attempts(monkeypatch, unused_tcp_port)
     assert sleeps == [1.0, 2.0]
 
 
+def test_call_with_retryable_false_never_retries_a_failure(unused_tcp_port):
+    # infra/mcp_client.py's own docstring: a retried commit/reveal-shaped
+    # call could land on the opponent's server twice and fold the same
+    # evidence into their belief map twice -- retryable=False must mean
+    # exactly one attempt, no backoff, immediate failure.
+    transport = McpTransport(
+        f"http://127.0.0.1:{unused_tcp_port}/mcp",
+        retry_backoff_sec=_FAST_BACKOFF,
+        max_retries=_FAST_RETRIES,
+        response_timeout_sec=_FAST_DEADLINE,
+    )
+    calls = []
+
+    async def _always_fails(tool_name, payload):
+        calls.append(1)
+        raise ConnectionError("refused")
+
+    transport._call_async = _always_fails
+
+    with pytest.raises(TransportError) as exc_info:
+        transport.call("reveal_move", {"payload": {}}, retryable=False)
+
+    assert len(calls) == 1
+    assert "1 attempts" in str(exc_info.value)
+
+
+def test_call_with_retryable_false_still_succeeds_on_a_clean_first_attempt(unused_tcp_port):
+    transport = McpTransport(
+        f"http://127.0.0.1:{unused_tcp_port}/mcp",
+        retry_backoff_sec=_FAST_BACKOFF,
+        max_retries=_FAST_RETRIES,
+        response_timeout_sec=_FAST_DEADLINE,
+    )
+
+    async def _succeeds(tool_name, payload):
+        return {"ok": True}
+
+    transport._call_async = _succeeds
+
+    assert transport.call("reveal_move", {"payload": {}}, retryable=False) == {"ok": True}
+
+
 def test_call_raises_deadline_exceeded_when_it_hangs_past_the_timeout(unused_tcp_port):
     transport = McpTransport(
         f"http://127.0.0.1:{unused_tcp_port}/mcp",

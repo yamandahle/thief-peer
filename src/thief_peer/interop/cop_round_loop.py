@@ -15,6 +15,15 @@ her own current move is the same kind of approximate, time-decayed signal
 scent already is everywhere else in this game -- not a new class of risk
 this loop needs to close.
 
+It now *does* block on `round_exchange.wait_for_commit()` before sending
+its own reveal (book Fig. 6, p.35-36's Acknowledge step) -- this is a
+different guarantee than learning her reveal early: without it, a slow or
+dishonest Cop could see this side's revealed move before committing her
+own, defeating the whole point of Commit-Reveal. `CopContextAdapter`'s
+`_commit_step` was moved to start at 1 to stay lock-step with this loop's
+own `step` numbering specifically so this wait resolves correctly
+(`interop/cop_server_tools.py`'s own docstring has the full reasoning).
+
 `state`/`move`/`intent` here are built via `interop/cop_wire.py`'s
 `build_cop_state_string`/`build_cop_move_envelope` and a booleanized
 `decision.verdict`, not this side's own internal shapes -- required for
@@ -41,6 +50,8 @@ def play_round_cop(
     trash_talk,
     transport,
     last_opponent_scent: dict,
+    round_exchange,
+    round_deadline_sec: float,
 ) -> tuple[dict, dict, bool]:
     """Returns (sealed_record, next_opponent_scent, technical_loss)."""
     turn_fsm.transition("COMPUTING_MOVE")
@@ -49,8 +60,8 @@ def play_round_cop(
     except (DeadlineExceededError, TransportError):
         peer_scent = last_opponent_scent
 
-    decision = turn_handler.play_turn(peer_scent)
-    decision.hint = trash_talk.generate_hint(step)
+    decision = turn_handler.play_turn(peer_scent, own_scent_snapshot=scent.snapshot())
+    decision.hint = trash_talk.generate_hint(step, decision.verdict)
     scent.advance(turn_handler.state.position)
 
     move = decision.direction.value if decision.direction else "STAY"
@@ -67,6 +78,7 @@ def play_round_cop(
     turn_fsm.transition("COMMITTING")
     try:
         cop_send_commit(transport, record["commit"])
+        round_exchange.wait_for_commit(step, round_deadline_sec)
         cop_send_reveal(transport, move, decision.hint)
     except (DeadlineExceededError, TransportError):
         # The book's own transition table (also respected by native
