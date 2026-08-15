@@ -2,4 +2,4 @@
 `artifacts.py`'s builders, kept in one small file so a future schema
 version bump touches this, not the builder logic."""
 
-SCHEMA_VERSION = "1.2"
+SCHEMA_VERSION = "2.0"

@@ -127,7 +127,12 @@ def test_a_short_match_completes_and_produces_a_clean_audit_and_report(tmp_path)
     assert len(runtime.records) >= 3
     assert (results_dir / f"result_{result['game_id']}.json").exists()
     saved_result = json.loads((results_dir / f"result_{result['game_id']}.json").read_text())
-    assert saved_result["mutual_agreement_signature"] is None or "final_result" in saved_result
+    assert saved_result["report_type"] == "final_game_result"
+    assert saved_result["sub_games"][0]["result"] == "survival"
+    assert saved_result["sub_games"][0]["github_commit"]["Thief-Team"] is not None
+    assert saved_result["sub_games"][0]["github_commit"]["Cop-Team"] is not None
+    assert saved_result["mutual_agreement"]["sha256"]
+    assert "confirmed" in saved_result["mutual_agreement"]
 
 
 def test_run_gracefully_ends_the_match_on_an_illegal_transition_instead_of_crashing(

@@ -53,17 +53,31 @@ don't exist on its server -- `audit.passed` reports "not evaluated," not a
 false pass or false failure.
 """
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from thief_peer.domain.crypto import audit_records
 from thief_peer.domain.game_ids import derive_game_id, derive_game_uid
 from thief_peer.domain.negotiation import canonical_terms
 from thief_peer.domain.protocol import build_audit_payload
+from thief_peer.domain.scoring import score_sub_game
+from thief_peer.report.artifact_helpers import artifact_filenames
 from thief_peer.report.report_writer import LeagueCounter, write_and_send
 
 _SENDER = "thief"
 _WINNER_IS_OPPONENT = {"technical_loss", "captured"}
 _NATIVE_STYLE_AUDIT_PROTOCOLS = {"native"}
+# Book's `result` enum is exactly capture|survival|timeout|tamper_forfeit --
+# no slot for our own `technical_loss` (a protocol/deadline failure, not
+# proven tampering). Mapped to "timeout" (Academic Freedom clause,
+# documented in README.md): every technical-loss path here stems from a
+# deadline/protocol-timing failure, not a rules violation.
+_RESULT_VALUE = {
+    "captured": "capture",
+    "survived": "survival",
+    "max_moves_reached": "timeout",
+    "technical_loss": "timeout",
+}
 
 
 def finalize_match(
@@ -84,6 +98,9 @@ def finalize_match(
     opponent_protocol: str = "native",
     precomputed_self_audit: dict | None = None,
     precomputed_opponent_audit: dict | None = None,
+    started_at: str | None = None,
+    our_github_commit: str | None = None,
+    opponent_github_commit: str | None = None,
 ) -> dict:
     game_id = derive_game_id(*sorted([group_name, opponent_group_name]))
     game_uid = derive_game_uid(game_id, sub_game_number)
@@ -125,21 +142,45 @@ def finalize_match(
         "opponent_audited_by_me": opponent_audit,
     }
 
+    audit_override = False
     if (
         audit_was_evaluated
         and opponent_audit.get("evaluated", True)
         and not opponent_audit["passed"]
     ):
         winner = group_name  # caught the opponent forging -- automatic (rule 19)
+        audit_override = True
     elif (
         audit_was_evaluated and self_audit.get("evaluated", True) and not self_audit["passed"]
     ):
         winner = opponent_group_name  # the opponent caught us forging -- automatic
+        audit_override = True
     elif end_reason in _WINNER_IS_OPPONENT:
         winner = opponent_group_name
     else:
         winner = group_name
     final_result = {"winner_group": winner, "tokens_total_series": 0}
+
+    filenames = artifact_filenames(game_id, sub_game_number)
+    sub_game_entry = {
+        "sub_game_number": sub_game_number,
+        "roles": {group_name: "thief", opponent_group_name: "cop"},
+        "started_at": started_at or datetime.now(UTC).isoformat(),
+        "ended_at": datetime.now(UTC).isoformat(),
+        "result": "tamper_forfeit" if audit_override else _RESULT_VALUE[end_reason],
+        "winner_group": winner,
+        "tie": False,
+        "is_counted": is_counted,
+        "github_commit": {group_name: our_github_commit, opponent_group_name: opponent_github_commit},
+        "tokens": {group_name: None, opponent_group_name: None},
+        "score": score_sub_game(winner, group_name, opponent_group_name),
+        "log_files": {group_name: filenames["log"], opponent_group_name: filenames["log"]},
+        "audit": {
+            "log_verified": bool(audit["passed"]) if audit_was_evaluated else False,
+            "peer_audit_passed": bool(opponent_audit.get("passed")),
+            "tampered": audit_was_evaluated and not audit["passed"],
+        },
+    }
 
     match_result = {
         "game_id": game_id,
@@ -156,6 +197,7 @@ def finalize_match(
         "records": records,
         "audit": audit,
         "final_result": final_result,
+        "sub_game_entry": sub_game_entry,
     }
     league_counter = LeagueCounter(Path(results_dir) / "league_counter.json")
     write_and_send(

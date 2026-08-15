@@ -21,6 +21,15 @@ _NOT_EVALUATED = {
 }
 
 
+def _log_deadline_metadata(tool_name: str, sent_at: float | None, deadline_at: float | None) -> None:
+    """PRD_15's Deadline Tracker (Ch.8.4): a peer's own declared request
+    timing, logged here for observability only. Rule 9 -- a peer-declared
+    deadline is never trusted to affect the receiver's own behavior -- so
+    this never feeds into our own FSM/round-deadline logic, only stdout."""
+    if sent_at is not None or deadline_at is not None:
+        print(f"[deadline-tracker] {tool_name}: peer sent_at={sent_at} deadline_at={deadline_at}")
+
+
 class CopContextAdapter:
     def __init__(self, context, shared_config_path: str, sub_game_number: int = 1):
         self._context = context
@@ -32,13 +41,23 @@ class CopContextAdapter:
         self.peer_trace = CopPeerTrace()
         self.opponent_audit: dict = dict(_NOT_EVALUATED)
 
-    def handle_receive_commit(self, h_commit: str) -> dict:
+    def handle_receive_commit(
+        self, h_commit: str, sent_at: float | None = None, deadline_at: float | None = None
+    ) -> dict:
+        _log_deadline_metadata("receive_commit", sent_at, deadline_at)
         self._context.handle_commit_move({"step": self._commit_step, "h_commit": h_commit})
         self.peer_trace.record_commit(h_commit)
         self._commit_step += 1
         return {"acknowledged": True}
 
-    def handle_receive_reveal(self, move: dict, hint_text: str) -> dict:
+    def handle_receive_reveal(
+        self,
+        move: dict,
+        hint_text: str,
+        sent_at: float | None = None,
+        deadline_at: float | None = None,
+    ) -> dict:
+        _log_deadline_metadata("receive_reveal", sent_at, deadline_at)
         direction = move.get("direction", "STAY") if move.get("type") == "move" else "STAY"
         self._context.handle_reveal_move(
             {

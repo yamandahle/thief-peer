@@ -15,6 +15,7 @@ import threading
 from thief_peer.interop.cop_opponent import (
     cop_shutdown_grace,
     play_opponent_round,
+    run_opponent_handshake,
     send_opponent_final_reveal,
 )
 
@@ -90,6 +91,42 @@ def test_send_opponent_final_reveal_does_nothing_in_native_mode():
 
     assert runtime.transport.calls == []
     assert result["verified_steps"] == 0
+
+
+def test_run_opponent_handshake_extracts_group_name_and_commit_hash_for_cop_v1(monkeypatch):
+    # Both wire shapes already carry a git commit hash in their Step-0
+    # declaration -- this just wasn't threaded past the handshake call
+    # before, so `finalize_match`'s report had no way to populate the
+    # result artifact's `github_commit` field.
+    monkeypatch.setattr(
+        "thief_peer.interop.cop_opponent.cop_step0_handshake",
+        lambda *a, **k: {"declaration": {"group_name": "Cop-Team", "code_commit_hash": "abc123"}},
+    )
+    runtime = _FakeRuntime("cop_v1")
+    runtime.config = object()
+    runtime.group_name = "Thief-Team"
+    runtime.sub_game_number = 1
+    runtime.shared_config_path = "shared.toml"
+    runtime.repos = {}
+
+    result = run_opponent_handshake(runtime)
+
+    assert result == {"group_name": "Cop-Team", "github_commit": "abc123"}
+
+
+def test_run_opponent_handshake_extracts_group_name_and_commit_hash_natively(monkeypatch):
+    monkeypatch.setattr(
+        "thief_peer.interop.cop_opponent.run_handshake",
+        lambda *a, **k: {"payload": {"group_name": "Thief-Team-B", "github_commit_hash": "def456"}},
+    )
+    runtime = _FakeRuntime("native")
+    runtime.config = object()
+    runtime.group_name = "Thief-Team-A"
+    runtime.shared_config_path = "shared.toml"
+
+    result = run_opponent_handshake(runtime)
+
+    assert result == {"group_name": "Thief-Team-B", "github_commit": "def456"}
 
 
 def test_play_opponent_round_threads_round_exchange_and_deadline_through_for_cop_v1(monkeypatch):

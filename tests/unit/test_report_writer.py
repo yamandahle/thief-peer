@@ -40,6 +40,26 @@ def test_league_counter_tracks_different_opponents_independently(tmp_path):
     assert counter.games_played_against("cop-team-b") == 1
 
 
+def _sub_game_entry(**overrides):
+    base = {
+        "sub_game_number": 1,
+        "roles": {"thief": "thief", "cop-team": "cop"},
+        "started_at": "2026-01-01T00:00:00+00:00",
+        "ended_at": "2026-01-01T00:05:00+00:00",
+        "result": "survival",
+        "winner_group": "thief",
+        "tie": False,
+        "is_counted": True,
+        "github_commit": {"thief": "abc123", "cop-team": "def456"},
+        "tokens": {"thief": None, "cop-team": None},
+        "score": {"thief": 1, "cop-team": 0},
+        "log_files": {"thief": "log_a-vs-b_g01.json", "cop-team": "log_a-vs-b_g01.json"},
+        "audit": {"log_verified": True, "peer_audit_passed": True, "tampered": False},
+    }
+    base.update(overrides)
+    return base
+
+
 def _match_result(**overrides):
     base = {
         "game_id": "a-vs-b",
@@ -52,7 +72,7 @@ def _match_result(**overrides):
         "config_name": "config_dev_g01",
         "records": [{"payload": {"state": "s"}, "commit": "abc"}],
         "audit": {"passed": True, "verified_steps": 1, "failed_steps": []},
-        "final_result": {"winner_group": "thief", "tokens_total_series": 100},
+        "sub_game_entry": _sub_game_entry(),
     }
     base.update(overrides)
     return base
@@ -165,7 +185,10 @@ def test_write_and_send_returns_the_four_assembled_artifacts(tmp_path):
     )
 
     assert set(artifacts) == {"declaration", "config", "log", "result", "email_sent"}
+    assert artifacts["result"]["report_type"] == "final_game_result"
     assert artifacts["result"]["final_result"]["winner_group"] == "thief"
+    assert artifacts["result"]["sub_games"][0]["sub_game_number"] == 1
+    assert artifacts["result"]["mutual_agreement"]["confirmed"] is True
     assert artifacts["email_sent"] is True
 
 

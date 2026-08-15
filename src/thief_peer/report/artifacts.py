@@ -40,9 +40,27 @@ def build_log(records: list[dict], audit: dict) -> dict:
     return {"schema_version": SCHEMA_VERSION, "records": records, "audit": audit}
 
 
-def build_result(final_result: dict, mutual_agreement_signature: str | None = None) -> dict:
+def build_result(
+    game_id: str,
+    game_uid: str,
+    groups: list[str],
+    num_sub_games: int,
+    sub_games: list[dict],
+    final_result: dict,
+    mutual_agreement: dict,
+    timezone: str = "UTC",
+    links: dict | None = None,
+) -> dict:
     return {
         "schema_version": SCHEMA_VERSION,
+        "report_type": "final_game_result",
+        "game_id": game_id,
+        "game_uid": game_uid,
+        "timezone": timezone,
+        "links": links or {},
+        "groups": groups,
+        "num_sub_games": num_sub_games,
+        "sub_games": sub_games,
         "final_result": final_result,
-        "mutual_agreement_signature": mutual_agreement_signature,
+        "mutual_agreement": mutual_agreement,
     }

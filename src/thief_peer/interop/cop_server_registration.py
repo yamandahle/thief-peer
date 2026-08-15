@@ -30,12 +30,18 @@ def register_cop_tools(mcp: FastMCP, adapter: CopContextAdapter) -> None:
             mcp.local_provider.remove_tool(name)
 
     @mcp.tool
-    def receive_commit(h_commit: str) -> dict:
-        return adapter.handle_receive_commit(h_commit)
+    def receive_commit(
+        h_commit: str, sent_at: float | None = None, deadline_at: float | None = None
+    ) -> dict:
+        return adapter.handle_receive_commit(h_commit, sent_at=sent_at, deadline_at=deadline_at)
 
     @mcp.tool
-    def receive_reveal(move: dict, hint_text: str) -> dict:
-        return adapter.handle_receive_reveal(move, hint_text)
+    def receive_reveal(
+        move: dict, hint_text: str, sent_at: float | None = None, deadline_at: float | None = None
+    ) -> dict:
+        return adapter.handle_receive_reveal(
+            move, hint_text, sent_at=sent_at, deadline_at=deadline_at
+        )
 
     @mcp.tool
     def share_scent_map() -> dict:

@@ -17,7 +17,8 @@ from pathlib import Path
 from thief_peer.exceptions import ProviderError, TransportError
 from thief_peer.infra import email_sender
 from thief_peer.report.artifact_helpers import artifact_filenames
-from thief_peer.report.artifacts import build_config, build_declaration, build_log, build_result
+from thief_peer.report.artifacts import build_config, build_declaration, build_log
+from thief_peer.report.series_result import merge_sub_game_into_series
 
 
 class LeagueCounter:
@@ -70,8 +71,14 @@ def write_and_send(
         "declaration": declaration,
         "config": build_config(match_result["shared_terms"], match_result["config_name"]),
         "log": build_log(match_result["records"], match_result["audit"]),
-        "result": build_result(
-            match_result["final_result"], match_result.get("mutual_agreement_signature")
+        "result": merge_sub_game_into_series(
+            results_dir,
+            match_result["game_id"],
+            match_result["groups"]["group_1"]["identity"],
+            match_result["opponent_group_id"],
+            match_result["num_sub_games"],
+            match_result["sub_game_entry"],
+            games_played,
         ),
     }
 
