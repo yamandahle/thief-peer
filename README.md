@@ -161,6 +161,20 @@ provider notices, not after), a `TokenBucket` (lazy-refilled
 requests queue rather than silently drop), with real retry/backoff on 429s
 and every attempt logged regardless of outcome.
 
+**Academic freedom: `TECHNICAL_LOSS` reachability.** Ch.8.3's descriptive
+text ("every state has an emergency exit") and its own mandatory
+`GamePhaseMachine` code table disagree: the code table only maps
+`TECHNICAL_LOSS` as a legal destination from `COMPUTING_MOVE` and
+`AWAITING_REVEAL`, not from every state. Per the book's own "Academic
+Freedom in Case of Contradiction" clause, this repo's `TurnFsm`
+(`peer/turn_fsm.py`) implements the narrower, code-table reading —
+`TECHNICAL_LOSS` is reachable only from `COMPUTING_MOVE` and
+`AWAITING_REVEAL`, matching the literal `TRANSITIONS` dict in Ch.8.3 —
+because those are the only two states representing an active wait on a
+pending peer response; `WAITING_FOR_OPPONENT`/`VERIFYING` don't, so they'd
+have nothing to time out on. The independently-built Cop repo's own state
+machine reached the same reading.
+
 **Strategy used.** `ThiefBrain` is a hand-tuned weighted-sum policy, not
 reinforcement learning: full-distribution expected distance from the belief
 map (weight 1.0), 1-ply mobility at the candidate cell (weight 1.5 — the

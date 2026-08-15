@@ -3,6 +3,8 @@ TrashTalk/ScentField/TurnFsm the same way `peer/round_loop.py` itself has
 no direct unit test (only exercised via the full live-match integration
 test) -- these are the first direct tests of this round shape."""
 
+import pytest
+
 from thief_peer.constants import Direction
 from thief_peer.interop.cop_round_loop import play_round_cop
 from thief_peer.peer.round_exchange import RoundExchange
@@ -71,7 +73,7 @@ def test_play_round_cop_pulls_scent_before_deciding_then_commits_and_reveals():
 
     record, next_scent, technical_loss = play_round_cop(
         1, turn_handler, _FakeTurnFsm(), _FakeScent(), _FakeTrashTalk(),
-        round_exchange, transport, 1.0, {}
+        round_exchange, transport, 1.0, 1.0, {}
     )
 
     assert technical_loss is False
@@ -92,7 +94,7 @@ def test_play_round_cop_falls_back_to_last_scent_when_pull_fails():
 
     record, next_scent, technical_loss = play_round_cop(
         1, turn_handler, _FakeTurnFsm(), _FakeScent(), _FakeTrashTalk(),
-        round_exchange, transport, 1.0, {"1,1": 0.5}
+        round_exchange, transport, 1.0, 1.0, {"1,1": 0.5}
     )
 
     assert technical_loss is False
@@ -111,7 +113,7 @@ def test_play_round_cop_declares_technical_loss_when_commit_fails():
 
     record, next_scent, technical_loss = play_round_cop(
         1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
-        RoundExchange(), transport, 1.0, {}
+        RoundExchange(), transport, 1.0, 1.0, {}
     )
 
     assert technical_loss is True
@@ -125,11 +127,36 @@ def test_play_round_cop_declares_technical_loss_when_reveal_fails():
 
     record, next_scent, technical_loss = play_round_cop(
         1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
-        RoundExchange(), transport, 1.0, {}
+        RoundExchange(), transport, 1.0, 1.0, {}
     )
 
     assert technical_loss is True
     assert fsm.state == "TECHNICAL_LOSS"
+
+
+def test_play_round_cop_raises_deadline_exceeded_when_the_strategy_hangs():
+    # Book Appendix B: step_deadline_seconds bounds our own local
+    # decide()/hint-generation time, distinct from the network-facing
+    # round_deadline_sec -- deliberately not caught inside play_round_cop
+    # itself (no sealed record exists yet at this point), so this must
+    # propagate uncaught for PeerRuntime.run()'s outer wrapper to handle.
+    import time
+
+    from thief_peer.exceptions import DeadlineExceededError
+
+    class _HangingTurnHandler(_FakeTurnHandler):
+        def play_turn(self, opponent_scent_snapshot):
+            # Long enough to reliably exceed the 0.05s deadline below,
+            # short enough that the orphaned daemon thread (never joined
+            # -- that's the point) doesn't linger into whatever runs next.
+            time.sleep(0.2)
+            return super().play_turn(opponent_scent_snapshot)
+
+    with pytest.raises(DeadlineExceededError):
+        play_round_cop(
+            1, _HangingTurnHandler(), _FakeTurnFsm(), _FakeScent(), _FakeTrashTalk(),
+            RoundExchange(), _StubTransport(), 1.0, 0.05, {}
+        )
 
 
 def test_play_round_cop_declares_technical_loss_when_her_reveal_never_arrives():
@@ -143,7 +170,7 @@ def test_play_round_cop_declares_technical_loss_when_her_reveal_never_arrives():
 
     record, next_scent, technical_loss = play_round_cop(
         1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
-        RoundExchange(), transport, 0.05, {}
+        RoundExchange(), transport, 0.05, 1.0, {}
     )
 
     assert technical_loss is True
@@ -157,7 +184,7 @@ def test_play_round_cop_advances_this_sides_own_scent_field_at_its_own_position(
     round_exchange.record_reveal(1, {})
     play_round_cop(
         1, turn_handler, _FakeTurnFsm(), scent, _FakeTrashTalk(),
-        round_exchange, _StubTransport(), 1.0, {}
+        round_exchange, _StubTransport(), 1.0, 1.0, {}
     )
 
     assert scent.advanced_at == (2, 2)

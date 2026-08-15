@@ -141,10 +141,17 @@ def test_handle_receive_capture_claim_acks_immediately_then_confirms_a_real_capt
     assert (claim.thief_row, claim.thief_col) == (2, 5)
     assert (claim.cop_row, claim.cop_col) == (2, 5)
     assert claim.confirmed is True
+    # Rule 47 (direct-landing capture): unlike a barrier capture, nothing
+    # else ever tells the main loop to stop for this capture mode -- a
+    # confirmed claim must flag it directly on the runtime, or the loop
+    # advances to a step the Cop (who already correctly ended her match)
+    # will never send a reveal for, and hangs on wait_for_reveal forever.
+    assert context._captured_by_landing is True
 
 
 def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wrong():
     context = _SpyContext(position=(9, 9))  # actually standing elsewhere
+    context._captured_by_landing = False
     adapter = CopContextAdapter(context, shared_config_path="unused")
 
     adapter.handle_receive_capture_claim(
@@ -154,6 +161,7 @@ def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wron
     assert context.transport.calls == [
         ("receive_capture_response", {"confirmed": False, "true_thief_col": 9, "true_thief_row": 9})
     ]
+    assert context._captured_by_landing is False
     assert adapter.peer_trace.capture_claims[-1].confirmed is False
 
 

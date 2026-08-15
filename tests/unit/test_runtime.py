@@ -130,6 +130,101 @@ def test_a_short_match_completes_and_produces_a_clean_audit_and_report(tmp_path)
     assert saved_result["mutual_agreement_signature"] is None or "final_result" in saved_result
 
 
+def test_run_gracefully_ends_the_match_on_an_illegal_transition_instead_of_crashing(
+    tmp_path, monkeypatch
+):
+    # Ch.8.4: the system must never silently crash. An illegal FSM
+    # transition (a misbehaving/out-of-protocol opponent) or any other
+    # unexpected bug mid-round must still produce a real, scored
+    # technical loss -- not an unhandled crash with no final log/report,
+    # which would void the game under rule 35 far worse than a clean
+    # technical loss would. Mirrors the Cop repo's own
+    # orchestrator_game_loop.py::play_game outer except-Exception pattern.
+    my_config = _config(tmp_path, "mine", port=8930)
+    their_config = _config(tmp_path, "theirs", port=8931)
+    results_dir = tmp_path / "results"
+
+    from thief_peer.shared.gatekeeper import ApiGatekeeper
+    from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+
+    gatekeeper = ApiGatekeeper(
+        token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
+        dos_detector=DosDetector(max_calls=100, window_seconds=60),
+        queue=RequestQueue(max_depth=5),
+    )
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=gatekeeper,
+        email_service=_FakeGmailService(),
+        recipient="grader@example.com",
+        results_dir=results_dir,
+        round_deadline_sec=2.0,
+    )
+    opponent = _CooperativeStubOpponent(runtime, their_config, their_group_name="Cop-Team")
+    runtime.transport = opponent
+
+    def _raise_illegal_transition(_runtime, step):
+        raise SimulationError(f"Illegal transition: COMMITTING -> COMMITTING (step {step})")
+
+    monkeypatch.setattr("thief_peer.peer.runtime.play_opponent_round", _raise_illegal_transition)
+
+    result = runtime.run()  # must return normally, never raise
+
+    assert result["final_result"]["winner_group"] == "Cop-Team"
+    assert runtime.records == []
+    assert (results_dir / f"result_{result['game_id']}.json").exists()
+
+
+def test_run_stops_the_loop_when_a_confirmed_landing_capture_is_flagged(tmp_path, monkeypatch):
+    # Rule 47: a coordinate-confirmed capture-claim capture (cop_v1's
+    # handle_receive_capture_claim) has no native-protocol equivalent to
+    # fall through to is_captured_by_stuck/_captured_by_barrier -- without
+    # also checking _captured_by_landing, the loop keeps advancing and
+    # hangs forever on wait_for_reveal for a step the opponent (who
+    # already correctly ended her own match) will never reveal.
+    my_config = _config(tmp_path, "mine", port=8935)
+    their_config = _config(tmp_path, "theirs", port=8936)
+    results_dir = tmp_path / "results"
+
+    from thief_peer.shared.gatekeeper import ApiGatekeeper
+    from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+
+    gatekeeper = ApiGatekeeper(
+        token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
+        dos_detector=DosDetector(max_calls=100, window_seconds=60),
+        queue=RequestQueue(max_depth=5),
+    )
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=gatekeeper,
+        email_service=_FakeGmailService(),
+        recipient="grader@example.com",
+        results_dir=results_dir,
+        round_deadline_sec=2.0,
+    )
+    opponent = _CooperativeStubOpponent(runtime, their_config, their_group_name="Cop-Team")
+    runtime.transport = opponent
+
+    def _fake_round(_runtime, step):
+        _runtime._captured_by_landing = True
+        record = {
+            "payload": {
+                "state": "s", "move": "N", "intent": True, "hint_text": "h",
+                "step": step, "role": "thief", "nonce": "n",
+            },
+            "commit": "c",
+        }
+        return record, {}, False
+
+    monkeypatch.setattr("thief_peer.peer.runtime.play_opponent_round", _fake_round)
+
+    runtime.run()  # must not hang waiting for a reveal that will never come
+
+    assert len(runtime.records) == 1  # stopped after the round that flagged the capture
+
+
 def test_handle_commit_move_and_reveal_move_record_into_round_exchange(tmp_path):
     my_config = _config(tmp_path, "mine", port=8903)
     runtime = PeerRuntime(

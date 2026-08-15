@@ -66,6 +66,17 @@ class CopContextAdapter:
     ) -> dict:
         my_row, my_col = self._context.state.position
         confirmed = (my_row, my_col) == (thief_row, thief_col)
+        if confirmed:
+            # Unlike a barrier capture (handled by the shared
+            # PeerContextMixin.handle_receive_barrier_declaration, which
+            # already sets _captured_by_barrier for both protocols), a
+            # coordinate/"direct landing" capture (rule 47) only exists on
+            # this cop_v1 wire -- nothing else ever tells the main loop to
+            # stop. Without this, a confirmed capture leaves the loop
+            # advancing to the next round and blocking forever on
+            # round_exchange.wait_for_reveal for a reveal the Cop -- who
+            # correctly already ended her own match -- will never send.
+            self._context._captured_by_landing = True
         self.peer_trace.record_capture_claim(
             claimed_at_step=claimed_at_step,
             thief_row=thief_row,

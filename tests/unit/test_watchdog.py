@@ -77,7 +77,16 @@ def test_persist_state_writes_a_diagnosable_file(tmp_path, monkeypatch):
     assert "timestamp" in content
 
 
-def test_controlled_shutdown_runs_without_raising(capsys):
+def test_controlled_shutdown_flushes_and_terminates_the_process(monkeypatch, capsys):
+    # controlled_shutdown() now genuinely terminates the process (book
+    # Ch.8.4.2: "release MCP connections, close logs" -- never a bare
+    # print statement) -- os._exit is intercepted here so the test itself
+    # doesn't actually kill the pytest process running it.
+    exit_calls = []
+    monkeypatch.setattr(watchdog.os, "_exit", lambda code: exit_calls.append(code))
+
     watchdog.controlled_shutdown()
+
     captured = capsys.readouterr()
     assert "shutdown" in captured.out.lower()
+    assert exit_calls == [1]

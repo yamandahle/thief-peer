@@ -104,6 +104,7 @@ class ThiefSdk:
             gatekeeper,
             service,
             recipient,
+            strategy_deadline_sec=self._config.get("llm.step_deadline_seconds", 30.0),
             is_counted=is_counted,
             shared_config_path=self._shared_config_path,
         )
