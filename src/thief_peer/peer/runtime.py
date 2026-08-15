@@ -14,6 +14,7 @@ as a private method; reaching into it (or duplicating its formula here) was
 judged out of proportion to this stage's actual scope. Flagged, not hidden.
 """
 
+from datetime import UTC, datetime
 from pathlib import Path
 
 from thief_peer.domain.rules import has_survived, is_captured_by_stuck
@@ -26,6 +27,7 @@ from thief_peer.interop.cop_opponent import (
     run_opponent_handshake,
     send_opponent_final_reveal,
 )
+from thief_peer.interop.cop_wire import current_git_commit_hash
 from thief_peer.peer.heartbeat_monitor import HeartbeatMonitor
 from thief_peer.peer.match_end import finalize_match
 from thief_peer.peer.round_exchange import RoundExchange
@@ -95,9 +97,11 @@ class PeerRuntime(PeerContextMixin):
     # --- match lifecycle ---
 
     def run(self) -> dict:
+        started_at = datetime.now(UTC).isoformat()
         run_server_in_background(self.server_app, self.port)
         self.heartbeat.start()
-        opponent_group_name = run_opponent_handshake(self)
+        opponent = run_opponent_handshake(self)
+        opponent_group_name = opponent["group_name"]
 
         end_reason = "max_moves_reached"
         step = 0
@@ -163,6 +167,9 @@ class PeerRuntime(PeerContextMixin):
             self.opponent_protocol,
             precomputed_self_audit=self_audit,
             precomputed_opponent_audit=opponent_audit,
+            started_at=started_at,
+            our_github_commit=current_git_commit_hash(),
+            opponent_github_commit=opponent.get("github_commit"),
         )
         if self.opponent_protocol != "cop_v1":
             cop_shutdown_grace(self)

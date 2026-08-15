@@ -66,7 +66,12 @@ def maybe_register_cop_tools(runtime) -> None:
     runtime._cop_adapter = adapter
 
 
-def run_opponent_handshake(runtime) -> str:
+def run_opponent_handshake(runtime) -> dict:
+    """Returns the opponent's group name plus the git commit hash their own
+    Step-0 declaration already carries -- both wire shapes include one
+    (`code_commit_hash` for cop_v1, `github_commit_hash` natively), it just
+    wasn't threaded past this function before, so `finalize_match`'s report
+    had no way to populate the result artifact's `github_commit` field."""
     if runtime.opponent_protocol == "cop_v1":
         response = cop_step0_handshake(
             runtime.transport,
@@ -76,11 +81,17 @@ def run_opponent_handshake(runtime) -> str:
             runtime.shared_config_path,
             runtime.repos,
         )
-        return response["declaration"]["group_name"]
+        return {
+            "group_name": response["declaration"]["group_name"],
+            "github_commit": response["declaration"].get("code_commit_hash"),
+        }
     their_step0 = run_handshake(
         runtime.config, runtime.transport, runtime.group_name, runtime.shared_config_path
     )
-    return their_step0["payload"]["group_name"]
+    return {
+        "group_name": their_step0["payload"]["group_name"],
+        "github_commit": their_step0["payload"].get("github_commit_hash"),
+    }
 
 
 def cop_shutdown_grace(runtime) -> None:

@@ -175,6 +175,27 @@ pending peer response; `WAITING_FOR_OPPONENT`/`VERIFYING` don't, so they'd
 have nothing to time out on. The independently-built Cop repo's own state
 machine reached the same reading.
 
+**Academic freedom: `technical_loss` in the `result` report field.** The
+book's reference `result` schema (Appendix ו, per the book's own
+sample-code repo) documents `result` as exactly one of `capture | survival
+| timeout | tamper_forfeit` — there is no slot for this repo's own
+`technical_loss` end reason (an illegal FSM transition, a strategy-compute
+timeout, or a lockstep-wait timeout; never a proven rules violation). This
+repo maps `technical_loss` → `"timeout"` (`peer/match_end.py`'s
+`_RESULT_VALUE`): every technical-loss path here is itself a
+deadline/protocol-timing failure, so `"timeout"` is the closest honest fit
+in the book's own enum — `"tamper_forfeit"` is reserved for when the
+mutual audit (rules 19/36) actually catches a hash mismatch, a distinct
+and stronger claim this repo only makes when that audit genuinely fires.
+
+**Academic freedom: per-sub-game scoring formula.** No numeric point
+formula for an individual sub-game is specified anywhere in the rulebook
+excerpts available to us (only the league-wide `diversity_reward` scalar
+and win/loss outcome concepts appear). This repo scores each sub-game
+1 point to the winner, 0 to the loser, 0/0 on a tie (`domain/scoring.py`)
+— the simplest scheme consistent with `final_result.sub_games_won`, so
+the two never disagree by construction.
+
 **Strategy used.** `ThiefBrain` is a hand-tuned weighted-sum policy, not
 reinforcement learning: full-distribution expected distance from the belief
 map (weight 1.0), 1-ply mobility at the candidate cell (weight 1.5 — the

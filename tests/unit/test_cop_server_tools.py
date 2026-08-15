@@ -99,6 +99,43 @@ def test_handle_receive_reveal_translates_her_typed_move_into_our_direction_stri
     assert result == {"accepted": True, "word_count": 1}
 
 
+def test_handle_receive_commit_accepts_and_logs_peer_deadline_metadata(capsys):
+    # A real Cop client now attaches sent_at/deadline_at (PRD_15's Deadline
+    # Tracker, Ch.8.4) to her receive_commit/receive_reveal calls -- rule 9
+    # means this is observability-only, logged but never trusted to affect
+    # our own commit_move handling.
+    context = _SpyContext()
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+
+    adapter.handle_receive_commit("hash-0", sent_at=1000.0, deadline_at=1030.0)
+
+    assert context.calls == [("commit_move", {"step": 1, "h_commit": "hash-0"})]
+    assert "sent_at=1000.0" in capsys.readouterr().out
+
+
+def test_handle_receive_commit_without_deadline_metadata_logs_nothing(capsys):
+    context = _SpyContext()
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+
+    adapter.handle_receive_commit("hash-0")
+
+    assert capsys.readouterr().out == ""
+
+
+def test_handle_receive_reveal_accepts_and_logs_peer_deadline_metadata(capsys):
+    context = _SpyContext()
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+
+    adapter.handle_receive_reveal(
+        {"type": "move", "direction": "N"}, "cold", sent_at=2000.0, deadline_at=2030.0
+    )
+
+    assert context.calls == [
+        ("reveal_move", {"step": 1, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"})
+    ]
+    assert "deadline_at=2030.0" in capsys.readouterr().out
+
+
 def test_handle_share_scent_map_serializes_the_live_scent_field():
     context = _SpyContext()
     adapter = CopContextAdapter(context, shared_config_path="unused")

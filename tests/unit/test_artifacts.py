@@ -56,14 +56,39 @@ def test_build_log_wraps_records_and_audit_verbatim():
     assert log["audit"] == audit
 
 
-def test_build_result_carries_final_result_and_optional_signature():
-    final_result = {"winner_group": "thief", "tokens_total_series": 1234}
-    result = build_result(final_result=final_result, mutual_agreement_signature="sig-abc")
+def test_build_result_assembles_the_full_canonical_shape():
+    final_result = {"winner_group": "thief", "total_score": {"thief": 1, "cop": 0}}
+    mutual_agreement = {"sha256": "abc123", "confirmed": True}
+    sub_games = [{"sub_game_number": 1, "result": "survival"}]
 
+    result = build_result(
+        game_id="thief-vs-cop",
+        game_uid="series-uuid",
+        groups=["thief", "cop"],
+        num_sub_games=1,
+        sub_games=sub_games,
+        final_result=final_result,
+        mutual_agreement=mutual_agreement,
+    )
+
+    assert result["schema_version"] == SCHEMA_VERSION
+    assert result["report_type"] == "final_game_result"
+    assert result["game_id"] == "thief-vs-cop"
+    assert result["game_uid"] == "series-uuid"
+    assert result["timezone"] == "UTC"
+    assert result["links"] == {}
+    assert result["groups"] == ["thief", "cop"]
+    assert result["num_sub_games"] == 1
+    assert result["sub_games"] == sub_games
     assert result["final_result"] == final_result
-    assert result["mutual_agreement_signature"] == "sig-abc"
+    assert result["mutual_agreement"] == mutual_agreement
 
 
-def test_build_result_signature_defaults_to_none():
-    result = build_result(final_result={"winner_group": "thief"})
-    assert result["mutual_agreement_signature"] is None
+def test_build_result_links_and_timezone_are_overridable():
+    links = {"declaration": "declaration_x.json"}
+    result = build_result(
+        game_id="x", game_uid="y", groups=["a", "b"], num_sub_games=1,
+        sub_games=[], final_result={}, mutual_agreement={}, timezone="Asia/Jerusalem", links=links,
+    )
+    assert result["timezone"] == "Asia/Jerusalem"
+    assert result["links"] == links

@@ -211,3 +211,75 @@ def test_is_counted_defaults_to_true(tmp_path, monkeypatch):
     _finalize(tmp_path, monkeypatch)
 
     assert captured["is_counted"] is True
+
+
+def _captured_sub_game_entry(tmp_path, monkeypatch, **overrides):
+    captured = {}
+    monkeypatch.setattr(
+        "thief_peer.peer.match_end.write_and_send",
+        lambda match_result, *args, **kwargs: captured.update(match_result),
+    )
+    _finalize(tmp_path, monkeypatch, **overrides)
+    return captured["sub_game_entry"]
+
+
+def test_sub_game_entry_maps_survived_to_the_survival_result_value(tmp_path, monkeypatch):
+    entry = _captured_sub_game_entry(tmp_path, monkeypatch, end_reason="survived")
+
+    assert entry["result"] == "survival"
+    assert entry["winner_group"] == "Thief-Team-A"
+    assert entry["score"] == {"Thief-Team-A": 1, "Thief-Team-B": 0}
+    assert entry["tie"] is False
+    assert entry["audit"]["tampered"] is False
+
+
+def test_sub_game_entry_maps_captured_to_the_capture_result_value(tmp_path, monkeypatch):
+    entry = _captured_sub_game_entry(tmp_path, monkeypatch, end_reason="captured")
+
+    assert entry["result"] == "capture"
+    assert entry["winner_group"] == "Thief-Team-B"
+    assert entry["score"] == {"Thief-Team-A": 0, "Thief-Team-B": 1}
+
+
+def test_sub_game_entry_maps_technical_loss_to_timeout_not_a_missing_enum_value(
+    tmp_path, monkeypatch
+):
+    # Book's `result` enum has no slot for a protocol/deadline failure --
+    # documented Academic-Freedom reading (README.md): technical_loss ->
+    # "timeout", since every technical-loss path here stems from a
+    # deadline/protocol-timing failure, not a rules violation.
+    entry = _captured_sub_game_entry(
+        tmp_path, monkeypatch, end_reason="technical_loss", transport=_ExplodingTransport()
+    )
+
+    assert entry["result"] == "timeout"
+    assert entry["audit"]["log_verified"] is False
+
+
+def test_sub_game_entry_marks_tamper_forfeit_when_the_audit_overrides_the_winner(
+    tmp_path, monkeypatch
+):
+    tampered = _sealed_record(state="s0")
+    tampered["payload"]["move"] = "S"  # tampered after sealing
+    transport = _SpyTransport(opponent_records=[tampered])
+
+    entry = _captured_sub_game_entry(
+        tmp_path, monkeypatch, end_reason="captured", transport=transport
+    )
+
+    assert entry["result"] == "tamper_forfeit"
+    assert entry["winner_group"] == "Thief-Team-A"
+    assert entry["audit"]["tampered"] is True
+
+
+def test_sub_game_entry_carries_github_commit_and_started_at_through(tmp_path, monkeypatch):
+    entry = _captured_sub_game_entry(
+        tmp_path,
+        monkeypatch,
+        started_at="2026-01-01T00:00:00+00:00",
+        our_github_commit="abc123",
+        opponent_github_commit="def456",
+    )
+
+    assert entry["started_at"] == "2026-01-01T00:00:00+00:00"
+    assert entry["github_commit"] == {"Thief-Team-A": "abc123", "Thief-Team-B": "def456"}
