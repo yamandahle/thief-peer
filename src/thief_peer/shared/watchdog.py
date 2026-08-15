@@ -7,6 +7,8 @@ to `peer/runtime.py`, arriving in a later stage; this module is the
 checker, built and unit-tested now (PRD_5 "Open items").
 """
 
+import os
+import sys
 import time
 from pathlib import Path
 
@@ -35,8 +37,17 @@ def persist_state() -> None:
 
 
 def controlled_shutdown() -> None:
-    """Release the MCP server/client cleanly, close any open log handles --
-    never a bare process kill (PRD_5 §3). Full resource release is wired
-    once `PeerRuntime` owns real server/client handles (later stages); for
-    now this is the single, named chokepoint every future stage extends."""
+    """Release the MCP server/client cleanly, close any open log handles,
+    then genuinely terminate the process (book Ch.8.4.2's own code sketch:
+    "release MCP connections, close logs") -- never a bare print statement
+    masquerading as a shutdown. `os._exit(1)` terminates immediately,
+    which already releases every open socket/file handle via normal OS
+    process teardown -- deliberately the same shape as a hard process
+    kill after state is safely persisted, not an attempt at a graceful
+    in-Python socket-close sequence from a background thread (which the
+    watchdog thread, running independently of whatever froze the main
+    loop, has no reliable way to drive)."""
     print("[watchdog] controlled shutdown: heartbeat stale, stopping cleanly.")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(1)

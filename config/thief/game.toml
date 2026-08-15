@@ -10,6 +10,14 @@ my_port = 8801
 # match against an independently-running Cop process -- see PRD_5).
 opponent_url = "http://127.0.0.1:8802/mcp"
 
+[llm]
+# Appendix B: hard cap on the Strategy Module's own move-computation time
+# (turn_handler.play_turn + trash_talk.generate_hint) per step -- a local
+# deadline distinct from the network-facing round_deadline_sec, so a
+# hung/slow local decision can never leave the opponent's own 30s deadline
+# to declare us the loser before our own, much coarser Watchdog notices.
+step_deadline_seconds = 30
+
 [email]
 # Match reports (ApiGatekeeper-routed Gmail send, PRD_7). Temporarily the
 # user's own address for early testing -- change to the real grading

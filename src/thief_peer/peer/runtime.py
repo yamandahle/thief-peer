@@ -44,6 +44,7 @@ class PeerRuntime(PeerContextMixin):
         recipient: str,
         results_dir: str | Path = "results",
         round_deadline_sec: float = 30.0,
+        strategy_deadline_sec: float = 30.0,
         watchdog_timeout_sec: float = 180.0,
         sub_game_number: int = 1,
         num_sub_games: int = 1,
@@ -57,6 +58,7 @@ class PeerRuntime(PeerContextMixin):
         self.recipient = recipient
         self.results_dir = results_dir
         self.round_deadline_sec = round_deadline_sec
+        self.strategy_deadline_sec = strategy_deadline_sec
         self.sub_game_number = sub_game_number
         self.num_sub_games = num_sub_games
         self.is_counted = is_counted
@@ -82,6 +84,7 @@ class PeerRuntime(PeerContextMixin):
         self._last_opponent_scent: dict[str, float] = {}
         self._match_over = False
         self._captured_by_barrier = False
+        self._captured_by_landing = False
 
         self.port = config.require("network.my_port")
         self.opponent_url = config.get("network.opponent_url")
@@ -100,7 +103,20 @@ class PeerRuntime(PeerContextMixin):
         step = 0
         while step < self.max_moves:
             step += 1
-            record, self._last_opponent_scent, technical_loss = play_opponent_round(self, step)
+            try:
+                record, self._last_opponent_scent, technical_loss = play_opponent_round(
+                    self, step
+                )
+            except Exception as exc:
+                # Ch.8.4: the system must never silently crash. An illegal
+                # FSM transition (a misbehaving/out-of-protocol opponent)
+                # or a genuinely unexpected bug here must still produce a
+                # real, scored match result -- not an unhandled crash with
+                # no final log/report, which would void the game under
+                # rule 35 far worse than a clean technical loss would.
+                print(f"[technical-loss] round {step} failed: {type(exc).__name__}: {exc}")
+                end_reason = "technical_loss"
+                break
             self.records.append(record)
             self.heartbeat.beat()
             if technical_loss:
@@ -109,7 +125,11 @@ class PeerRuntime(PeerContextMixin):
             if has_survived(self.state, self.survival_threshold):
                 end_reason = "survived"
                 break
-            if is_captured_by_stuck(self.state, self.board) or self._captured_by_barrier:
+            if (
+                is_captured_by_stuck(self.state, self.board)
+                or self._captured_by_barrier
+                or self._captured_by_landing
+            ):
                 end_reason = "captured"
                 break
 

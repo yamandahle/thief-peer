@@ -203,6 +203,48 @@ def test_build_runtime_reads_gatekeeper_numbers_from_the_shared_rate_limiter_gat
     assert gatekeeper._queue._max_depth == 123
 
 
+def test_build_runtime_reads_step_deadline_seconds_from_the_private_llm_config(
+    tmp_path, monkeypatch
+):
+    # Book Appendix B: [llm] step_deadline_seconds -- private/local, never
+    # negotiated, so it lives in game.toml, not the shared game.json.
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        f'[network]\nmy_port = {port}\nopponent_url = "http://127.0.0.1:{port}/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\n'
+        "[llm]\nstep_deadline_seconds = 17\n",
+        encoding="utf-8",
+    )
+    json_path = tmp_path / "game.json"
+    json_path.write_text("{}", encoding="utf-8")
+    config = ConfigManager(toml_path, json_path)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = {}
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured["strategy_deadline_sec"] = kwargs.get("strategy_deadline_sec")
+
+        def run(self):
+            return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    ThiefSdk(config).run("Thief-Team")
+
+    assert captured["strategy_deadline_sec"] == 17
+
+
 def test_run_passes_is_counted_through_to_peer_runtime(tmp_path, monkeypatch):
     import socket
 

@@ -42,6 +42,7 @@ from thief_peer.interop.cop_turn_sender import (
 )
 from thief_peer.interop.cop_wire import build_cop_move_envelope, build_cop_state_string
 from thief_peer.peer.sealing import sealed_step_record
+from thief_peer.peer.strategy_deadline import run_with_deadline
 
 
 def play_round_cop(
@@ -53,6 +54,7 @@ def play_round_cop(
     round_exchange,
     transport,
     round_deadline_sec: float,
+    strategy_deadline_sec: float,
     last_opponent_scent: dict,
 ) -> tuple[dict, dict, bool]:
     """Returns (sealed_record, next_opponent_scent, technical_loss)."""
@@ -62,8 +64,15 @@ def play_round_cop(
     except (DeadlineExceededError, TransportError):
         peer_scent = last_opponent_scent
 
-    decision = turn_handler.play_turn(peer_scent)
-    decision.hint = trash_talk.generate_hint(step)
+    def _compute_move():
+        decision = turn_handler.play_turn(peer_scent)
+        decision.hint = trash_talk.generate_hint(step)
+        return decision
+
+    # Not caught here, same reasoning as native play_round: no sealed
+    # record exists yet to return on a strategy-computation timeout -- let
+    # it propagate to PeerRuntime.run()'s outer wrapper.
+    decision = run_with_deadline(_compute_move, strategy_deadline_sec)
     scent.advance(turn_handler.state.position)
 
     move = decision.direction.value if decision.direction else "STAY"
