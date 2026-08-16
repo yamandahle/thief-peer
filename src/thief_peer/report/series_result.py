@@ -33,6 +33,7 @@ def merge_sub_game_into_series(
     num_sub_games: int,
     this_sub_game: dict,
     games_played_including_this: int,
+    league_params: dict | None = None,
 ) -> dict:
     path = Path(results_dir) / f"result_{game_id}.json"
     existing = json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
@@ -57,6 +58,14 @@ def merge_sub_game_into_series(
     # computed honestly from data we already have rather than hardcoded.
     final_result["games_played_including_this"] = games_played_including_this
     final_result["diversity_reward_applied"] = False
+    # docs/TodoCloseGaps.md #4: lecturer/league-management fields
+    # (diversity_reward, min_games_to_pass, max_games_per_team,
+    # token_budget_per_series) -- confirmed not part of the book's own
+    # canonical schema, no local behavior reads them, but carried through
+    # verbatim for completeness. `diversity_reward` (a raw config scalar)
+    # is deliberately distinct from `diversity_reward_applied` above (a
+    # boolean, always False here since no diversity-bonus logic exists).
+    final_result.update(league_params or {})
 
     filenames = artifact_filenames(game_id, this_sub_game["sub_game_number"])
     links = {

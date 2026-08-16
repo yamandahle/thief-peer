@@ -13,7 +13,7 @@ import pytest
 
 from thief_peer.domain.negotiation import Negotiation, canonical_terms
 from thief_peer.domain.rules import has_survived
-from thief_peer.exceptions import SimulationError
+from thief_peer.exceptions import DeadlineExceededError, SimulationError
 from thief_peer.peer.runtime import PeerRuntime
 from thief_peer.peer.sealing import sealed_spec_record
 from thief_peer.shared.config import ConfigManager
@@ -92,6 +92,12 @@ class _CooperativeStubOpponent:
             # test_live_match.py's two real PeerRuntime instances.
             return {"records": []}
         raise ValueError(f"unexpected tool call: {tool_name}")
+
+    def close(self) -> None:
+        """No-op: real teardown is `McpTransport.close()`'s own job
+        (`infra/mcp_client.py`) -- `PeerRuntime.run()` calls this
+        unconditionally at match end, so any stand-in assigned to
+        `runtime.transport` needs the same no-arg method to exist."""
 
 
 def test_a_short_match_completes_and_produces_a_clean_audit_and_report(tmp_path):
@@ -181,6 +187,74 @@ def test_run_gracefully_ends_the_match_on_an_illegal_transition_instead_of_crash
     assert (results_dir / f"result_{result['game_id']}.json").exists()
 
 
+def test_run_persists_the_technical_loss_reason_instead_of_only_printing_it(
+    tmp_path, monkeypatch
+):
+    # docs/todoFIXMCP.md: reproduces the actual signature of a real
+    # round-27-style incident -- a round that produces NO sealed record at
+    # all (end_reason="technical_loss" via PeerRuntime.run()'s own outer
+    # catch-all, not one of play_round_cop's/play_round's internal
+    # network-failure catches, which always still return a sealed record).
+    # A real occurrence of this was reverse-engineered after the fact from
+    # timestamps across two separate teams' report files, because the
+    # actual exception was only ever printed to stdout and lost the moment
+    # the terminal scrolled past it -- this pins the fix: the exact
+    # exception type/message must survive into the written report.
+    my_config = _config(tmp_path, "mine", port=8932)
+    their_config = _config(tmp_path, "theirs", port=8933)
+    results_dir = tmp_path / "results"
+
+    from thief_peer.shared.gatekeeper import ApiGatekeeper
+    from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+
+    gatekeeper = ApiGatekeeper(
+        token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
+        dos_detector=DosDetector(max_calls=100, window_seconds=60),
+        queue=RequestQueue(max_depth=5),
+    )
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=gatekeeper,
+        email_service=_FakeGmailService(),
+        recipient="grader@example.com",
+        results_dir=results_dir,
+        round_deadline_sec=2.0,
+    )
+    opponent = _CooperativeStubOpponent(runtime, their_config, their_group_name="Cop-Team")
+    runtime.transport = opponent
+
+    def _raise_at_round_3(_runtime, step):
+        if step < 3:
+            return {
+                "payload": {"state": "s", "move": "N", "intent": True, "hint_text": "h", "step": step, "role": "thief", "nonce": "n"},
+                "commit": "c",
+            }, {}, False, None
+        raise DeadlineExceededError("Strategy computation exceeded the 30.0s deadline")
+
+    monkeypatch.setattr("thief_peer.peer.runtime.play_opponent_round", _raise_at_round_3)
+
+    result = runtime.run()  # must return normally, never raise
+
+    assert result["final_result"]["winner_group"] == "Cop-Team"
+    assert len(runtime.records) == 2  # rounds 1-2 completed; round 3 produced no record
+    saved = json.loads((results_dir / f"result_{result['game_id']}.json").read_text())
+    sub_game = saved["sub_games"][0]
+    reason = sub_game["technical_loss_reason"]
+    assert reason is not None
+    assert "round 3" in reason
+    assert "started 20" in reason  # a real ISO timestamp landed in the reason, not a placeholder
+    # This is specifically the unexpected-bug outer catch-all -- unlike the
+    # two well-understood internal checks (send failed / reveal never
+    # arrived), there's no other context to infer "which line" from, so
+    # the full traceback must also survive into the report.
+    traceback_text = sub_game["technical_loss_traceback"]
+    assert traceback_text is not None
+    assert "DeadlineExceededError" in traceback_text
+    assert "Traceback (most recent call last)" in traceback_text
+    assert "DeadlineExceededError" in reason
+
+
 def test_run_stops_the_loop_when_a_confirmed_landing_capture_is_flagged(tmp_path, monkeypatch):
     # Rule 47: a coordinate-confirmed capture-claim capture (cop_v1's
     # handle_receive_capture_claim) has no native-protocol equivalent to
@@ -221,7 +295,7 @@ def test_run_stops_the_loop_when_a_confirmed_landing_capture_is_flagged(tmp_path
             },
             "commit": "c",
         }
-        return record, {}, False
+        return record, {}, False, None
 
     monkeypatch.setattr("thief_peer.peer.runtime.play_opponent_round", _fake_round)
 
@@ -315,6 +389,70 @@ def test_handle_receive_barrier_declaration_flags_capture_on_my_own_cell(tmp_pat
     runtime.handle_receive_barrier_declaration({"row": row, "col": col})
 
     assert runtime._captured_by_barrier is True
+
+
+def test_handle_receive_barrier_declaration_accepts_exactly_up_to_max_barriers(tmp_path):
+    # docs/TodoCloseGaps.md #3: _GAME_JSON's movement_and_barriers.max_barriers is 14.
+    my_config = _config(tmp_path, "mine", port=8940)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+
+    for i in range(14):
+        row, col = divmod(i, 5)  # 14 distinct in-bounds cells on the 5x5 board
+        runtime.handle_receive_barrier_declaration({"row": row, "col": col})
+
+    assert len(runtime.state.known_barriers) == 14
+
+
+def test_handle_receive_barrier_declaration_rejects_a_declaration_beyond_max_barriers(tmp_path):
+    my_config = _config(tmp_path, "mine", port=8941)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    for i in range(14):
+        row, col = divmod(i, 5)  # 14 distinct in-bounds cells on the 5x5 board
+        runtime.handle_receive_barrier_declaration({"row": row, "col": col})
+
+    with pytest.raises(SimulationError, match="max_barriers"):
+        runtime.handle_receive_barrier_declaration({"row": 5, "col": 0})
+
+    assert len(runtime.state.known_barriers) == 14  # the 15th was refused, not recorded
+
+
+def test_handle_receive_barrier_declaration_re_declaring_the_same_cell_never_counts_twice(
+    tmp_path,
+):
+    my_config = _config(tmp_path, "mine", port=8942)
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=None,
+        email_service=None,
+        recipient="grader@example.com",
+        results_dir=tmp_path / "results",
+    )
+    for i in range(14):
+        row, col = divmod(i, 5)  # 14 distinct in-bounds cells on the 5x5 board
+        runtime.handle_receive_barrier_declaration({"row": row, "col": col})
+
+    # Re-declaring an already-known cell (row=0,col=0, from i=0 above)
+    # must not be treated as a 15th distinct barrier -- the set union
+    # doesn't grow, so this must succeed.
+    response = runtime.handle_receive_barrier_declaration({"row": 0, "col": 0})
+
+    assert response == {"ok": True}
+    assert len(runtime.state.known_barriers) == 14
 
 
 def test_handle_receive_capture_claim_confirms_a_genuine_barrier_capture(tmp_path):
@@ -567,6 +705,13 @@ class _CooperativeCopStubOpponent:
                 "repos": {"cop": "x", "thief": "y"},
             }
         if tool_name == "receive_commit":
+            # A real cooperative Cop peer calls *our* receive_commit each
+            # round too, not just receive_reveal -- needed so the
+            # duplicate-call guard (docs/todoFIXMCP.md #2) sees its
+            # expected commit-then-reveal sequence and correctly resets
+            # between rounds, instead of treating every round's identical
+            # stubbed reveal content as a retry-echo of the first one.
+            self.runtime._cop_adapter.handle_receive_commit(payload["h_commit"])
             return {"acknowledged": True}
         if tool_name == "receive_reveal":
             self.runtime._cop_adapter.handle_receive_reveal(
@@ -578,6 +723,9 @@ class _CooperativeCopStubOpponent:
         if tool_name == "receive_final_reveal":
             return {"acknowledged": True}
         raise ValueError(f"unexpected tool call: {tool_name}")
+
+    def close(self) -> None:
+        """No-op -- see `_CooperativeStubOpponent.close`'s own docstring."""
 
 
 def test_a_short_cop_v1_match_completes_using_her_wire_vocabulary(tmp_path, monkeypatch):

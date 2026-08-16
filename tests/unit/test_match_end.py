@@ -228,7 +228,9 @@ def test_sub_game_entry_maps_survived_to_the_survival_result_value(tmp_path, mon
 
     assert entry["result"] == "survival"
     assert entry["winner_group"] == "Thief-Team-A"
-    assert entry["score"] == {"Thief-Team-A": 1, "Thief-Team-B": 0}
+    # Table 2 (book §3.5, p.22): scored by role, not by winner -- the
+    # thief (Thief-Team-A) gets survival_thief, the cop gets survival_cop.
+    assert entry["score"] == {"Thief-Team-A": 10, "Thief-Team-B": 5}
     assert entry["tie"] is False
     assert entry["audit"]["tampered"] is False
 
@@ -238,7 +240,8 @@ def test_sub_game_entry_maps_captured_to_the_capture_result_value(tmp_path, monk
 
     assert entry["result"] == "capture"
     assert entry["winner_group"] == "Thief-Team-B"
-    assert entry["score"] == {"Thief-Team-A": 0, "Thief-Team-B": 1}
+    # Captured thief (Thief-Team-A) still scores capture_thief, not 0.
+    assert entry["score"] == {"Thief-Team-A": 5, "Thief-Team-B": 20}
 
 
 def test_sub_game_entry_maps_technical_loss_to_timeout_not_a_missing_enum_value(
@@ -270,6 +273,97 @@ def test_sub_game_entry_marks_tamper_forfeit_when_the_audit_overrides_the_winner
     assert entry["result"] == "tamper_forfeit"
     assert entry["winner_group"] == "Thief-Team-A"
     assert entry["audit"]["tampered"] is True
+
+
+def test_sub_game_entry_maps_max_moves_reached_to_survival_not_timeout(tmp_path, monkeypatch):
+    # Table 2 (book §3.5, p.22) has no "timeout" row -- reaching the move
+    # cap uncaptured is exactly its "survival" condition, regardless of
+    # which check noticed it (docs/TodoCloseGaps.md #1).
+    entry = _captured_sub_game_entry(tmp_path, monkeypatch, end_reason="max_moves_reached")
+
+    assert entry["result"] == "survival"
+    assert entry["winner_group"] == "Thief-Team-A"
+    assert entry["score"] == {"Thief-Team-A": 10, "Thief-Team-B": 5}
+
+
+class _ScoringConfigStub:
+    """Unlike _ConfigStub, actually answers scoring.* reads -- proves the
+    values genuinely come from config, not just the hardcoded fallback."""
+
+    def get(self, key, default=None):
+        values = {
+            "scoring.capture_cop": 200,
+            "scoring.capture_thief": 50,
+            "scoring.survival_cop": 3,
+            "scoring.survival_thief": 99,
+        }
+        return values.get(key, default)
+
+    def require(self, key):
+        raise AssertionError(f"unexpected require({key!r}) in this test")
+
+
+def test_sub_game_entry_score_is_actually_read_from_the_shared_scoring_config(
+    tmp_path, monkeypatch
+):
+    entry = _captured_sub_game_entry(
+        tmp_path, monkeypatch, end_reason="captured", config=_ScoringConfigStub()
+    )
+
+    assert entry["score"] == {"Thief-Team-A": 50, "Thief-Team-B": 200}
+
+
+class _LeagueParamsConfigStub:
+    """docs/TodoCloseGaps.md #4: proves league params are genuinely read
+    from config, not just defaulted to None."""
+
+    def get(self, key, default=None):
+        values = {
+            "network_and_league.diversity_reward": 10,
+            "network_and_league.min_games_to_pass": 2,
+            "network_and_league.max_games_per_team": 10,
+            "network_and_league.token_budget_per_series": 200000,
+        }
+        return values.get(key, default)
+
+    def require(self, key):
+        raise AssertionError(f"unexpected require({key!r}) in this test")
+
+
+def _captured_match_result(tmp_path, monkeypatch, **overrides):
+    captured = {}
+    monkeypatch.setattr(
+        "thief_peer.peer.match_end.write_and_send",
+        lambda match_result, *args, **kwargs: captured.update(match_result),
+    )
+    _finalize(tmp_path, monkeypatch, **overrides)
+    return captured
+
+
+def test_match_result_carries_league_params_read_from_config(tmp_path, monkeypatch):
+    match_result = _captured_match_result(
+        tmp_path, monkeypatch, config=_LeagueParamsConfigStub()
+    )
+
+    assert match_result["league_params"] == {
+        "diversity_reward": 10,
+        "min_games_to_pass": 2,
+        "max_games_per_team": 10,
+        "token_budget_per_series": 200000,
+    }
+
+
+def test_match_result_league_params_default_to_none_when_config_lacks_the_section(
+    tmp_path, monkeypatch
+):
+    match_result = _captured_match_result(tmp_path, monkeypatch)
+
+    assert match_result["league_params"] == {
+        "diversity_reward": None,
+        "min_games_to_pass": None,
+        "max_games_per_team": None,
+        "token_budget_per_series": None,
+    }
 
 
 def test_sub_game_entry_carries_github_commit_and_started_at_through(tmp_path, monkeypatch):

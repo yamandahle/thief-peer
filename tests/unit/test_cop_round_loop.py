@@ -71,7 +71,7 @@ def test_play_round_cop_pulls_scent_before_deciding_then_commits_and_reveals():
     round_exchange = RoundExchange()
     round_exchange.record_reveal(1, {})  # her matching-round reveal already landed
 
-    record, next_scent, technical_loss = play_round_cop(
+    record, next_scent, technical_loss, reason = play_round_cop(
         1, turn_handler, _FakeTurnFsm(), _FakeScent(), _FakeTrashTalk(),
         round_exchange, transport, 1.0, 1.0, {}
     )
@@ -92,7 +92,7 @@ def test_play_round_cop_falls_back_to_last_scent_when_pull_fails():
     round_exchange = RoundExchange()
     round_exchange.record_reveal(1, {})
 
-    record, next_scent, technical_loss = play_round_cop(
+    record, next_scent, technical_loss, reason = play_round_cop(
         1, turn_handler, _FakeTurnFsm(), _FakeScent(), _FakeTrashTalk(),
         round_exchange, transport, 1.0, 1.0, {"1,1": 0.5}
     )
@@ -111,13 +111,14 @@ def test_play_round_cop_declares_technical_loss_when_commit_fails():
     transport = _StubTransport(fail_on="receive_commit")
     fsm = TurnFsm()
 
-    record, next_scent, technical_loss = play_round_cop(
+    record, next_scent, technical_loss, reason = play_round_cop(
         1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
         RoundExchange(), transport, 1.0, 1.0, {}
     )
 
     assert technical_loss is True
     assert fsm.state == "TECHNICAL_LOSS"
+    assert reason is not None and "receive_commit unreachable" in reason
 
 
 def test_play_round_cop_declares_technical_loss_when_reveal_fails():
@@ -125,12 +126,13 @@ def test_play_round_cop_declares_technical_loss_when_reveal_fails():
     transport = _StubTransport(fail_on="receive_reveal")
     fsm = TurnFsm()
 
-    record, next_scent, technical_loss = play_round_cop(
+    record, next_scent, technical_loss, reason = play_round_cop(
         1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
         RoundExchange(), transport, 1.0, 1.0, {}
     )
 
     assert technical_loss is True
+    assert reason is not None and "receive_reveal unreachable" in reason
     assert fsm.state == "TECHNICAL_LOSS"
 
 
@@ -168,13 +170,14 @@ def test_play_round_cop_declares_technical_loss_when_her_reveal_never_arrives():
     transport = _StubTransport()
     fsm = TurnFsm()
 
-    record, next_scent, technical_loss = play_round_cop(
+    record, next_scent, technical_loss, reason = play_round_cop(
         1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
         RoundExchange(), transport, 0.05, 1.0, {}
     )
 
     assert technical_loss is True
     assert fsm.state == "TECHNICAL_LOSS"
+    assert reason is not None and "reveal never arrived" in reason
 
 
 def test_play_round_cop_advances_this_sides_own_scent_field_at_its_own_position():

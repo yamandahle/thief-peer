@@ -30,15 +30,22 @@ from thief_peer.infra import email_sender, gmail_auth
 from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.infra.mcp_server import NullPeerContext, build_server, run_server_in_background
 from thief_peer.peer.runtime import PeerRuntime
+from thief_peer.report.sub_game_counter import SubGameCounter
 from thief_peer.shared.config import ConfigManager
 from thief_peer.shared.gatekeeper import ApiGatekeeper
 from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
 
 
 class ThiefSdk:
-    def __init__(self, config: ConfigManager, shared_config_path: str | None = None):
+    def __init__(
+        self,
+        config: ConfigManager,
+        shared_config_path: str | None = None,
+        results_dir: str | Path = "results",
+    ):
         self._config = config
         self._shared_config_path = shared_config_path
+        self._results_dir = results_dir
 
     def smoke_test(self) -> dict:
         port = self._config.require("network.my_port")
@@ -47,7 +54,10 @@ class ThiefSdk:
         app = build_server(port, NullPeerContext())
         run_server_in_background(app, port)
 
-        transport = McpTransport(opponent_url)
+        transport = McpTransport(
+            opponent_url,
+            response_timeout_sec=self._config.get("network_and_league.response_timeout_sec", 30.0),
+        )
         return transport.call("ping", {"payload": {"smoke_test": True}})
 
     def run(self, group_name: str, is_counted: bool = True) -> dict:
@@ -98,13 +108,30 @@ class ThiefSdk:
         )
         service = email_sender.get_service(self._config.get("email.token_path", "token.json"))
         recipient = self._config.require("email.recipient")
+        # docs/TodoCloseGaps.md #2: num_sub_games/sub_game_number were
+        # never driven by anything -- every run silently defaulted to
+        # "sub-game 1 of 1" regardless of the negotiated
+        # network_and_league.num_games. sub_game_number can't be keyed by
+        # the negotiated game_id (needs the opponent's own group name,
+        # only known after the handshake this same number is sent
+        # *during*) -- opponent_url is available up front and uniquely
+        # identifies this specific series instead.
+        num_sub_games = self._config.get("network_and_league.num_games", 1)
+        opponent_key = self._config.get("network.opponent_url", "unknown-opponent")
+        counter = SubGameCounter(Path(self._results_dir) / "sub_game_counter.json")
+        sub_game_number = counter.next_sub_game_number(opponent_key, is_counted=is_counted)
         return PeerRuntime(
             self._config,
             group_name,
             gatekeeper,
             service,
             recipient,
+            results_dir=self._results_dir,
+            round_deadline_sec=self._config.get("network_and_league.response_timeout_sec", 30.0),
             strategy_deadline_sec=self._config.get("llm.step_deadline_seconds", 30.0),
+            watchdog_timeout_sec=self._config.get("network_and_league.watchdog_timeout_sec", 180.0),
+            sub_game_number=sub_game_number,
+            num_sub_games=num_sub_games,
             is_counted=is_counted,
             shared_config_path=self._shared_config_path,
         )

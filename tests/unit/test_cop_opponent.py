@@ -82,6 +82,35 @@ def test_send_opponent_final_reveal_sends_nonces_and_intents_in_cop_v1_mode():
     assert result["verified_steps"] == 0
 
 
+def test_send_opponent_final_reveal_survives_an_unreachable_peer_instead_of_crashing():
+    # docs/todoFIXMCP.md: this call was previously unguarded -- if the
+    # round loop already ended in a technical loss because the peer
+    # became unreachable, this send can hit that same unreachable peer,
+    # and an uncaught exception here would crash the whole match-report
+    # sequence (no report at all) instead of the honest "not evaluated"
+    # this function already returns for native-protocol opponents.
+    from thief_peer.exceptions import TransportError
+
+    class _UnreachableTransport:
+        def call(self, name, payload):
+            raise TransportError("could not reach opponent")
+
+    runtime = _FakeRuntime("cop_v1")
+    runtime.transport = _UnreachableTransport()
+
+    result = send_opponent_final_reveal(
+        runtime, records=[{"payload": {"step": 1, "nonce": "n", "intent": True}}]
+    )
+
+    assert result == {
+        "passed": False,
+        "verified_steps": 0,
+        "failed_steps": [],
+        "failed_capture_claims": [],
+        "evaluated": False,
+    }
+
+
 def test_send_opponent_final_reveal_does_nothing_in_native_mode():
     runtime = _FakeRuntime("native")
 
@@ -143,7 +172,7 @@ def test_play_opponent_round_threads_round_exchange_and_deadline_through_for_cop
         captured["round_exchange"] = round_exchange
         captured["round_deadline_sec"] = round_deadline_sec
         captured["strategy_deadline_sec"] = strategy_deadline_sec
-        return {"payload": {}}, {}, False
+        return {"payload": {}}, {}, False, None
 
     monkeypatch.setattr(
         "thief_peer.interop.cop_opponent.play_round_cop", fake_play_round_cop

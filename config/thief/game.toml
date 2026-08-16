@@ -21,7 +21,12 @@ step_deadline_seconds = 30
 [email]
 # Match reports (ApiGatekeeper-routed Gmail send, PRD_7). Temporarily the
 # user's own address for early testing -- change to the real grading
-# recipient before a submission-relevant run.
+# recipient before a submission-relevant run. Per the book's own Appendix
+# ו ("Agent Reporting Address" -- destination the agent auto-sends its
+# JSON reports to, distinct from the lecturer's general contact address
+# rmisegal@gmail.com) and its own inline config example (printed p.115),
+# that address is:
+#   recipient = "rmisegal+uoh26finalgame@gmail.com"
 recipient = "yamandahle@gmail.com"
 # Path to the OAuth token created by the one-time Gmail browser-consent
 # flow (Appendix א) -- gitignored, never commit the real file.

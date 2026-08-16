@@ -111,3 +111,26 @@ def test_bonus_fields_are_populated_honestly(tmp_path):
 
     assert result["final_result"]["games_played_including_this"] == 5
     assert result["final_result"]["diversity_reward_applied"] is False
+
+
+def test_league_params_are_merged_into_final_result(tmp_path):
+    # docs/TodoCloseGaps.md #4: lecturer/league-management fields, not
+    # part of the book's canonical schema, carried through verbatim.
+    league_params = {
+        "diversity_reward": 10,
+        "min_games_to_pass": 2,
+        "max_games_per_team": 10,
+        "token_budget_per_series": 200000,
+    }
+    result = merge_sub_game_into_series(
+        tmp_path, "thief-vs-cop", "thief", "cop", 1, _sub_game(1), 5, league_params
+    )
+
+    for key, value in league_params.items():
+        assert result["final_result"][key] == value
+
+
+def test_league_params_default_to_empty_when_not_supplied(tmp_path):
+    result = merge_sub_game_into_series(tmp_path, "thief-vs-cop", "thief", "cop", 1, _sub_game(1), 5)
+
+    assert "diversity_reward" not in result["final_result"]

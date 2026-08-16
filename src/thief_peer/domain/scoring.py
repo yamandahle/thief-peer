@@ -1,16 +1,28 @@
 """Per-sub-game and per-series scoring (report schema's `final_result`).
-No numeric point formula is specified anywhere in the rulebook excerpts
-available to us -- the simplest scheme consistent with `sub_games_won`
-(winner scores 1, loser 0, a tie scores 0/0) is used, documented as a
-judgment call in README.md alongside the other Academic-Freedom entries.
+Table 2 (book §3.5 "Win Conditions and Scoring", printed p.22) scores
+**by role**, not by winner/loser: the cop and the thief each get their
+own value for the same outcome, and the book's own text calls out the
+deliberately "broken symmetry" -- capture rewards the cop most, survival
+rewards the thief most. A captured thief still scores `capture_thief`
+points, not zero. Only technical loss (a crash, a deadline exceeded, or
+proven cryptographic forgery -- Table 2 groups all three into one row)
+zeroes both sides.
 """
 
 
-def score_sub_game(winner_group: str | None, group_a: str, group_b: str) -> dict:
-    if winner_group is None:
-        return {group_a: 0, group_b: 0}
-    loser = group_b if winner_group == group_a else group_a
-    return {winner_group: 1, loser: 0}
+def score_sub_game(result: str, roles: dict[str, str], scoring: dict) -> dict:
+    """`result` is one of "capture"/"survival"/"timeout"/"tamper_forfeit"
+    (`peer/match_end.py`'s `_RESULT_VALUE`/audit-override mapping).
+    `roles` maps each group name to "thief" or "cop" for this sub-game.
+    `scoring` carries the negotiated `scoring.*` config values (capture_cop,
+    capture_thief, survival_cop, survival_thief)."""
+    cop = next(group for group, role in roles.items() if role == "cop")
+    thief = next(group for group, role in roles.items() if role == "thief")
+    if result == "capture":
+        return {cop: scoring["capture_cop"], thief: scoring["capture_thief"]}
+    if result == "survival":
+        return {cop: scoring["survival_cop"], thief: scoring["survival_thief"]}
+    return {cop: 0, thief: 0}  # technical loss / tamper forfeit -- Table 2's single 0/0 row
 
 
 def aggregate_series(sub_games: list[dict], group_a: str, group_b: str) -> dict:

@@ -87,6 +87,74 @@ def test_handle_receive_commit_assigns_sequential_steps_and_delegates():
     ]
 
 
+def test_handle_receive_commit_ignores_a_retried_duplicate_of_the_pending_commit():
+    # docs/todoFIXMCP.md #2: an exact repeat of the still-unrevealed
+    # commit's hash is a retry-echo, not a new round -- must not
+    # double-advance the step counter or record a second commit_move.
+    context = _SpyContext()
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+
+    first = adapter.handle_receive_commit("hash-0")
+    second = adapter.handle_receive_commit("hash-0")  # retried duplicate
+
+    assert context.calls == [("commit_move", {"step": 1, "h_commit": "hash-0"})]
+    assert first == {"acknowledged": True}
+    assert second == {"acknowledged": True}
+    assert len(adapter.peer_trace.entries) == 1  # not double-recorded either
+    assert adapter.peer_trace.entries[1].h_commit == "hash-0"
+
+
+def test_handle_receive_commit_accepts_the_same_hash_again_once_a_new_round_starts():
+    # A repeat hash is only a duplicate-echo while its own reveal is still
+    # pending -- once revealed, the guard must not falsely suppress an
+    # unrelated later round (even one that coincidentally shares content).
+    context = _SpyContext()
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+
+    adapter.handle_receive_commit("hash-0")
+    adapter.handle_receive_reveal({"type": "move", "direction": "N"}, "cold")
+    adapter.handle_receive_commit("hash-0")  # not a duplicate -- new round
+
+    assert context.calls == [
+        ("commit_move", {"step": 1, "h_commit": "hash-0"}),
+        ("reveal_move", {"step": 1, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "N", "intent": "truth"}),
+        ("commit_move", {"step": 2, "h_commit": "hash-0"}),
+    ]
+
+
+def test_handle_receive_reveal_ignores_a_retried_duplicate_for_the_current_step():
+    context = _SpyContext()
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+    adapter.handle_receive_commit("hash-0")
+
+    first = adapter.handle_receive_reveal({"type": "move", "direction": "N"}, "cold")
+    second = adapter.handle_receive_reveal({"type": "move", "direction": "N"}, "cold")  # retried
+
+    reveal_calls = [c for c in context.calls if c[0] == "reveal_move"]
+    assert len(reveal_calls) == 1
+    assert first == second == {"accepted": True, "word_count": 1}
+    assert adapter.peer_trace.entries[1].hint_text == "cold"  # not double-recorded either
+
+
+def test_handle_receive_reveal_accepts_a_legitimately_repeated_move_in_the_next_round():
+    # move/hint_text content (unlike h_commit) can legitimately repeat --
+    # the guard must key off step-boundary, not content equality.
+    context = _SpyContext()
+    adapter = CopContextAdapter(context, shared_config_path="unused")
+    adapter.handle_receive_commit("hash-0")
+    adapter.handle_receive_reveal({"type": "move", "direction": "STAY"}, "cold")
+    adapter.handle_receive_commit("hash-1")
+
+    adapter.handle_receive_reveal({"type": "move", "direction": "STAY"}, "cold")  # same content, new round
+
+    reveal_calls = [c for c in context.calls if c[0] == "reveal_move"]
+    assert len(reveal_calls) == 2
+    assert reveal_calls[1] == (
+        "reveal_move",
+        {"step": 2, "sender": "cop", "hint": "cold", "scent_grid": {}, "move": "STAY", "intent": "truth"},
+    )
+
+
 def test_handle_receive_reveal_translates_her_typed_move_into_our_direction_string():
     context = _SpyContext()
     adapter = CopContextAdapter(context, shared_config_path="unused")

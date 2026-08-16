@@ -56,8 +56,12 @@ def play_round_cop(
     round_deadline_sec: float,
     strategy_deadline_sec: float,
     last_opponent_scent: dict,
-) -> tuple[dict, dict, bool]:
-    """Returns (sealed_record, next_opponent_scent, technical_loss)."""
+) -> tuple[dict, dict, bool, str | None]:
+    """Returns (sealed_record, next_opponent_scent, technical_loss, reason).
+    `reason` is None unless `technical_loss` is True, in which case it's a
+    short human-readable description of which internal check failed and
+    why (docs/todoFIXMCP.md: previously this information only existed as
+    a boolean, forcing forensic reconstruction after the fact)."""
     turn_fsm.transition("COMPUTING_MOVE")
     try:
         peer_scent = cop_request_scent_map(transport)
@@ -90,7 +94,7 @@ def play_round_cop(
     try:
         cop_send_commit(transport, record["commit"])
         cop_send_reveal(transport, move, decision.hint)
-    except (DeadlineExceededError, TransportError):
+    except (DeadlineExceededError, TransportError) as exc:
         # The book's own transition table (also respected by native
         # play_round) has no direct COMMITTING -> TECHNICAL_LOSS edge --
         # only AWAITING_REVEAL -> TECHNICAL_LOSS. Found by an actual
@@ -99,15 +103,15 @@ def play_round_cop(
         # SimulationError instead of cleanly recording the technical loss.
         turn_fsm.transition("AWAITING_REVEAL")
         turn_fsm.transition("TECHNICAL_LOSS")
-        return record, peer_scent, True
+        return record, peer_scent, True, f"commit/reveal send failed: {type(exc).__name__}: {exc}"
 
     turn_fsm.transition("AWAITING_REVEAL")
     try:
         round_exchange.wait_for_reveal(step, round_deadline_sec)
-    except DeadlineExceededError:
+    except DeadlineExceededError as exc:
         turn_fsm.transition("TECHNICAL_LOSS")
-        return record, peer_scent, True
+        return record, peer_scent, True, f"opponent's reveal never arrived: {type(exc).__name__}: {exc}"
 
     turn_fsm.transition("VERIFYING")
     turn_fsm.transition("WAITING_FOR_OPPONENT")
-    return record, peer_scent, False
+    return record, peer_scent, False, None

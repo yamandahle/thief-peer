@@ -37,6 +37,8 @@ class CopContextAdapter:
         self._sub_game_number = sub_game_number
         self._commit_step = 1
         self._reveal_step = 1
+        self._last_commit_hash: str | None = None
+        self._reveal_done_for_current_step = False
         self.final_reveal_received = threading.Event()
         self.peer_trace = CopPeerTrace()
         self.opponent_audit: dict = dict(_NOT_EVALUATED)
@@ -45,9 +47,21 @@ class CopContextAdapter:
         self, h_commit: str, sent_at: float | None = None, deadline_at: float | None = None
     ) -> dict:
         _log_deadline_metadata("receive_commit", sent_at, deadline_at)
+        if h_commit == self._last_commit_hash and not self._reveal_done_for_current_step:
+            # docs/todoFIXMCP.md #2: a retried duplicate of the commit
+            # we're still awaiting the matching reveal for. h_commit is
+            # SHA-256(state, move, intent, nonce) with a fresh random
+            # nonce every round (domain/crypto.py::CommitReveal.seal), so
+            # an exact repeat this close together is a retry-echo, not a
+            # legitimate new round -- re-ack without double-advancing
+            # _commit_step, or the round numbering desyncs for the rest
+            # of the match.
+            return {"acknowledged": True}
         self._context.handle_commit_move({"step": self._commit_step, "h_commit": h_commit})
         self.peer_trace.record_commit(h_commit)
         self._commit_step += 1
+        self._last_commit_hash = h_commit
+        self._reveal_done_for_current_step = False
         return {"acknowledged": True}
 
     def handle_receive_reveal(
@@ -58,6 +72,15 @@ class CopContextAdapter:
         deadline_at: float | None = None,
     ) -> dict:
         _log_deadline_metadata("receive_reveal", sent_at, deadline_at)
+        if self._reveal_done_for_current_step:
+            # Same reasoning as the commit guard above, but move/hint_text
+            # content can legitimately repeat between different rounds
+            # (e.g. "STAY" with the same generated hint), so content
+            # can't be compared the way h_commit's hash can -- step-
+            # boundary tracking instead: a reveal already recorded for
+            # the step whose commit is still the most recent one is a
+            # retry-echo, not a new round's reveal.
+            return {"accepted": True, "word_count": len(hint_text.split())}
         direction = move.get("direction", "STAY") if move.get("type") == "move" else "STAY"
         self._context.handle_reveal_move(
             {
@@ -71,6 +94,7 @@ class CopContextAdapter:
         )
         self.peer_trace.record_reveal(move, hint_text)
         self._reveal_step += 1
+        self._reveal_done_for_current_step = True
         return {"accepted": True, "word_count": len(hint_text.split())}
 
     def handle_share_scent_map(self) -> dict:

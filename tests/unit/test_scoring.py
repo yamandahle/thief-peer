@@ -1,21 +1,39 @@
-"""domain/scoring.py tests: no numeric point formula is specified anywhere
-in the rulebook excerpts available to us -- the chosen scheme (winner=1,
-loser=0, tie=0/0) is a documented judgment call (README.md), pinned here
-so it can't silently drift."""
+"""domain/scoring.py tests: Table 2 (book §3.5 "Win Conditions and
+Scoring", p.22) scores by role, not winner/loser -- a captured thief
+still scores `capture_thief` points, not zero. Pinned here so the
+role-aware behavior can't silently regress back to a flat win/loss
+scheme (docs/TodoCloseGaps.md #1)."""
 
 from thief_peer.domain.scoring import aggregate_series, score_sub_game
 
-
-def test_score_sub_game_gives_the_winner_one_point():
-    assert score_sub_game("thief", "thief", "cop") == {"thief": 1, "cop": 0}
-
-
-def test_score_sub_game_gives_the_other_winner_one_point():
-    assert score_sub_game("cop", "thief", "cop") == {"thief": 0, "cop": 1}
+_SCORING = {"capture_cop": 20, "capture_thief": 5, "survival_cop": 5, "survival_thief": 10}
+_ROLES = {"Thief-Team": "thief", "Cop-Team": "cop"}
 
 
-def test_score_sub_game_is_zero_zero_on_a_tie():
-    assert score_sub_game(None, "thief", "cop") == {"thief": 0, "cop": 0}
+def test_score_sub_game_on_capture_scores_both_roles_from_the_table():
+    assert score_sub_game("capture", _ROLES, _SCORING) == {"Cop-Team": 20, "Thief-Team": 5}
+
+
+def test_score_sub_game_on_survival_scores_both_roles_from_the_table():
+    assert score_sub_game("survival", _ROLES, _SCORING) == {"Cop-Team": 5, "Thief-Team": 10}
+
+
+def test_score_sub_game_is_zero_zero_on_technical_loss():
+    assert score_sub_game("timeout", _ROLES, _SCORING) == {"Cop-Team": 0, "Thief-Team": 0}
+
+
+def test_score_sub_game_is_zero_zero_on_tamper_forfeit():
+    assert score_sub_game("tamper_forfeit", _ROLES, _SCORING) == {"Cop-Team": 0, "Thief-Team": 0}
+
+
+def test_score_sub_game_reads_the_correct_group_regardless_of_role_assignment():
+    # Roles can be assigned to either group name -- the score must follow
+    # the role, not which side happened to be "group_a" in some caller.
+    swapped_roles = {"Cop-Team": "thief", "Thief-Team": "cop"}
+    assert score_sub_game("capture", swapped_roles, _SCORING) == {
+        "Thief-Team": 20,
+        "Cop-Team": 5,
+    }
 
 
 def test_aggregate_series_sums_scores_across_sub_games():

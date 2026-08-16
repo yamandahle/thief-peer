@@ -23,6 +23,12 @@ already independently, locally verified (never trusts an unverified
 claim at face value) -- rule 22 (never falsely declare a capture) is the
 *claimant's* obligation; this is this peer's own defense against a false
 claim, from the other side.
+
+`handle_receive_barrier_declaration` also enforces the negotiated
+`max_barriers` quota at runtime (docs/TodoCloseGaps.md #3) -- the
+Step-0 negotiation already refuses to *start* a match over a config
+mismatch, but can't catch a peer who agreed to the quota and then
+exceeds it mid-match.
 """
 
 from thief_peer.domain.crypto import hash_config_file
@@ -62,7 +68,22 @@ class PeerContextMixin:
         return {"records": self.records}
 
     def handle_receive_barrier_declaration(self, payload: dict) -> dict:
+        # docs/TodoCloseGaps.md #3: negotiation already refuses to start a
+        # match if the peer's own configured max_barriers disagrees with
+        # ours (domain/negotiation.py::Negotiation.verify_peer's generic
+        # term comparison; cop_v1's config_sha256 whole-file hash implies
+        # the same). What negotiation can't catch is an opponent who
+        # agreed to the quota at Step-0 and then exceeds it mid-match --
+        # a genuinely new distinct cell that would push the known count
+        # past the negotiated ceiling is refused here instead of silently
+        # accepted.
         cell = (payload["row"], payload["col"])
+        max_barriers = self.config.require("movement_and_barriers.max_barriers")
+        if len(self.state.known_barriers | {cell}) > max_barriers:
+            raise SimulationError(
+                f"Opponent declared barrier {cell} beyond the negotiated "
+                f"max_barriers={max_barriers} quota"
+            )
         self.state.record_barrier(cell)
         if is_captured_by_barrier(self.state, cell):
             self._captured_by_barrier = True

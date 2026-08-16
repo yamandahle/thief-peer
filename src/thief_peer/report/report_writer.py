@@ -79,6 +79,7 @@ def write_and_send(
             match_result["num_sub_games"],
             match_result["sub_game_entry"],
             games_played,
+            match_result.get("league_params", {}),
         ),
     }
 

@@ -72,10 +72,18 @@ _NATIVE_STYLE_AUDIT_PROTOCOLS = {"native"}
 # proven tampering). Mapped to "timeout" (Academic Freedom clause,
 # documented in README.md): every technical-loss path here stems from a
 # deadline/protocol-timing failure, not a rules violation.
+# `max_moves_reached` maps to "survival", not "timeout": Table 2 (book
+# §3.5, p.22) only has three rows -- capture / survival / technical loss
+# -- and its "survival" condition is exactly "the thief survives
+# survival_threshold valid steps without capture," which reaching the
+# move cap uncaptured satisfies regardless of which check noticed it.
+# (In this repo's own shared config survival_threshold == max_moves, so
+# `has_survived` always fires first in practice -- this branch mainly
+# matters if a differently-negotiated config ever set them apart.)
 _RESULT_VALUE = {
     "captured": "capture",
     "survived": "survival",
-    "max_moves_reached": "timeout",
+    "max_moves_reached": "survival",
     "technical_loss": "timeout",
 }
 
@@ -101,6 +109,8 @@ def finalize_match(
     started_at: str | None = None,
     our_github_commit: str | None = None,
     opponent_github_commit: str | None = None,
+    technical_loss_reason: str | None = None,
+    technical_loss_traceback: str | None = None,
 ) -> dict:
     game_id = derive_game_id(*sorted([group_name, opponent_group_name]))
     game_uid = derive_game_uid(game_id, sub_game_number)
@@ -162,24 +172,50 @@ def finalize_match(
     final_result = {"winner_group": winner, "tokens_total_series": 0}
 
     filenames = artifact_filenames(game_id, sub_game_number)
+    roles = {group_name: "thief", opponent_group_name: "cop"}
+    result_value = "tamper_forfeit" if audit_override else _RESULT_VALUE[end_reason]
+    # Table 2 (book §3.5, p.22): the negotiated scoring.* values, not a
+    # hardcoded win/loss scheme -- falls back to this repo's own current
+    # config's actual values only if the section is entirely absent
+    # (e.g. a minimal test config), same pattern as the response_timeout_sec/
+    # watchdog_timeout_sec fix (docs/todoFIXMCP.md Update 4).
+    scoring = {
+        "capture_cop": config.get("scoring.capture_cop", 20),
+        "capture_thief": config.get("scoring.capture_thief", 5),
+        "survival_cop": config.get("scoring.survival_cop", 5),
+        "survival_thief": config.get("scoring.survival_thief", 10),
+    }
     sub_game_entry = {
         "sub_game_number": sub_game_number,
-        "roles": {group_name: "thief", opponent_group_name: "cop"},
+        "roles": roles,
         "started_at": started_at or datetime.now(UTC).isoformat(),
         "ended_at": datetime.now(UTC).isoformat(),
-        "result": "tamper_forfeit" if audit_override else _RESULT_VALUE[end_reason],
+        "result": result_value,
         "winner_group": winner,
         "tie": False,
         "is_counted": is_counted,
         "github_commit": {group_name: our_github_commit, opponent_group_name: opponent_github_commit},
         "tokens": {group_name: None, opponent_group_name: None},
-        "score": score_sub_game(winner, group_name, opponent_group_name),
+        "score": score_sub_game(result_value, roles, scoring),
         "log_files": {group_name: filenames["log"], opponent_group_name: filenames["log"]},
         "audit": {
             "log_verified": bool(audit["passed"]) if audit_was_evaluated else False,
             "peer_audit_passed": bool(opponent_audit.get("passed")),
             "tampered": audit_was_evaluated and not audit["passed"],
         },
+        # Diagnostic extension, not part of the book's schema (harmless
+        # extra field, same precedent as games_played_including_this/
+        # diversity_reward_applied): exactly which round/check failed and
+        # when, and why -- previously print-only and lost the moment the
+        # terminal scrolled past it (docs/todoFIXMCP.md). None for every
+        # other end_reason. `technical_loss_traceback` is additionally
+        # None even on a technical loss when the reason came from one of
+        # play_round_cop's/play_round's own well-understood internal
+        # checks (send failed / reveal never arrived) -- only populated
+        # for a genuinely unexpected exception, where "which line raised
+        # this" isn't otherwise inferable from the reason string alone.
+        "technical_loss_reason": technical_loss_reason,
+        "technical_loss_traceback": technical_loss_traceback,
     }
 
     match_result = {
@@ -198,6 +234,17 @@ def finalize_match(
         "audit": audit,
         "final_result": final_result,
         "sub_game_entry": sub_game_entry,
+        # docs/TodoCloseGaps.md #4: lecturer/league-management concerns --
+        # confirmed not part of the book's own canonical result schema and
+        # not read anywhere else in this codebase, but cheap to carry
+        # through as bonus fields on the written report, same precedent as
+        # games_played_including_this/diversity_reward_applied.
+        "league_params": {
+            "diversity_reward": config.get("network_and_league.diversity_reward"),
+            "min_games_to_pass": config.get("network_and_league.min_games_to_pass"),
+            "max_games_per_team": config.get("network_and_league.max_games_per_team"),
+            "token_budget_per_series": config.get("network_and_league.token_budget_per_series"),
+        },
     }
     league_counter = LeagueCounter(Path(results_dir) / "league_counter.json")
     write_and_send(

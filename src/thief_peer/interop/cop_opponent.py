@@ -21,6 +21,7 @@ this repo's own extensions (e.g. the 7-field Commit-Reveal envelope, see
 
 import time
 
+from thief_peer.exceptions import DeadlineExceededError, TransportError
 from thief_peer.interop.cop_handshake import cop_step0_handshake
 from thief_peer.interop.cop_round_loop import play_round_cop
 from thief_peer.interop.cop_server_registration import register_cop_tools
@@ -114,7 +115,18 @@ def send_opponent_final_reveal(runtime, records: list[dict]) -> dict:
     if runtime.opponent_protocol != "cop_v1":
         return not_evaluated
     nonces, intents = build_cop_final_reveal_payload(records)
-    response = cop_send_final_reveal(runtime.transport, nonces, intents)
+    try:
+        response = cop_send_final_reveal(runtime.transport, nonces, intents)
+    except (DeadlineExceededError, TransportError) as exc:
+        # docs/todoFIXMCP.md: this call was previously unguarded -- if the
+        # round loop already ended in a technical loss because the peer
+        # became unreachable, this send can hit the exact same
+        # unreachable peer, and an uncaught exception here would crash
+        # the whole match-report sequence (never produce a report at
+        # all), which is strictly worse than the honest "not evaluated"
+        # this function already returns for the native-protocol case.
+        print(f"[final-reveal] send failed, treating as not evaluated: {type(exc).__name__}: {exc}")
+        return not_evaluated
     if not isinstance(response, dict) or "passed" not in response:
         return not_evaluated
     return {
@@ -126,7 +138,7 @@ def send_opponent_final_reveal(runtime, records: list[dict]) -> dict:
     }
 
 
-def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool]:
+def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool, str | None]:
     if runtime.opponent_protocol == "cop_v1":
         return play_round_cop(
             step,

@@ -188,14 +188,6 @@ in the book's own enum — `"tamper_forfeit"` is reserved for when the
 mutual audit (rules 19/36) actually catches a hash mismatch, a distinct
 and stronger claim this repo only makes when that audit genuinely fires.
 
-**Academic freedom: per-sub-game scoring formula.** No numeric point
-formula for an individual sub-game is specified anywhere in the rulebook
-excerpts available to us (only the league-wide `diversity_reward` scalar
-and win/loss outcome concepts appear). This repo scores each sub-game
-1 point to the winner, 0 to the loser, 0/0 on a tie (`domain/scoring.py`)
-— the simplest scheme consistent with `final_result.sub_games_won`, so
-the two never disagree by construction.
-
 **Strategy used.** `ThiefBrain` is a hand-tuned weighted-sum policy, not
 reinforcement learning: full-distribution expected distance from the belief
 map (weight 1.0), 1-ply mobility at the candidate cell (weight 1.5 — the

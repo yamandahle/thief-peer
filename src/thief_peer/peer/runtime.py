@@ -14,6 +14,7 @@ as a private method; reaching into it (or duplicating its formula here) was
 judged out of proportion to this stage's actual scope. Flagged, not hidden.
 """
 
+import traceback
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -92,7 +93,17 @@ class PeerRuntime(PeerContextMixin):
         self.opponent_url = config.get("network.opponent_url")
         self.server_app = build_server(self.port, self)
         maybe_register_cop_tools(self)
-        self.transport = McpTransport(self.opponent_url) if self.opponent_url else None
+        # `round_deadline_sec` is this side's own copy of the shared,
+        # negotiated `network_and_league.response_timeout_sec` (docs/
+        # todoFIXMCP.md's config-audit) -- reused here rather than
+        # McpTransport's own separate hardcoded default, so a single
+        # config change actually bounds every MCP call, not just the
+        # round-level wait_for_reveal.
+        self.transport = (
+            McpTransport(self.opponent_url, response_timeout_sec=self.round_deadline_sec)
+            if self.opponent_url
+            else None
+        )
 
     # --- match lifecycle ---
 
@@ -104,12 +115,23 @@ class PeerRuntime(PeerContextMixin):
         opponent_group_name = opponent["group_name"]
 
         end_reason = "max_moves_reached"
+        technical_loss_reason: str | None = None
+        technical_loss_traceback: str | None = None
         step = 0
         while step < self.max_moves:
             step += 1
+            # Wall-clock anchor for this round, persisted alongside the
+            # reason below -- docs/todoFIXMCP.md's investigations kept
+            # needing to cross-reference a failure against an *external*
+            # log (the peer's own report, the ngrok inspector's own
+            # request timestamps) with nothing better than "sometime
+            # before this match's ended_at" to go on. An absolute
+            # timestamp on the specific round that failed makes that a
+            # direct lookup instead of a wide, manual time-window search.
+            round_started_at = datetime.now(UTC).isoformat()
             try:
-                record, self._last_opponent_scent, technical_loss = play_opponent_round(
-                    self, step
+                record, self._last_opponent_scent, technical_loss, round_reason = (
+                    play_opponent_round(self, step)
                 )
             except Exception as exc:
                 # Ch.8.4: the system must never silently crash. An illegal
@@ -118,12 +140,28 @@ class PeerRuntime(PeerContextMixin):
                 # real, scored match result -- not an unhandled crash with
                 # no final log/report, which would void the game under
                 # rule 35 far worse than a clean technical loss would.
-                print(f"[technical-loss] round {step} failed: {type(exc).__name__}: {exc}")
+                # Previously this reason only ever went to stdout and was
+                # lost the moment the terminal scrolled past it -- a real
+                # post-mortem (docs/todoFIXMCP.md) needed the exact
+                # exception type/message and had no artifact to read it
+                # from. Now also persisted onto the report itself.
+                technical_loss_reason = (
+                    f"round {step} (started {round_started_at}): {type(exc).__name__}: {exc}"
+                )
+                # This path is specifically the *unexpected*-bug catch-all
+                # (every well-understood network failure is caught inside
+                # play_opponent_round itself, with its own descriptive
+                # round_reason instead) -- worth the full traceback, not
+                # just the exception's own string, since there's no
+                # existing "which check failed" context to fall back on.
+                technical_loss_traceback = traceback.format_exc()
+                print(f"[technical-loss] {technical_loss_reason}")
                 end_reason = "technical_loss"
                 break
             self.records.append(record)
             self.heartbeat.beat()
             if technical_loss:
+                technical_loss_reason = f"round {step} (started {round_started_at}): {round_reason}"
                 end_reason = "technical_loss"
                 break
             if has_survived(self.state, self.survival_threshold):
@@ -170,9 +208,13 @@ class PeerRuntime(PeerContextMixin):
             started_at=started_at,
             our_github_commit=current_git_commit_hash(),
             opponent_github_commit=opponent.get("github_commit"),
+            technical_loss_reason=technical_loss_reason,
+            technical_loss_traceback=technical_loss_traceback,
         )
         if self.opponent_protocol != "cop_v1":
             cop_shutdown_grace(self)
+        if self.transport is not None:
+            self.transport.close()
         return result
 
     def view(self):

@@ -7,7 +7,7 @@ preference for pure/injectable functions over deep object coupling -- see
 already holds to.
 """
 
-from thief_peer.exceptions import DeadlineExceededError
+from thief_peer.exceptions import DeadlineExceededError, TransportError
 from thief_peer.peer.sealing import sealed_step_record
 from thief_peer.peer.strategy_deadline import run_with_deadline
 from thief_peer.peer.turn_sender import send_commit, send_reveal
@@ -25,8 +25,9 @@ def play_round(
     round_deadline_sec: float,
     strategy_deadline_sec: float,
     last_opponent_scent: dict,
-) -> tuple[dict, dict, bool]:
-    """Returns (sealed_record, next_opponent_scent, technical_loss)."""
+) -> tuple[dict, dict, bool, str | None]:
+    """Returns (sealed_record, next_opponent_scent, technical_loss, reason).
+    `reason` is None unless `technical_loss` is True (docs/todoFIXMCP.md)."""
     turn_fsm.transition("COMPUTING_MOVE")
 
     def _compute_move():
@@ -52,17 +53,38 @@ def play_round(
     )
 
     turn_fsm.transition("COMMITTING")
-    send_commit(transport, step, sender, record)
-    send_reveal(transport, step, sender, decision, scent.snapshot())
+    try:
+        send_commit(transport, step, sender, record)
+        send_reveal(transport, step, sender, decision, scent.snapshot())
+    except (DeadlineExceededError, TransportError) as exc:
+        # docs/todoFIXMCP.md: this was unguarded here (unlike the cop_v1
+        # round loop's identical send-then-reveal pair, which already
+        # catches this) -- a transport failure here previously propagated
+        # straight to PeerRuntime.run()'s outer catch-all with no sealed
+        # record, when the book's own transition table has a dedicated
+        # AWAITING_REVEAL -> TECHNICAL_LOSS edge for exactly this case.
+        turn_fsm.transition("AWAITING_REVEAL")
+        turn_fsm.transition("TECHNICAL_LOSS")
+        return (
+            record,
+            last_opponent_scent,
+            True,
+            f"commit/reveal send failed: {type(exc).__name__}: {exc}",
+        )
 
     turn_fsm.transition("AWAITING_REVEAL")
     try:
         their_reveal = round_exchange.wait_for_reveal(step, round_deadline_sec)
-    except DeadlineExceededError:
+    except DeadlineExceededError as exc:
         turn_fsm.transition("TECHNICAL_LOSS")
-        return record, last_opponent_scent, True
+        return (
+            record,
+            last_opponent_scent,
+            True,
+            f"opponent's reveal never arrived: {type(exc).__name__}: {exc}",
+        )
 
     turn_fsm.transition("VERIFYING")
     next_scent = their_reveal.get("scent_grid", {})
     turn_fsm.transition("WAITING_FOR_OPPONENT")
-    return record, next_scent, False
+    return record, next_scent, False, None

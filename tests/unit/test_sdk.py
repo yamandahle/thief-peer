@@ -75,7 +75,7 @@ def test_run_builds_a_gatekeeper_and_email_service_from_config_and_delegates(
 
     monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
 
-    sdk = ThiefSdk(config)
+    sdk = ThiefSdk(config, results_dir=tmp_path)
     result = sdk.run("Thief-Team")
 
     assert result == {"final_result": {"winner_group": "Thief-Team"}}
@@ -128,7 +128,7 @@ def test_run_with_gui_builds_a_window_and_live_session_and_returns_its_result(
 
     monkeypatch.setattr("thief_peer.gui.live_session.LiveSession", _FakeSession)
 
-    sdk = ThiefSdk(config)
+    sdk = ThiefSdk(config, results_dir=tmp_path)
     result = sdk.run_with_gui("Thief-Team")
 
     assert result == {"final_result": {"winner_group": "Thief-Team"}}
@@ -193,7 +193,7 @@ def test_build_runtime_reads_gatekeeper_numbers_from_the_shared_rate_limiter_gat
 
     monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
 
-    ThiefSdk(config).run("Thief-Team")
+    ThiefSdk(config, results_dir=tmp_path).run("Thief-Team")
 
     gatekeeper = captured["gatekeeper"]
     assert gatekeeper._max_retries == 9
@@ -240,9 +240,250 @@ def test_build_runtime_reads_step_deadline_seconds_from_the_private_llm_config(
 
     monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
 
-    ThiefSdk(config).run("Thief-Team")
+    ThiefSdk(config, results_dir=tmp_path).run("Thief-Team")
 
     assert captured["strategy_deadline_sec"] == 17
+
+
+def test_build_runtime_reads_response_and_watchdog_timeouts_from_the_shared_network_config(
+    tmp_path, monkeypatch
+):
+    # docs/todoFIXMCP.md's config-audit: network_and_league.response_timeout_sec/
+    # watchdog_timeout_sec are shared, negotiated values -- previously never
+    # read anywhere in src/ at all, so round_deadline_sec/watchdog_timeout_sec
+    # always silently used their own hardcoded class defaults instead.
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        f'[network]\nmy_port = {port}\nopponent_url = "http://127.0.0.1:{port}/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\n',
+        encoding="utf-8",
+    )
+    json_path = tmp_path / "game.json"
+    json_path.write_text(
+        json.dumps({"network_and_league": {"response_timeout_sec": 45, "watchdog_timeout_sec": 90}}),
+        encoding="utf-8",
+    )
+    config = ConfigManager(toml_path, json_path)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = {}
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured["round_deadline_sec"] = kwargs.get("round_deadline_sec")
+            captured["watchdog_timeout_sec"] = kwargs.get("watchdog_timeout_sec")
+
+        def run(self):
+            return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    ThiefSdk(config, results_dir=tmp_path).run("Thief-Team")
+
+    assert captured["round_deadline_sec"] == 45
+    assert captured["watchdog_timeout_sec"] == 90
+
+
+def test_build_runtime_reads_num_games_and_advances_sub_game_number_each_run(
+    tmp_path, monkeypatch
+):
+    # docs/TodoCloseGaps.md #2: num_sub_games/sub_game_number were never
+    # driven by anything -- every run silently defaulted to "1 of 1"
+    # regardless of the negotiated network_and_league.num_games.
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        f'[network]\nmy_port = {port}\nopponent_url = "http://127.0.0.1:{port}/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\n',
+        encoding="utf-8",
+    )
+    json_path = tmp_path / "game.json"
+    json_path.write_text(json.dumps({"network_and_league": {"num_games": 6}}), encoding="utf-8")
+    config = ConfigManager(toml_path, json_path)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = []
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured.append((kwargs.get("sub_game_number"), kwargs.get("num_sub_games")))
+
+        def run(self):
+            return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    sdk = ThiefSdk(config, results_dir=tmp_path)
+    sdk.run("Thief-Team")
+    sdk.run("Thief-Team")
+    sdk.run("Thief-Team")
+
+    assert captured == [(1, 6), (2, 6), (3, 6)]
+
+
+def test_build_runtime_does_not_advance_sub_game_number_for_an_uncounted_run(
+    tmp_path, monkeypatch
+):
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+    config = _make_config(tmp_path, port)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = []
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured.append(kwargs.get("sub_game_number"))
+
+        def run(self):
+            return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    sdk = ThiefSdk(config, results_dir=tmp_path)
+    sdk.run("Thief-Team", is_counted=False)
+    sdk.run("Thief-Team", is_counted=False)
+    sdk.run("Thief-Team", is_counted=True)
+
+    assert captured == [1, 1, 1]
+
+
+def test_build_runtime_keys_sub_game_number_by_opponent_url_independently(
+    tmp_path, monkeypatch
+):
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port_a = s.getsockname()[1]
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port_b = s.getsockname()[1]
+
+    toml_a = tmp_path / "a.toml"
+    toml_a.write_text(
+        f'[network]\nmy_port = {port_a}\nopponent_url = "http://127.0.0.1:{port_a}/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\n',
+        encoding="utf-8",
+    )
+    toml_b = tmp_path / "b.toml"
+    toml_b.write_text(
+        f'[network]\nmy_port = {port_b}\nopponent_url = "http://127.0.0.1:{port_b}/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\n',
+        encoding="utf-8",
+    )
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = []
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured.append(kwargs.get("sub_game_number"))
+
+        def run(self):
+            return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    # Both configs share one results_dir (and therefore one counter file),
+    # but different opponent_url values -- each series must count from 1.
+    ThiefSdk(ConfigManager(toml_a), results_dir=tmp_path).run("Thief-Team")
+    ThiefSdk(ConfigManager(toml_b), results_dir=tmp_path).run("Thief-Team")
+    ThiefSdk(ConfigManager(toml_a), results_dir=tmp_path).run("Thief-Team")
+
+    assert captured == [1, 1, 2]
+
+
+def test_build_runtime_falls_back_to_existing_defaults_when_network_and_league_is_absent(
+    tmp_path, monkeypatch
+):
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        f'[network]\nmy_port = {port}\nopponent_url = "http://127.0.0.1:{port}/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\n',
+        encoding="utf-8",
+    )
+    json_path = tmp_path / "game.json"
+    json_path.write_text("{}", encoding="utf-8")
+    config = ConfigManager(toml_path, json_path)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = {}
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured["round_deadline_sec"] = kwargs.get("round_deadline_sec")
+            captured["watchdog_timeout_sec"] = kwargs.get("watchdog_timeout_sec")
+
+        def run(self):
+            return {}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    ThiefSdk(config, results_dir=tmp_path).run("Thief-Team")
+
+    assert captured["round_deadline_sec"] == 30.0
+    assert captured["watchdog_timeout_sec"] == 180.0
+
+
+def test_smoke_test_reads_response_timeout_sec_from_the_shared_network_config(tmp_path):
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        f'[network]\nmy_port = {port}\nopponent_url = "http://127.0.0.1:{port}/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\n',
+        encoding="utf-8",
+    )
+    json_path = tmp_path / "game.json"
+    json_path.write_text(
+        json.dumps({"network_and_league": {"response_timeout_sec": 12}}), encoding="utf-8"
+    )
+    config = ConfigManager(toml_path, json_path)
+    sdk = ThiefSdk(config)
+
+    result = sdk.smoke_test()
+
+    assert result == {"pong": True, "received": {"smoke_test": True}}
 
 
 def test_run_passes_is_counted_through_to_peer_runtime(tmp_path, monkeypatch):
@@ -268,7 +509,7 @@ def test_run_passes_is_counted_through_to_peer_runtime(tmp_path, monkeypatch):
 
     monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
 
-    ThiefSdk(config).run("Thief-Team", is_counted=False)
+    ThiefSdk(config, results_dir=tmp_path).run("Thief-Team", is_counted=False)
 
     assert captured["is_counted"] is False
 
