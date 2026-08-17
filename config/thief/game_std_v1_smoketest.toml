@@ -1,0 +1,23 @@
+# Local-only smoketest config for the std_v1 interop protocol, validating
+# real interoperability between this repo's Thief adapter and
+# yamanagh-cop's Cop adapter over localhost -- not a real cross-team
+# match config (no tunnel URL), see game_std_v1_remote.toml.example for
+# that.
+
+[network]
+my_port = 8901
+opponent_url = "http://127.0.0.1:8902/mcp"
+opponent_protocol = "std_v1"
+opponent_group_id = "dev-team"
+
+[email]
+recipient = "yamandahle@gmail.com"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
+
+[std_v1]
+group_id = "thief-team"
+members = ["yamandahle"]
