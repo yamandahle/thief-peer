@@ -135,8 +135,10 @@ def test_run_std_v1_series_factories_produce_correctly_shaped_objects(tmp_path, 
     assert handler.state is state
 
 
-def test_write_std_v1_result_writes_the_result_json(tmp_path):
-    result = {"game_id": "dev-team-vs-thief-team", "agreed": True}
+def test_write_std_v1_result_writes_the_report_json_under_the_spec_filename(tmp_path):
+    report = {"game_id": "dev-team-vs-thief-team", "report_type": "std_v1_result"}
+    result = {"game_id": "dev-team-vs-thief-team", "agreed": True, "report": report}
     out_path = std_v1_opponent.write_std_v1_result(result, tmp_path)
+    assert out_path.name == "result_dev-team-vs-thief-team.json"
     assert out_path.exists()
-    assert json.loads(out_path.read_text(encoding="utf-8")) == result
+    assert json.loads(out_path.read_text(encoding="utf-8")) == report

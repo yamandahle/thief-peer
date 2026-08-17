@@ -189,6 +189,13 @@ def test_play_series_happy_path_reaches_agreement():
     assert rows[1]["roles"][MY_GROUP] == "police"
     assert rows[1]["winner_group"] == THEIR_GROUP
 
+    report = result["report"]
+    assert report["game_id"] == result["game_id"]
+    assert report["groups"] == [MY_GROUP, THEIR_GROUP]
+    assert len(report["sub_games"]) == 2
+    assert report["mutual_agreement"]["confirmed"] is True
+    assert report["group_details"][THEIR_GROUP]["group_id"] == THEIR_GROUP
+
 
 def test_play_series_flags_disagreement_when_peer_digest_differs():
     exchange = StdExchange(poll_interval=0.01)

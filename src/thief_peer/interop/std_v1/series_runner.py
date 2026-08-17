@@ -31,6 +31,7 @@ from thief_peer.interop.std_v1.audit import (
 from thief_peer.interop.std_v1.crypto import consensus_digest, derive_game_id, derive_game_uid
 from thief_peer.interop.std_v1.handshake import negotiate_sub_game
 from thief_peer.interop.std_v1.police_round_loop import play_sub_game_as_police
+from thief_peer.interop.std_v1.report import build_result_report, now_iso
 from thief_peer.interop.std_v1.round_loop import play_sub_game
 from thief_peer.interop.std_v1.roles import opposite_role, role_for_sub_game
 
@@ -92,15 +93,20 @@ def play_series(
 
     rows: list[dict] = []
     sub_game_reports: list[dict] = []
+    sub_game_meta: list[dict] = []
+    their_identity: dict = {}
     all_clean = True
+    game_started_at = now_iso()
 
     for sub_game_number in range(1, my_terms["num_games"] + 1):
         exchange.reset_turns()
         role = role_for_sub_game(NATURAL_ROLE, sub_game_number)
-        negotiate_sub_game(
+        started_at = now_iso()
+        their_offer = negotiate_sub_game(
             transport, exchange, my_terms, my_group_id, their_group_id,
             role, sub_game_number, identity, resend_interval_sec, negotiate_ceiling_sec,
         )
+        their_identity = their_offer.get("identity", their_identity)
 
         board = board_factory()
         state = state_factory(role)
@@ -124,6 +130,7 @@ def play_series(
         )
         verify_result = verify_peer_records(peer_envelope.get("records", []), peer_commits)
         all_clean = all_clean and verify_result["log_verified"]
+        ended_at = now_iso()
 
         rows.append(_row_for(sub_game_number, role, end_reason, verify_result["tampered"], my_group_id, their_group_id))
         sub_game_reports.append({
@@ -133,7 +140,19 @@ def play_series(
             "peer_result_claim": peer_envelope.get("result_claim"),
             "verify": verify_result,
         })
+        sub_game_meta.append({
+            "their_github_commit": their_identity.get("github_commit"),
+            "steps": max((r.get("step", 0) for r in records), default=0),
+            "started_at": started_at,
+            "ended_at": ended_at,
+            "audit": {
+                "log_verified": verify_result["log_verified"],
+                "tampered": verify_result["tampered"],
+                "result_agreed": peer_envelope.get("result_claim") == end_reason,
+            },
+        })
 
+    game_ended_at = now_iso()
     consensus_object = build_consensus_object(game_id, game_uid, rows)
     local_digest = consensus_digest(consensus_object)
     all_results_agreed = all(
@@ -149,6 +168,17 @@ def play_series(
     )
     peer_digest = validate_consensus_envelope(peer_envelope)
     agreed = confirm_agreement(all_clean, all_results_agreed, local_digest, peer_digest)
+    mutual_agreement = {
+        "sha256": local_digest,
+        "peer_sha256": peer_digest,
+        "sha_match": local_digest == peer_digest,
+        "results_agreed": all_results_agreed,
+        "confirmed": agreed,
+    }
+    report = build_result_report(
+        game_id, game_uid, my_group_id, their_group_id, identity, their_identity,
+        rows, sub_game_meta, mutual_agreement, game_started_at, game_ended_at,
+    )
 
     return {
         "game_id": game_id,
@@ -158,4 +188,5 @@ def play_series(
         "peer_consensus_sha": peer_digest,
         "agreed": agreed,
         "sub_games": sub_game_reports,
+        "report": report,
     }

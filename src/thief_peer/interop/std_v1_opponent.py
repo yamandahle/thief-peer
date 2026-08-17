@@ -112,12 +112,15 @@ def run_std_v1_series(runtime) -> dict:
 
 
 def write_std_v1_result(result: dict, results_dir: str | Path) -> Path:
-    """Consensus_object (Section 11) is already the authoritative,
-    both-sides-agreed record of the series -- unlike the native/cop_v1
-    path, there's no separate report_writer schema to reuse here, only a
-    plain dump of `play_series`'s own return value next to it."""
+    """Section 12/18 [MUST]: filename is exactly `result_<game_id>.json`
+    (no protocol prefix -- this is the one submitted artifact, not an
+    internal debug dump), containing `result["report"]`'s own Section-12
+    shape (`interop/std_v1/report.py::build_result_report`), not the raw
+    `play_series` return value (which also carries the canonical
+    consensus object and other diagnostic-only fields never part of the
+    submitted report)."""
     out_dir = Path(results_dir)
     out_dir.mkdir(parents=True, exist_ok=True)
-    out_path = out_dir / f"result_std_v1_{result['game_id']}.json"
-    out_path.write_text(json.dumps(result, indent=2), encoding="utf-8")
+    out_path = out_dir / f"result_{result['game_id']}.json"
+    out_path.write_text(json.dumps(result["report"], indent=2), encoding="utf-8")
     return out_path
