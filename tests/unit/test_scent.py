@@ -47,29 +47,49 @@ def test_advance_clips_kernel_cells_that_fall_outside_the_board():
 
 
 def test_advance_composes_additively_not_by_max_merge():
+    # Use a low-intensity kernel cell (the 0.04 corner), not the 0.90 centre:
+    # two centre deposits already sum past the 0.9 cap (see
+    # test_advance_caps_at_center_intensity_when_deposits_saturate below),
+    # which would make additive and max-merge composition indistinguishable
+    # once both are clamped to the same cap value.
     field = ScentField(board_size=9)
     field.advance((4, 4))
     field.advance((4, 4))
     snap = field.snapshot()
 
-    # additive recurrence: tau(2) = (1-rho)*tau(1) + kernel_center
-    expected_center = (1 - 0.10) * 0.90 + 0.90
-    assert snap["4,4"] == expected_center
+    # additive recurrence: tau(2) = (1-rho)*tau(1) + kernel_corner
+    expected_corner = (1 - 0.10) * 0.04 + 0.04
+    assert snap["2,2"] == expected_corner
     # explicitly NOT the old (buggy) max-merge behaviour
-    max_merge_center = max((1 - 0.10) * 0.90, 0.90)
-    assert snap["4,4"] != max_merge_center
+    max_merge_corner = max((1 - 0.10) * 0.04, 0.04)
+    assert snap["2,2"] != max_merge_corner
 
 
 def test_advance_accumulates_correctly_over_n_repeated_calls():
+    # Same reasoning as above: track the 0.04 corner so the accumulating sum
+    # stays well under the 0.9 cap across all 5 iterations, keeping this a
+    # test of the additive recurrence itself rather than of the cap.
     field = ScentField(board_size=9)
     rho = 0.10
-    kernel_center = 0.90
+    kernel_corner = 0.04
     expected = 0.0
     for _ in range(5):
-        expected = expected * (1 - rho) + kernel_center
+        expected = expected * (1 - rho) + kernel_corner
         field.advance((4, 4))
 
-    assert field.snapshot()["4,4"] == expected
+    assert expected < 0.9  # sanity: this run never actually engages the cap
+    assert field.snapshot()["2,2"] == expected
+
+
+def test_advance_caps_at_center_intensity_when_deposits_saturate():
+    # Appendix E / book Ch.4.3: tau(t+1) = min(0.9, max(0, (1-rho)*tau(t) +
+    # delta_tau)). Repeated centre deposits sum past 0.9 immediately, so the
+    # held value must pin at the cap, never grow past it.
+    field = ScentField(board_size=9)
+    for _ in range(5):
+        field.advance((4, 4))
+
+    assert field.snapshot()["4,4"] == 0.90
 
 
 def test_advance_decays_a_cell_that_is_no_longer_hit_by_the_kernel():

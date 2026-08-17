@@ -1,0 +1,23 @@
+# Local-only smoketest config for the std_v1 interop protocol, validating
+# real interoperability between this repo's Thief adapter and the Cop
+# repo's std_v1 adapter over localhost -- not a real cross-team match
+# config. Mirrors finalProject cop's config/game_std_v1_smoketest.toml
+# (my_port/opponent_url swapped, group ids swapped).
+
+[network]
+my_port = 8901
+opponent_url = "http://127.0.0.1:8902/mcp"
+opponent_protocol = "std_v1"
+opponent_group_id = "dev-team"
+
+[email]
+recipient = "x@y.com"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
+
+[std_v1]
+group_id = "thief-team"
+members = ["dev-1"]

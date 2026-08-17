@@ -15,6 +15,16 @@ def is_captured_by_barrier(state: OwnGameState, new_barrier_cell: Cell) -> bool:
     return new_barrier_cell == state.position
 
 
+def is_captured_by_landing(state: OwnGameState, cop_cell: Cell) -> bool:
+    """Book Table 2 (Win Conditions and Scoring, Ch.3.5) / std_v1 spec
+    Section 5 condition A: the Cop's post-move cell (or claimed capture
+    cell) equals the Thief's own current cell. Same check as
+    is_captured_by_barrier, kept as its own named function since both the
+    book and the std_v1 interop spec treat this as a distinct condition
+    from a barrier landing directly on the Thief's cell."""
+    return cop_cell == state.position
+
+
 def is_captured_by_stuck(state: OwnGameState, board: Board) -> bool:
     legal = board.legal_moves(state.position, frozenset(state.known_barriers))
     return all(direction is None for direction, _cell in legal)

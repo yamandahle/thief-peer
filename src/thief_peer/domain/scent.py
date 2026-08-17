@@ -1,8 +1,11 @@
 """ScentField (PRD_4 §2.1, §3): stigmergic scent trail per the book's exact
-Ch.4.3 formula, tau(t+1) = max(0, (1-rho)*tau(t) + delta_tau) -- decay-then-add
-as one atomic step, never max-merge. Rule 23 is [FATAL] on a decay-formula
-deviation; an earlier draft of this module's spec got this wrong by
-max-merging fresh deposits instead (see PRD_4 §4 for how that was caught).
+Ch.4.3 formula, tau(t+1) = min(0.9, max(0, (1-rho)*tau(t) + delta_tau)) --
+decay-then-add as one atomic step, never max-merge, capped at the book's
+own reference centre intensity (also std_v1 interop guide Appendix E's
+literal formula, cap = emit_intensity = 0.9). Rule 23 is [FATAL] on a
+decay-formula deviation; an earlier draft of this module's spec got this
+wrong by max-merging fresh deposits instead (see PRD_4 §4 for how that was
+caught).
 """
 
 from thief_peer.domain.board import Cell
@@ -29,6 +32,7 @@ class ScentField:
     ):
         self._size = board_size
         self._decay_rate = decay_rate
+        self._center_intensity = center_intensity
         scale = center_intensity / _REFERENCE_CENTER_INTENSITY
         self._kernel = {
             offset: value * scale for offset, value in _KERNEL_AT_REFERENCE_CENTER.items()
@@ -46,7 +50,10 @@ class ScentField:
             if not self._in_bounds(cell):
                 continue
             decayed[cell] = decayed.get(cell, 0.0) + delta
-        self._field = {cell: value for cell, value in decayed.items() if max(0.0, value) > 0.0}
+        clamped = {
+            cell: min(self._center_intensity, max(0.0, value)) for cell, value in decayed.items()
+        }
+        self._field = {cell: value for cell, value in clamped.items() if value > 0.0}
 
     def absorb(self, cells: dict[str, float]) -> None:
         """Overwrite (not merge) with an opponent's self-reported snapshot --

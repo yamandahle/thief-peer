@@ -1,0 +1,37 @@
+# Template for a real cross-team match over the P2P Cop-Thief Match
+# Interoperability Specification (rule: play a group other than our own
+# paired Cop) -- see docs/ (NEXT_OPPONENT_INTEROP_GUIDE_PUBLIC.md) for the
+# full spec this file's tool names/terms must match. Copy this file to
+# game_std_v1_remote.toml and fill in the REQUIRED placeholders before
+# running `cli.py run`.
+#
+# Unlike game_cop_remote.toml, the opposing team's own group id must be
+# known *before* the match starts (it feeds directly into the signed
+# game_uid derivation, spec Appendix B) -- get it from the other team
+# ahead of time, the same way you'd exchange tunnel URLs.
+
+[network]
+my_port = 8801
+# REQUIRED: the other team's real, reachable MCP URL.
+opponent_url = "https://REPLACE-WITH-THEIR-TUNNEL-URL/mcp"
+opponent_protocol = "std_v1"
+# REQUIRED: the other team's own group id, agreed on ahead of time.
+opponent_group_id = "REPLACE-WITH-THEIR-GROUP-ID"
+
+[email]
+recipient = "yamandahle@gmail.com"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
+
+[std_v1]
+# Our own group id, sent in every negotiation offer's identity block
+# (spec Section 3) -- defaults to --group-name if omitted.
+group_id = "REPLACE-WITH-OUR-GROUP-ID"
+members = ["REPLACE-WITH-TEAM-MEMBER-NAMES"]
+# Optional: override the default terms file (config/thief/
+# interop_spec_terms.json, spec Appendix A) if the other team's own terms
+# differ and both sides need to negotiate a different signed set.
+# terms_path = "config/thief/interop_spec_terms.json"

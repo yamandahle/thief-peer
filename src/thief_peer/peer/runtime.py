@@ -29,6 +29,11 @@ from thief_peer.interop.cop_opponent import (
     send_opponent_final_reveal,
 )
 from thief_peer.interop.cop_wire import current_git_commit_hash
+from thief_peer.interop.std_v1_opponent import (
+    maybe_register_std_v1_tools,
+    run_std_v1_series,
+    write_std_v1_result,
+)
 from thief_peer.peer.heartbeat_monitor import HeartbeatMonitor
 from thief_peer.peer.match_end import finalize_match
 from thief_peer.peer.round_exchange import RoundExchange
@@ -93,6 +98,7 @@ class PeerRuntime(PeerContextMixin):
         self.opponent_url = config.get("network.opponent_url")
         self.server_app = build_server(self.port, self)
         maybe_register_cop_tools(self)
+        maybe_register_std_v1_tools(self)
         # `round_deadline_sec` is this side's own copy of the shared,
         # negotiated `network_and_league.response_timeout_sec` (docs/
         # todoFIXMCP.md's config-audit) -- reused here rather than
@@ -110,6 +116,18 @@ class PeerRuntime(PeerContextMixin):
     def run(self) -> dict:
         started_at = datetime.now(UTC).isoformat()
         run_server_in_background(self.server_app, self.port)
+        if self.opponent_protocol == "std_v1":
+            # std_v1's own match lifecycle (per-sub-game negotiation, a
+            # shared step counter, a final series-consensus exchange) does
+            # not fit the native/cop_v1 single-match loop below at all --
+            # interop/std_v1_opponent.py::run_std_v1_series runs the
+            # entire num_games-sub-game series itself and returns its own
+            # summary dict.
+            result = run_std_v1_series(self)
+            write_std_v1_result(result, self.results_dir)
+            if self.transport is not None:
+                self.transport.close()
+            return result
         self.heartbeat.start()
         opponent = run_opponent_handshake(self)
         opponent_group_name = opponent["group_name"]
