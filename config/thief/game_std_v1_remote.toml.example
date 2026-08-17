@@ -29,7 +29,7 @@ cop = "https://github.com/Nagham1023/yamanagh-cop"
 [std_v1]
 # Our own group id, sent in every negotiation offer's identity block
 # (spec Section 3) -- defaults to --group-name if omitted.
-group_id = "REPLACE-WITH-OUR-GROUP-ID"
+group_id = "yamanagh"
 members = ["REPLACE-WITH-TEAM-MEMBER-NAMES"]
 # Optional: override the default terms file (config/thief/
 # interop_spec_terms.json, spec Appendix A) if the other team's own terms

@@ -8,7 +8,7 @@
 my_port = 8901
 opponent_url = "http://127.0.0.1:8902/mcp"
 opponent_protocol = "std_v1"
-opponent_group_id = "dev-team"
+opponent_group_id = "yamanagh"
 
 [email]
 recipient = "x@y.com"
