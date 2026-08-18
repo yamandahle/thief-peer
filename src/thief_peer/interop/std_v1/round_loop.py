@@ -3,6 +3,21 @@
 ones too unless role alternation (Section 6) flips this side to Police
 for that sub-game (see police_round_loop.py).
 
+Step numbering is per-peer, not a shared global counter: a "round" is one
+Thief message plus one Police reply carrying the *same* step number, each
+side's own counter incrementing by 1 every time it sends. `max_steps` = 35
+means 35 rounds -- the Thief's own step reaching 35 is its survival claim.
+This is a real interop convention that isn't fully pinned by the spec text
+this repo was originally built against; reconciled empirically against a
+real opponent (yanell11) after their real, hash-agreed matches against
+three other teams all used per-peer numbering, and this repo's own
+Appendix-D-based argument for a shared counter turned out not to actually
+disambiguate the two conventions on reflection (both produce "step 35" on
+the Thief's own final message). Since a peer never has to be authoritative
+across the whole class -- only vs. whoever it's actually negotiating with
+-- and per-peer numbering is what's proven itself compatible in practice
+this session, that's what this loop now speaks.
+
 Movement comes from this repo's own real strategy stack --
 `turn_handler.play_turn(last_cop_scent)` (peer/turn_handler.py, one
 positional argument only) followed by `trash_talk.generate_hint(step)`,
@@ -103,7 +118,7 @@ def play_sub_game(
 
         _phase("AWAITING_REVEAL")
         try:
-            cop_message = exchange.wait_for_turn(step + 1, timeout=turn_deadline_sec)
+            cop_message = exchange.wait_for_turn(step, timeout=turn_deadline_sec)
         except DeadlineExceededError:
             return "timeout", records, peer_commits, my_commits
         peer_commits[cop_message["step"]] = cop_message["commit"]
@@ -120,7 +135,8 @@ def play_sub_game(
             # Section 5: the Thief still owes one final turn message
             # carrying the truthful claim_response before the sub-game
             # ends -- STAY, since there is no further move to make.
-            final_step = step + 2
+            # Per-peer numbering: this is still this side's own next step.
+            final_step = step + 1
             final_payload = build_turn_payload(
                 step=final_step,
                 sender="thief",
@@ -138,6 +154,6 @@ def play_sub_game(
         pending_claim_response = claim_response
         last_cop_scent = cop_message.get("smell_grid") or {}
         _phase("WAITING_FOR_OPPONENT")
-        step += 2
+        step += 1
 
     return "survival", records, peer_commits, my_commits

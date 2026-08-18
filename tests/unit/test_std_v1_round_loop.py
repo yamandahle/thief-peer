@@ -71,8 +71,10 @@ def test_play_sub_game_reports_capture_when_the_cops_claim_lands():
     board = Board(size=7, barriers=set())
     turn_handler = _FakeTurnHandler(state, [Direction.N])
     exchange = StdExchange(poll_interval=0.01)
+    # Per-peer numbering: the police reply to our step-1 opening carries
+    # the *same* step number, 1, not the global-counter's step 2.
     exchange.record_turn({
-        "step": 2, "commit": "c2", "capture_claim": [3, 3], "barrier_placed": None, "smell_grid": {},
+        "step": 1, "commit": "c1", "capture_claim": [3, 3], "barrier_placed": None, "smell_grid": {},
     })
 
     result, records, peer_commits, my_commits = play_sub_game(
@@ -81,8 +83,8 @@ def test_play_sub_game_reports_capture_when_the_cops_claim_lands():
     )
 
     assert result == "capture"
-    assert peer_commits == {2: "c2"}
-    assert set(my_commits) == {1, 3}
+    assert peer_commits == {1: "c1"}
+    assert set(my_commits) == {1, 2}
     # A final STAY turn is sent carrying the truthful claim_response.
     assert records[-1]["claim_response"] == {"claim": [3, 3], "caught": True}
     assert records[-1]["move"] == "STAY"
@@ -110,7 +112,7 @@ def test_play_sub_game_records_a_barrier_into_state_before_evaluating_capture():
     turn_handler = _FakeTurnHandler(state, [Direction.N])
     exchange = StdExchange(poll_interval=0.01)
     exchange.record_turn({
-        "step": 2, "commit": "c2", "capture_claim": [0, 0], "barrier_placed": [3, 3], "smell_grid": {},
+        "step": 1, "commit": "c1", "capture_claim": [0, 0], "barrier_placed": [3, 3], "smell_grid": {},
     })
 
     result, records, peer_commits, my_commits = play_sub_game(
@@ -120,4 +122,4 @@ def test_play_sub_game_records_a_barrier_into_state_before_evaluating_capture():
 
     assert result == "capture"  # barrier landed on the thief's own cell
     assert (3, 3) in state.known_barriers
-    assert set(my_commits) == {1, 3}
+    assert set(my_commits) == {1, 2}

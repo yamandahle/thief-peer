@@ -10,6 +10,12 @@ scent every turn, matching Appendix D's worked example (both roles
 report a `smell_grid`, not only the Thief) -- same snapshot-before-
 advance ordering as round_loop.py, for the identical one-turn-delayed
 reason.
+
+Step numbering is per-peer, not global -- see round_loop.py's own
+docstring for the full reasoning. Police's own step counter tracks the
+Thief's last-received step exactly (a "round" is one Thief message plus
+one Police reply carrying the same number), never an independently
+incrementing counter.
 """
 
 from __future__ import annotations
@@ -70,15 +76,15 @@ def play_sub_game_as_police(
     print("[turn 1] received thief opening", flush=True)
     last_thief_scent = thief_message.get("smell_grid") or {}
 
-    step = 1
-    while step <= max_steps:
-        step += 1
+    thief_step = 1  # last Thief step actually received
+    while thief_step <= max_steps:
+        police_step = thief_step  # this round's reply carries the same number
         _phase("COMPUTING_MOVE")
         target = believed_thief_cell(last_thief_scent, tuple(thief_start))
         direction = choose_police_move(board, state.position, frozenset(state.known_barriers), target)
         state.apply_move(direction, board)
         payload = build_turn_payload(
-            step=step,
+            step=police_step,
             sender="police",
             move=_move_token(direction),
             hint="",
@@ -88,15 +94,15 @@ def play_sub_game_as_police(
         )
         sealed = seal_turn(payload)
         records.append(build_audit_record(payload, sealed["nonce"]))
-        my_commits[step] = sealed["commit"]
+        my_commits[police_step] = sealed["commit"]
         _phase("COMMITTING")
         send_turn(transport, build_turn_message(payload, sealed["commit"]))
-        print(f"[turn {step}] sent move={payload['move']}", flush=True)
+        print(f"[turn {police_step}] sent move={payload['move']}", flush=True)
         scent.advance(state.position)
 
         _phase("AWAITING_REVEAL")
         try:
-            thief_message = exchange.wait_for_turn(step + 1, timeout=turn_deadline_sec)
+            thief_message = exchange.wait_for_turn(thief_step + 1, timeout=turn_deadline_sec)
         except DeadlineExceededError:
             return "timeout", records, peer_commits, my_commits
         print(f"[turn {thief_message['step']}] received thief reply", flush=True)
@@ -111,6 +117,6 @@ def play_sub_game_as_police(
 
         last_thief_scent = thief_message.get("smell_grid") or {}
         _phase("WAITING_FOR_OPPONENT")
-        step += 1
+        thief_step += 1
 
     return "survival", records, peer_commits, my_commits

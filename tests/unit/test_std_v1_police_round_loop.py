@@ -46,8 +46,10 @@ def test_play_sub_game_as_police_reports_capture_when_thief_confirms_caught():
     state = OwnGameState(position=(0, 0))
     board = Board(size=7, barriers=set())
     exchange = StdExchange(poll_interval=0.01)
+    # Per-peer numbering: police's reply to thief step 1 is also step 1;
+    # the thief's next message (its own step 2) carries the confirmation.
     exchange.record_turn({"step": 1, "commit": "c1", "smell_grid": {"0,1": 0.9}, "claim_response": None, "win_claim": None})
-    exchange.record_turn({"step": 3, "commit": "c3", "smell_grid": {}, "claim_response": {"claim": [0, 1], "caught": True}, "win_claim": None})
+    exchange.record_turn({"step": 2, "commit": "c2", "smell_grid": {}, "claim_response": {"claim": [0, 1], "caught": True}, "win_claim": None})
 
     result, records, peer_commits, my_commits = play_sub_game_as_police(
         board, state, _FakeScent(), _StubTransport(), exchange,
@@ -55,9 +57,9 @@ def test_play_sub_game_as_police_reports_capture_when_thief_confirms_caught():
     )
 
     assert result == "capture"
-    assert peer_commits == {1: "c1", 3: "c3"}
-    assert len(records) == 1  # one police turn was sent (step 2) before the confirmation arrived
-    assert set(my_commits) == {2}
+    assert peer_commits == {1: "c1", 2: "c2"}
+    assert len(records) == 1  # one police turn was sent (step 1) before the confirmation arrived
+    assert set(my_commits) == {1}
 
 
 def test_play_sub_game_as_police_reports_survival_when_the_thief_declares_it():
@@ -65,7 +67,7 @@ def test_play_sub_game_as_police_reports_survival_when_the_thief_declares_it():
     board = Board(size=7, barriers=set())
     exchange = StdExchange(poll_interval=0.01)
     exchange.record_turn({"step": 1, "commit": "c1", "smell_grid": {}, "claim_response": None, "win_claim": None})
-    exchange.record_turn({"step": 3, "commit": "c3", "smell_grid": {}, "claim_response": {"claim": [9, 9], "caught": False}, "win_claim": {"type": "survival"}})
+    exchange.record_turn({"step": 2, "commit": "c2", "smell_grid": {}, "claim_response": {"claim": [9, 9], "caught": False}, "win_claim": {"type": "survival"}})
 
     result, records, peer_commits, my_commits = play_sub_game_as_police(
         board, state, _FakeScent(), _StubTransport(), exchange,
