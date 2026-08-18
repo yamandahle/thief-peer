@@ -8,11 +8,17 @@ expired token, or leaves an already-valid one untouched.
 
 from pathlib import Path
 
+from google.auth.exceptions import RefreshError
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 
 from thief_peer.infra.email_sender import SCOPES
+
+
+def _run_interactive_flow(credentials_path: str | Path) -> Credentials:
+    flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
+    return flow.run_local_server(port=0)
 
 
 def ensure_token(credentials_path: str | Path = "credentials.json", token_path: str | Path = "token.json") -> Path:
@@ -25,10 +31,19 @@ def ensure_token(credentials_path: str | Path = "credentials.json", token_path: 
         return token_path
 
     if creds and creds.expired and creds.refresh_token:
-        creds.refresh(Request())
+        try:
+            creds.refresh(Request())
+        except RefreshError:
+            # The refresh token itself is dead (revoked, or a Testing-mode
+            # app's 7-day cap), not just the short-lived access token --
+            # google.auth's own refresh() has no fallback for this, so
+            # without this except the whole bootstrap crashes instead of
+            # doing what its own docstring promises ("refreshes an expired
+            # token, or leaves an already-valid one untouched" -- silently
+            # failing a dead refresh token is neither).
+            creds = _run_interactive_flow(credentials_path)
     else:
-        flow = InstalledAppFlow.from_client_secrets_file(str(credentials_path), SCOPES)
-        creds = flow.run_local_server(port=0)
+        creds = _run_interactive_flow(credentials_path)
 
     token_path.write_text(creds.to_json(), encoding="utf-8")
     return token_path
