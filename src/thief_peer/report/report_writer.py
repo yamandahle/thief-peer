@@ -89,9 +89,22 @@ def write_and_send(
     for key, artifact in artifacts.items():
         (results_path / filenames[key]).write_text(json.dumps(artifact, indent=2), encoding="utf-8")
 
+    artifacts["email_sent"] = send_report_email(gatekeeper, email_service, recipient, artifacts["result"])
+
+    return artifacts
+
+
+def send_report_email(gatekeeper, email_service, recipient: str, report: dict) -> bool:
+    """The rule-32 email step, factored out so any protocol's own
+    finalization path (native's `write_and_send` above, std_v1's
+    `interop/std_v1_opponent.py::send_std_v1_report_email`) sends the exact
+    same way rather than duplicating this try/except. Returns whether the
+    send actually succeeded -- never raises, since a failed send must never
+    take down a match that already finished and has its artifacts safely on
+    disk."""
     try:
-        gatekeeper.execute(email_sender.send_report, email_service, recipient, artifacts["result"])
-        artifacts["email_sent"] = True
+        gatekeeper.execute(email_sender.send_report, email_service, recipient, report)
+        return True
     except (TransportError, ProviderError) as exc:
         # The only two exception types that ever escape ApiGatekeeper.execute
         # (shared/gatekeeper.py's DOS-lock/queue-full checks raise
@@ -99,11 +112,9 @@ def write_and_send(
         # failure, including a real rate-limit block, as ProviderError after
         # retries are exhausted) -- narrowed from a bare `except Exception`
         # so a genuine bug elsewhere in this call chain still surfaces
-        # instead of being silently absorbed here. The four artifacts above
-        # are already on disk regardless (rules 33/34); this only degrades
-        # the rule-32 email step to best-effort, and says so in the return
-        # value rather than only printing once and moving on.
+        # instead of being silently absorbed here. The caller's own
+        # artifacts are already on disk regardless (rules 33/34); this only
+        # degrades the rule-32 email step to best-effort, and says so via
+        # the return value rather than only printing once and moving on.
         print(f"[Warning] Email send skipped: {exc}")
-        artifacts["email_sent"] = False
-
-    return artifacts
+        return False

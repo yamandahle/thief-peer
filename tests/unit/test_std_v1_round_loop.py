@@ -55,7 +55,7 @@ def test_play_sub_game_survives_when_it_reaches_max_steps_uncaught():
     exchange = StdExchange(poll_interval=0.01)
     exchange.record_turn({"step": 2, "commit": "c2", "capture_claim": [0, 0], "barrier_placed": None, "smell_grid": {}})
 
-    result, records, peer_commits = play_sub_game(
+    result, records, peer_commits, my_commits = play_sub_game(
         turn_handler, board, state, _FakeScent(), _FakeTrashTalk(),
         _StubTransport(), exchange, max_steps=1, turn_deadline_sec=0.2,
     )
@@ -63,6 +63,7 @@ def test_play_sub_game_survives_when_it_reaches_max_steps_uncaught():
     assert result == "survival"
     assert len(records) == 1
     assert records[0]["step"] == 1
+    assert set(my_commits) == {1}
 
 
 def test_play_sub_game_reports_capture_when_the_cops_claim_lands():
@@ -74,13 +75,14 @@ def test_play_sub_game_reports_capture_when_the_cops_claim_lands():
         "step": 2, "commit": "c2", "capture_claim": [3, 3], "barrier_placed": None, "smell_grid": {},
     })
 
-    result, records, peer_commits = play_sub_game(
+    result, records, peer_commits, my_commits = play_sub_game(
         turn_handler, board, state, _FakeScent(), _FakeTrashTalk(),
         _StubTransport(), exchange, max_steps=35, turn_deadline_sec=0.2,
     )
 
     assert result == "capture"
     assert peer_commits == {2: "c2"}
+    assert set(my_commits) == {1, 3}
     # A final STAY turn is sent carrying the truthful claim_response.
     assert records[-1]["claim_response"] == {"claim": [3, 3], "caught": True}
     assert records[-1]["move"] == "STAY"
@@ -92,13 +94,14 @@ def test_play_sub_game_times_out_when_the_cop_never_answers():
     turn_handler = _FakeTurnHandler(state, [Direction.N])
     exchange = StdExchange(poll_interval=0.01)
 
-    result, records, peer_commits = play_sub_game(
+    result, records, peer_commits, my_commits = play_sub_game(
         turn_handler, board, state, _FakeScent(), _FakeTrashTalk(),
         _StubTransport(), exchange, max_steps=35, turn_deadline_sec=0.05,
     )
 
     assert result == "timeout"
     assert peer_commits == {}
+    assert set(my_commits) == {1}
 
 
 def test_play_sub_game_records_a_barrier_into_state_before_evaluating_capture():
@@ -110,10 +113,11 @@ def test_play_sub_game_records_a_barrier_into_state_before_evaluating_capture():
         "step": 2, "commit": "c2", "capture_claim": [0, 0], "barrier_placed": [3, 3], "smell_grid": {},
     })
 
-    result, records, peer_commits = play_sub_game(
+    result, records, peer_commits, my_commits = play_sub_game(
         turn_handler, board, state, _FakeScent(), _FakeTrashTalk(),
         _StubTransport(), exchange, max_steps=35, turn_deadline_sec=0.2,
     )
 
     assert result == "capture"  # barrier landed on the thief's own cell
     assert (3, 3) in state.known_barriers
+    assert set(my_commits) == {1, 3}

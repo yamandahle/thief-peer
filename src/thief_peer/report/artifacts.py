@@ -36,8 +36,13 @@ def build_config(shared_terms: dict, config_name: str) -> dict:
     }
 
 
-def build_log(records: list[dict], audit: dict) -> dict:
-    return {"schema_version": SCHEMA_VERSION, "records": records, "audit": audit}
+def build_log(records: list[dict], audit: dict, protocol: str = "native") -> dict:
+    """`protocol` tags which commit-reveal scheme verifies these records --
+    default "native" preserves every existing caller's output unchanged.
+    gui/replay_view.py reads it back to pick the matching verifier (native's
+    domain/crypto.py::CommitReveal vs. std_v1's own interop/std_v1/crypto.py
+    scheme -- the two are not interchangeable, see that module's docstring)."""
+    return {"schema_version": SCHEMA_VERSION, "records": records, "audit": audit, "protocol": protocol}
 
 
 def build_result(

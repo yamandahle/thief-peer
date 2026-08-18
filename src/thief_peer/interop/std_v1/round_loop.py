@@ -45,21 +45,38 @@ def play_sub_game(
     exchange,
     max_steps: int,
     turn_deadline_sec: float,
-) -> tuple[str, list[dict], dict[int, str]]:
-    """Returns (result, records, peer_commits) -- `result` is one of
-    "capture"/"survival"/"timeout", mirroring police_round_loop.py's own
+    on_phase=None,
+) -> tuple[str, list[dict], dict[int, str], dict[int, str]]:
+    """Returns (result, records, peer_commits, my_commits) -- `result` is one
+    of "capture"/"survival"/"timeout", mirroring police_round_loop.py's own
     return shape so series_runner.py can treat both roles uniformly.
     `records` are this side's own revealed turns (for its own
     submit_audit); `peer_commits` are the Cop's live commits, keyed by
     step, kept for verify_peer_records to check against the Cop's later-
-    revealed records."""
+    revealed records; `my_commits` are this side's own live commits, keyed
+    by step, kept so a replay log can pair each revealed record with the
+    commit it was actually sealed under.
+
+    `on_phase`, if given, is called with one of TurnFsm's own state names
+    (peer/turn_fsm.py) at each of that book state machine's transition
+    points -- this loop's actual sequence (compute -> commit -> await
+    reveal -> verify -> repeat) is already exactly that cycle, so this is
+    purely an optional observation hook (e.g. for a live GUI's turn
+    banner), never consulted for control flow."""
+
+    def _phase(name: str) -> None:
+        if on_phase is not None:
+            on_phase(name)
+
     records: list[dict] = []
     peer_commits: dict[int, str] = {}
+    my_commits: dict[int, str] = {}
     last_cop_scent: dict[str, float] = {}
     pending_claim_response: dict | None = None
 
     step = 1
     while step <= max_steps:
+        _phase("COMPUTING_MOVE")
         decision = turn_handler.play_turn(last_cop_scent)
         decision.hint = trash_talk.generate_hint(step)
         win_claim = {"type": "survival"} if step == max_steps else None
@@ -74,22 +91,26 @@ def play_sub_game(
         )
         sealed = seal_turn(payload)
         records.append(build_audit_record(payload, sealed["nonce"]))
+        my_commits[step] = sealed["commit"]
+        _phase("COMMITTING")
         send_turn(transport, build_turn_message(payload, sealed["commit"]))
         scent.advance(state.position)
         pending_claim_response = None
 
         if win_claim is not None:
-            return "survival", records, peer_commits
+            return "survival", records, peer_commits, my_commits
 
+        _phase("AWAITING_REVEAL")
         try:
             cop_message = exchange.wait_for_turn(step + 1, timeout=turn_deadline_sec)
         except DeadlineExceededError:
-            return "timeout", records, peer_commits
+            return "timeout", records, peer_commits, my_commits
         peer_commits[cop_message["step"]] = cop_message["commit"]
 
         barrier_placed = cop_message.get("barrier_placed")
         if barrier_placed is not None:
             state.record_barrier(tuple(barrier_placed))
+        _phase("VERIFYING")
         caught = evaluate_capture(state, board, cop_message["capture_claim"], barrier_placed)
         claim_response = build_claim_response(cop_message["capture_claim"], caught)
 
@@ -108,11 +129,13 @@ def play_sub_game(
             )
             final_sealed = seal_turn(final_payload)
             records.append(build_audit_record(final_payload, final_sealed["nonce"]))
+            my_commits[final_step] = final_sealed["commit"]
             send_turn(transport, build_turn_message(final_payload, final_sealed["commit"]))
-            return "capture", records, peer_commits
+            return "capture", records, peer_commits, my_commits
 
         pending_claim_response = claim_response
         last_cop_scent = cop_message.get("smell_grid") or {}
+        _phase("WAITING_FOR_OPPONENT")
         step += 2
 
-    return "survival", records, peer_commits
+    return "survival", records, peer_commits, my_commits

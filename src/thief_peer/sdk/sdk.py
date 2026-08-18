@@ -140,11 +140,14 @@ class ThiefSdk:
 def run_replay(log_path: str, gui: bool = False) -> int:
     """Rule 20 [FATAL]: re-verifies a saved match log's Commit-Reveal chain
     and prints a per-step + overall verdict. `log_path` is one of
-    `report/report_writer.py`'s own persisted artifacts (`results/
-    log_<game_uid>.json`, built by `report/artifacts.py::build_log`) --
-    `data["records"]` is already the exact `{"payload": {...,"nonce":...},
-    "commit":...}` shape `gui/replay_view.py::verify_step`/`replay` expect,
-    so no separate log format exists to convert between. Headless-first
+    `report/report_writer.py`'s (native/cop_v1) or `interop/std_v1_opponent.
+    py::write_std_v1_result`'s (std_v1) own persisted `results/
+    log_<game_uid>.json` artifacts, both built by `report/artifacts.py::
+    build_log` -- `data["records"]` is already the exact `{"payload":
+    {...,"nonce":...}, "commit":...}` shape `gui/replay_view.py::verify_step`/
+    `replay` expect, so no separate log format exists to convert between;
+    `data["protocol"]` (defaulting to "native") picks the matching
+    commit-reveal verifier. Headless-first
     (the verdict never depends on Tkinter being importable, matching the
     Cop repo's own `cli_replay.py`); `--gui` opens a step-navigable window
     afterward, never the only way to get an answer. Returns a process exit
@@ -155,11 +158,12 @@ def run_replay(log_path: str, gui: bool = False) -> int:
 
     data = json.loads(Path(log_path).read_text(encoding="utf-8"))
     records = data["records"]
+    protocol = data.get("protocol", "native")
 
-    overall = replay(records)
+    overall = replay(records, protocol)
     print(f"Overall: {overall}")
     for index, entry in enumerate(records):
-        print(f"  step {index}: {verify_step(entry)}")
+        print(f"  step {index}: {verify_step(entry, protocol)}")
 
     if gui:
         import tkinter as tk
@@ -168,7 +172,7 @@ def run_replay(log_path: str, gui: bool = False) -> int:
 
         root = tk.Tk()
         root.title("Thief Peer -- Replay Viewer")
-        view = ReplayView(root, records)
+        view = ReplayView(root, records, protocol)
         tk.Button(root, text="< Back", command=view.step_back).pack(side="left")
         tk.Button(root, text="Forward >", command=view.step_forward).pack(side="right")
         root.mainloop()

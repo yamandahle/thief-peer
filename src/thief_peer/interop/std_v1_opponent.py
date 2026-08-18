@@ -48,13 +48,17 @@ from pathlib import Path
 from thief_peer.domain.board import Board
 from thief_peer.domain.own_state import OwnGameState
 from thief_peer.domain.scent import ScentField
+from thief_peer.interop.std_v1 import replay_log
 from thief_peer.interop.std_v1.exchange import StdExchange
 from thief_peer.interop.std_v1.identity import build_identity
 from thief_peer.interop.std_v1.scent_model_lock import build_scent_model_lock
 from thief_peer.interop.std_v1.series_runner import play_series
 from thief_peer.interop.std_v1.server_registration import register_std_v1_tools
 from thief_peer.interop.std_v1.terms import DEFAULT_TERMS_PATH, load_terms
+from thief_peer.peer.turn_fsm import TurnFsm
 from thief_peer.peer.turn_handler import TurnHandler
+from thief_peer.report.artifacts import build_config, build_declaration, build_log
+from thief_peer.report.report_writer import LeagueCounter, send_report_email
 from thief_peer.strategy.brain_base import resolve_brain
 
 
@@ -77,6 +81,20 @@ def run_std_v1_series(runtime) -> dict:
     # id can't be *learned* from that same handshake; it must be
     # configured up front (see game_std_v1_remote.toml.example).
     their_group_id = runtime.config.require("network.opponent_group_id")
+    # `games_played_including_this` (final_result) / `games_played_against_
+    # opponent` (declaration) both need this *before* the series starts --
+    # native computes the equivalent inside `report/report_writer.py::
+    # write_and_send`, but std_v1 builds its whole final report in one shot
+    # inside `play_series` rather than incrementally across separate
+    # process invocations, so this side has to compute it up front and
+    # thread it in. Same `LeagueCounter`/`results/league_counter.json`
+    # native already uses -- one shared, protocol-agnostic counter file.
+    league_counter = LeagueCounter(Path(runtime.results_dir) / "league_counter.json")
+    games_played = (
+        league_counter.record_game(their_group_id)
+        if runtime.is_counted
+        else league_counter.games_played_against(their_group_id)
+    )
     identity = build_identity(
         group_id=my_group_id,
         group_name=runtime.group_name,
@@ -90,15 +108,31 @@ def run_std_v1_series(runtime) -> dict:
         scent_model_lock=build_scent_model_lock(terms),
     )
 
+    # Each factory below also assigns its object onto `runtime` itself, on
+    # top of returning it to series_runner.py -- `board`/`state` are then
+    # mutated in place turn-by-turn by round_loop.py/police_round_loop.py,
+    # so `PeerRuntime.view()` (peer/runtime.py, already polled live by
+    # gui/live_session.py::LiveSession for the native/cop_v1 path) starts
+    # reflecting real std_v1 play instead of the frozen state left over
+    # from `__init__`. This is the only wiring the live GUI needs -- no
+    # changes to series_runner.py/round_loop.py/police_round_loop.py or the
+    # gui package itself, since `view()` already reads generically off
+    # `runtime.state`/`runtime.turn_handler`.
     def board_factory() -> Board:
-        return Board(size=terms["board_size"], barriers=set())
+        board = Board(size=terms["board_size"], barriers=set())
+        runtime.board = board
+        return board
 
     def state_factory(role: str) -> OwnGameState:
         position = terms["thief_start"] if role == "thief" else terms["cop_start"]
-        return OwnGameState(position=tuple(position))
+        state = OwnGameState(position=tuple(position))
+        runtime.state = state
+        return state
 
     def turn_handler_factory(board, state) -> TurnHandler:
-        return TurnHandler(board, state, resolve_brain(runtime.config))
+        turn_handler = TurnHandler(board, state, resolve_brain(runtime.config))
+        runtime.turn_handler = turn_handler
+        return turn_handler
 
     def scent_factory() -> ScentField:
         return ScentField(
@@ -107,7 +141,18 @@ def run_std_v1_series(runtime) -> dict:
             decay_rate=terms["decay_per_step"],
         )
 
-    return play_series(
+    def turn_fsm_factory() -> TurnFsm:
+        # A *fresh* TurnFsm every sub-game, not a shared one -- see
+        # series_runner.py::play_series's own docstring for why reusing one
+        # instance across sub-game boundaries would raise on sub-game 2's
+        # first transition. Assigned onto `runtime.turn_fsm` too so
+        # `view()`'s `turn_state` (feeding gui/turn_banner.py) reflects
+        # whichever sub-game is currently live.
+        turn_fsm = TurnFsm()
+        runtime.turn_fsm = turn_fsm
+        return turn_fsm
+
+    result = play_series(
         runtime.transport,
         runtime._std_v1_exchange,
         terms,
@@ -120,7 +165,81 @@ def run_std_v1_series(runtime) -> dict:
         scent_factory,
         runtime.trash_talk,
         turn_deadline_sec=runtime.round_deadline_sec,
+        turn_fsm_factory=turn_fsm_factory,
+        games_played_including_this=games_played,
     )
+    write_std_v1_log(result, runtime.results_dir)
+    write_std_v1_declaration(result, terms, runtime.results_dir, games_played)
+    write_std_v1_config(result, terms, runtime.results_dir)
+    return result
+
+
+def write_std_v1_log(result: dict, results_dir: str | Path) -> Path:
+    """Persists this side's own revealed records for the whole series as
+    `results/log_<game_uid>.json` -- the replay-log counterpart to
+    `write_std_v1_result`'s `result_<game_id>.json`, using the exact same
+    `report/artifacts.py::build_log` builder native/cop_v1 already use
+    (tagged `protocol="std_v1"` so `gui/replay_view.py` verifies it with
+    the right commit-reveal scheme). One file for the whole series, not
+    per sub-game -- std_v1's `game_uid` is series-scoped, unlike native's
+    own per-sub-game `game_uid`."""
+    records = result["records"]
+    audit = replay_log.audit_records(records)
+    log = build_log(records, audit, protocol="std_v1")
+    out_dir = Path(results_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"log_{result['game_uid']}.json"
+    out_path.write_text(json.dumps(log, indent=2), encoding="utf-8")
+    return out_path
+
+
+def write_std_v1_declaration(
+    result: dict, terms: dict, results_dir: str | Path, games_played: int
+) -> Path:
+    """The series' `declaration_<game_id>.json` -- native's own `report/
+    artifacts.py::build_declaration`, called directly rather than through
+    `report/report_writer.py::write_and_send` (that function's own
+    `merge_sub_game_into_series` assumes native's one-sub-game-per-process
+    model; std_v1 already has its whole series' data in `result` by the
+    time this runs). `games_played_against_opponent`: same precedent as
+    native's own report_writer.py -- a separate key from `final_result`'s
+    `games_played_including_this`, same underlying counter value."""
+    declaration = build_declaration(
+        game_id=result["game_id"],
+        game_uid=result["game_uid"],
+        num_sub_games=terms["num_games"],
+        groups=result["report"]["groups"],
+    )
+    declaration["games_played_against_opponent"] = games_played
+    out_dir = Path(results_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"declaration_{result['game_id']}.json"
+    out_path.write_text(json.dumps(declaration, indent=2), encoding="utf-8")
+    return out_path
+
+
+def write_std_v1_config(result: dict, terms: dict, results_dir: str | Path) -> Path:
+    """The series' `config_<game_uid>.json` -- one file for the whole
+    series (std_v1's `terms` don't change per sub-game), unlike native's
+    own per-sub-game config file."""
+    config = build_config(terms, config_name=f"config_{result['game_uid']}")
+    out_dir = Path(results_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+    out_path = out_dir / f"config_{result['game_uid']}.json"
+    out_path.write_text(json.dumps(config, indent=2), encoding="utf-8")
+    return out_path
+
+
+def send_std_v1_report_email(result: dict, runtime) -> bool:
+    """Rule 32: both teams' agents must each email their own copy of the
+    final result. Reuses `report/report_writer.py::send_report_email`
+    verbatim -- the exact same gatekeeper-wrapped Gmail-send call and
+    best-effort failure handling native's own `write_and_send` uses, just
+    invoked directly here since std_v1 doesn't go through that function's
+    own native-shaped `write_and_send` pipeline. Called from `PeerRuntime.
+    run()` after `write_std_v1_result` has already put `result["report"]`
+    on disk, so a failed send never loses the result itself (rules 33/34)."""
+    return send_report_email(runtime.gatekeeper, runtime.email_service, runtime.recipient, result["report"])
 
 
 def write_std_v1_result(result: dict, results_dir: str | Path) -> Path:

@@ -624,8 +624,9 @@ def test_run_replay_with_gui_opens_a_window_after_the_headless_verdict(
             pass
 
     class _FakeReplayView:
-        def __init__(self, root, records):
+        def __init__(self, root, records, protocol="native"):
             captured["view_records"] = records
+            captured["protocol"] = protocol
 
         def step_back(self):
             pass

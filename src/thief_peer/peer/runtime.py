@@ -33,6 +33,7 @@ from thief_peer.interop.cop_wire import current_git_commit_hash
 from thief_peer.interop.std_v1_opponent import (
     maybe_register_std_v1_tools,
     run_std_v1_series,
+    send_std_v1_report_email,
     write_std_v1_result,
 )
 from thief_peer.peer.heartbeat_monitor import HeartbeatMonitor
@@ -138,6 +139,7 @@ class PeerRuntime(PeerContextMixin):
             # summary dict.
             result = run_std_v1_series(self)
             write_std_v1_result(result, self.results_dir)
+            send_std_v1_report_email(result, self)
             if self.transport is not None:
                 self.transport.close()
             return result

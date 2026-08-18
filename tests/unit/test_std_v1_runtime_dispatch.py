@@ -99,11 +99,34 @@ def test_run_dispatches_std_v1_matches_straight_to_run_std_v1_series(tmp_path, m
     assert written["results_dir"] == runtime.results_dir
 
 
+def test_run_emails_the_report_after_writing_it_for_a_std_v1_series(tmp_path, monkeypatch):
+    runtime = _std_v1_runtime(tmp_path, monkeypatch, port=8907)
+    monkeypatch.setattr(
+        "thief_peer.peer.runtime.run_std_v1_series",
+        lambda self: {"game_id": "us-vs-them", "report": {"report_type": "std_v1_result"}},
+    )
+    monkeypatch.setattr("thief_peer.peer.runtime.write_std_v1_result", lambda result, results_dir: None)
+
+    emailed = {}
+    monkeypatch.setattr(
+        "thief_peer.peer.runtime.send_std_v1_report_email",
+        lambda result, runtime: emailed.update(result=result, runtime=runtime),
+    )
+
+    result = runtime.run()
+
+    assert emailed["result"] == result
+    assert emailed["runtime"] is runtime
+
+
 def test_run_closes_the_transport_after_a_std_v1_series_even_though_finalize_match_is_skipped(
     tmp_path, monkeypatch
 ):
     runtime = _std_v1_runtime(tmp_path, monkeypatch, port=8906)
-    monkeypatch.setattr("thief_peer.peer.runtime.run_std_v1_series", lambda self: {"game_id": "x"})
+    monkeypatch.setattr(
+        "thief_peer.peer.runtime.run_std_v1_series",
+        lambda self: {"game_id": "x", "report": {"report_type": "std_v1_result"}},
+    )
     monkeypatch.setattr("thief_peer.peer.runtime.write_std_v1_result", lambda result, results_dir: None)
 
     closed = {"value": False}

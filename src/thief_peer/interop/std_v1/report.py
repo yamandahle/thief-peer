@@ -33,11 +33,26 @@ def group_details(identity: dict) -> dict:
     }
 
 
-def final_result(rows: list[dict], my_group_id: str, their_group_id: str) -> dict:
+def final_result(
+    rows: list[dict],
+    my_group_id: str,
+    their_group_id: str,
+    games_played_including_this: int = 0,
+) -> dict:
     """Section 6's cumulative series aggregate, including the +2 tie
     bonus -- applied once to each side, and only when the raw cumulative
     totals (before the bonus) are equal, regardless of which per-row
-    outcomes produced them."""
+    outcomes produced them.
+
+    `games_played_including_this`/`diversity_reward_applied` aren't part of
+    the book's own canonical `final_result` schema (same conclusion
+    `docs/TodoCloseGaps.md` reached for the native path's own
+    `report/series_result.py::merge_sub_game_into_series`) -- carried
+    through here for the same reason: harmless bonus fields, computed
+    honestly from data already available (`LeagueCounter`, via
+    `interop/std_v1_opponent.py`) rather than hardcoded. No diversity-bonus
+    logic exists in this repo, so `diversity_reward_applied` is always
+    `False`, matching that same precedent exactly."""
     total = {my_group_id: 0, their_group_id: 0}
     won = {my_group_id: 0, their_group_id: 0}
     ties = 0
@@ -63,6 +78,8 @@ def final_result(rows: list[dict], my_group_id: str, their_group_id: str) -> dic
         "winner_group": winner_group,
         "series_tie": series_tie,
         "tokens_total_series": {my_group_id: 0, their_group_id: 0},
+        "games_played_including_this": games_played_including_this,
+        "diversity_reward_applied": False,
     }
 
 
@@ -78,11 +95,18 @@ def build_result_report(
     mutual_agreement: dict,
     game_started_at: str,
     game_ended_at: str,
+    games_played_including_this: int = 0,
 ) -> dict:
     """`sub_game_meta[i]` supplies the per-row fields Section 11's own
     canonical row doesn't carry: `their_github_commit`, `steps`,
     `started_at`, `ended_at`, and this sub-game's own `audit` outcome
     (`log_verified`/`tampered`/`result_agreed`)."""
+    # One log file for the whole series (interop/std_v1_opponent.py writes
+    # it under this exact name, mirroring report/artifact_helpers.py's own
+    # `log_{game_uid}.json` convention) -- every sub-game's records live in
+    # it together, tagged by `sub_game_number` (replay_log.py::build_records),
+    # so every row references the same file rather than a per-sub-game one.
+    log_filename = f"log_{game_uid}.json"
     sub_games = []
     for row, meta in zip(rows, sub_game_meta, strict=True):
         sub_games.append({
@@ -94,7 +118,7 @@ def build_result_report(
             },
             "tokens": {my_group_id: 0, their_group_id: 0},
             "audit": meta["audit"],
-            "log_files": [],
+            "log_files": [log_filename],
             "steps": meta["steps"],
             "started_at": meta["started_at"],
             "ended_at": meta["ended_at"],
@@ -107,11 +131,23 @@ def build_result_report(
         "schema_version": "1.0",
         "groups": [my_group_id, their_group_id],
         "sub_games": sub_games,
+        # `declaration`/`config`/`log`/`result` name the four artifacts this
+        # side actually writes for the whole series (interop/std_v1_opponent.
+        # py::write_std_v1_declaration/write_std_v1_config/write_std_v1_log/
+        # write_std_v1_result) -- the canonical schema's own "static
+        # metadata isn't repeated here" note is deliberately overridden for
+        # `github`: the 4 repo URLs (both teams' Cop and Thief repos) are
+        # embedded directly rather than left for a reader to reconstruct
+        # from the pre-game declaration alone.
         "links": {
+            "declaration": f"declaration_{game_id}.json",
+            "config": f"config_{game_uid}.json",
+            "log": log_filename,
+            "result": f"result_{game_id}.json",
             "github": {
                 my_group_id: my_identity.get("repos", {}),
                 their_group_id: their_identity.get("repos", {}),
-            }
+            },
         },
         "group_details": {
             my_group_id: group_details(my_identity),
@@ -121,7 +157,7 @@ def build_result_report(
         "game_started_at": game_started_at,
         "game_ended_at": game_ended_at,
         "mutual_agreement": mutual_agreement,
-        "final_result": final_result(rows, my_group_id, their_group_id),
+        "final_result": final_result(rows, my_group_id, their_group_id, games_played_including_this),
     }
 
 

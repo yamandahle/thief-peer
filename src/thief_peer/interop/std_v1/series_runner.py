@@ -38,6 +38,7 @@ from thief_peer.interop.std_v1.audit import (
 from thief_peer.interop.std_v1.crypto import consensus_digest, derive_game_id, derive_game_uid
 from thief_peer.interop.std_v1.handshake import negotiate_sub_game
 from thief_peer.interop.std_v1.police_round_loop import play_sub_game_as_police
+from thief_peer.interop.std_v1.replay_log import build_records
 from thief_peer.interop.std_v1.report import build_result_report, now_iso
 from thief_peer.interop.std_v1.round_loop import play_sub_game
 from thief_peer.interop.std_v1.roles import opposite_role, role_for_sub_game
@@ -85,6 +86,8 @@ def play_series(
     resend_interval_sec: float = 2.0,
     negotiate_ceiling_sec: float = 300.0,
     audit_ceiling_sec: float = 60.0,
+    turn_fsm_factory=None,
+    games_played_including_this: int = 0,
 ) -> dict:
     """Runs every sub-game (1..`my_terms["num_games"]`) to completion, then
     the final series-consensus exchange. `board_factory()`/`scent_factory()`
@@ -93,7 +96,30 @@ def play_series(
     for whichever role this sub-game alternates into; `turn_handler_factory
     (board, state)` is only ever used on Thief-role sub-games. Returns a
     summary dict with the consensus object, whether both sides agree, and
-    each sub-game's own audit-verification result."""
+    each sub-game's own audit-verification result.
+
+    `turn_fsm_factory()`, if given, is called once per sub-game (like the
+    other factories) and must return a fresh object exposing `.transition
+    (state_name)` (peer/turn_fsm.py::TurnFsm) -- its bound `.transition` is
+    passed to the round loops as their optional `on_phase` observer, purely
+    for a live GUI's turn-state display, never for control flow. A *fresh*
+    instance every sub-game sidesteps TurnFsm's own strict, book-derived
+    transition table (peer/turn_fsm.py's TRANSITIONS), which has no legal
+    path from one sub-game's terminal state (e.g. after a capture) back to
+    the next sub-game's opening WAITING_FOR_OPPONENT -- std_v1 plays many
+    sub-games in one series where native only ever plays one match, so
+    reusing a single TurnFsm across sub-game boundaries would raise on the
+    very first transition of sub-game 2. Also collects this side's own
+    revealed records into a single, replay-log-ready `all_records` list
+    (see `replay_log.py::build_records`), returned so the caller can
+    persist a `log_<game_uid>.json` the same way native's match loop does.
+
+    `games_played_including_this` is threaded straight through to
+    `report.py::build_result_report`'s own `final_result` -- computed by
+    the caller (`interop/std_v1_opponent.py`, via the same `LeagueCounter`
+    native's `report/report_writer.py` uses) before this call, since it
+    depends on `results_dir`/`is_counted` bookkeeping this module has no
+    reason to know about."""
     game_id = derive_game_id(my_group_id, their_group_id)
     game_uid = derive_game_uid(my_terms, my_group_id, their_group_id)
     max_steps = my_terms["max_steps"]
@@ -102,6 +128,7 @@ def play_series(
     rows: list[dict] = []
     sub_game_reports: list[dict] = []
     sub_game_meta: list[dict] = []
+    all_records: list[dict] = []
     their_identity: dict = {}
     all_clean = True
     game_started_at = now_iso()
@@ -119,16 +146,21 @@ def play_series(
         board = board_factory()
         state = state_factory(role)
         scent = scent_factory()
+        turn_fsm = turn_fsm_factory() if turn_fsm_factory else None
+        on_phase = turn_fsm.transition if turn_fsm else None
 
         if role == "thief":
             turn_handler = turn_handler_factory(board, state)
-            end_reason, records, peer_commits = play_sub_game(
-                turn_handler, board, state, scent, trash_talk, transport, exchange, max_steps, turn_deadline_sec
+            end_reason, records, peer_commits, my_commits = play_sub_game(
+                turn_handler, board, state, scent, trash_talk, transport, exchange,
+                max_steps, turn_deadline_sec, on_phase,
             )
         else:
-            end_reason, records, peer_commits = play_sub_game_as_police(
-                board, state, scent, transport, exchange, max_steps, turn_deadline_sec, thief_start
+            end_reason, records, peer_commits, my_commits = play_sub_game_as_police(
+                board, state, scent, transport, exchange, max_steps, turn_deadline_sec,
+                thief_start, on_phase,
             )
+        all_records.extend(build_records(records, my_commits, sub_game_number))
 
         my_envelope = build_audit_envelope(role, records, end_reason, sub_game_number)
         peer_envelope = send_and_await(
@@ -186,11 +218,13 @@ def play_series(
     report = build_result_report(
         game_id, game_uid, my_group_id, their_group_id, identity, their_identity,
         rows, sub_game_meta, mutual_agreement, game_started_at, game_ended_at,
+        games_played_including_this,
     )
 
     return {
         "game_id": game_id,
         "game_uid": game_uid,
+        "records": all_records,
         "consensus_object": consensus_object,
         "consensus_sha": local_digest,
         "peer_consensus_sha": peer_digest,

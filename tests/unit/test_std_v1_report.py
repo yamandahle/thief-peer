@@ -51,6 +51,18 @@ def test_final_result_counts_row_ties_separately_from_series_ties():
     assert result["sub_games_won"] == {"A": 1, "B": 0}
 
 
+def test_final_result_carries_games_played_and_never_claims_a_diversity_bonus():
+    rows = [_row("A", 20, 5)]
+    result = final_result(rows, "A", "B", games_played_including_this=4)
+    assert result["games_played_including_this"] == 4
+    assert result["diversity_reward_applied"] is False
+
+
+def test_final_result_defaults_games_played_to_zero():
+    rows = [_row("A", 20, 5)]
+    assert final_result(rows, "A", "B")["games_played_including_this"] == 0
+
+
 def test_build_result_report_has_the_full_section_12_top_level_shape():
     rows = [_row("A", 20, 5)]
     meta = [{
@@ -58,10 +70,15 @@ def test_build_result_report_has_the_full_section_12_top_level_shape():
         "started_at": "2026-01-01T00:00:00+00:00", "ended_at": "2026-01-01T00:01:00+00:00",
         "audit": {"log_verified": True, "tampered": False, "result_agreed": True},
     }]
-    my_identity = {"github_commit": "a" * 40, "repos": {"thief": "https://example/thief"}}
+    my_identity = {
+        "github_commit": "a" * 40,
+        "repos": {"thief": "https://example/thief-A", "cop": "https://example/cop-A"},
+    }
+    their_identity = {"repos": {"thief": "https://example/thief-B", "cop": "https://example/cop-B"}}
     report = build_result_report(
-        "A-vs-B", "uid-1", "A", "B", my_identity, {}, rows, meta,
+        "A-vs-B", "uid-1", "A", "B", my_identity, their_identity, rows, meta,
         {"sha256": "x", "confirmed": True}, "2026-01-01T00:00:00+00:00", "2026-01-01T00:01:00+00:00",
+        games_played_including_this=2,
     )
     assert report["report_type"] == "std_v1_result"
     assert report["schema_version"] == "1.0"
@@ -69,4 +86,21 @@ def test_build_result_report_has_the_full_section_12_top_level_shape():
     assert report["sub_games"][0]["tie"] is False
     assert report["sub_games"][0]["github_commit"] == {"A": "a" * 40, "B": "b" * 40}
     assert report["final_result"]["winner_group"] == "A"
+    assert report["final_result"]["games_played_including_this"] == 2
+    assert report["final_result"]["diversity_reward_applied"] is False
     assert report["mutual_agreement"] == {"sha256": "x", "confirmed": True}
+    # `links` names all four series artifacts (declaration/config/log/result
+    # -- interop/std_v1_opponent.py::write_std_v1_declaration/write_std_v1_
+    # config/write_std_v1_log/write_std_v1_result), plus the 4 GitHub repo
+    # URLs embedded directly per the reporting rules' own override of the
+    # "static metadata not repeated" note.
+    assert report["links"] == {
+        "declaration": "declaration_A-vs-B.json",
+        "config": "config_uid-1.json",
+        "log": "log_uid-1.json",
+        "result": "result_A-vs-B.json",
+        "github": {
+            "A": {"thief": "https://example/thief-A", "cop": "https://example/cop-A"},
+            "B": {"thief": "https://example/thief-B", "cop": "https://example/cop-B"},
+        },
+    }
