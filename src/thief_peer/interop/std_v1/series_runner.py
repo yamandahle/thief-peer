@@ -86,6 +86,12 @@ def play_series(
     resend_interval_sec: float = 2.0,
     negotiate_ceiling_sec: float = 300.0,
     audit_ceiling_sec: float = 60.0,
+    # Some peers only send their final series_consensus envelope some
+    # time after their own result settles (reconciled live: yanell11's
+    # own write-report-then-notify flow fires "a few seconds after
+    # settlement", not synchronously) -- kept separate from the tighter
+    # per-sub-game audit_ceiling_sec above rather than widening that too.
+    consensus_ceiling_sec: float = 200.0,
     turn_fsm_factory=None,
     games_played_including_this: int = 0,
 ) -> dict:
@@ -208,7 +214,7 @@ def play_series(
         transport,
         lambda timeout: exchange.wait_for_consensus(timeout),
         build_consensus_envelope(final_role, local_digest),
-        resend_interval_sec, audit_ceiling_sec,
+        resend_interval_sec, consensus_ceiling_sec,
     )
     peer_digest = validate_consensus_envelope(peer_envelope)
     agreed = confirm_agreement(all_clean, all_results_agreed, local_digest, peer_digest)
