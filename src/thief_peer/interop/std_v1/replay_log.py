@@ -20,15 +20,22 @@ _TAMPERED = "TAMPERED"
 
 
 def build_records(records: list[dict], commits: dict[int, str], sub_game_number: int) -> list[dict]:
-    """`records` are `sealing.py::build_audit_record`'s own flat
-    `{**payload, "nonce": nonce}` shape; `commits` is the matching
-    step -> commit map this side recorded at seal time. Entries whose step
+    """`records` are `sealing.py::build_audit_record`'s own nested
+    `{"payload": {...}, "nonce": ..., "commit": ...}` shape (the
+    kit-pinned disclosure shape, reconciled live against yanell11 --
+    `verify_record` reads `record["payload"]`, not the record's own
+    top-level keys); `commits` is the matching step -> commit map this
+    side recorded at seal time, the source of truth here rather than the
+    record's own self-reported "commit" (same "verify against what was
+    actually seen live" reason `audit.py::verify_peer_records` never
+    trusts a record's self-reported commit either). Entries whose step
     has no matching commit (shouldn't happen for this side's own records,
     but guarded rather than assumed) are skipped rather than written with
     a fabricated commit."""
     wrapped = []
     for record in records:
-        commit = commits.get(record.get("step"))
+        step = (record.get("payload") or {}).get("step")
+        commit = commits.get(step)
         if commit is None:
             continue
         wrapped.append({"sub_game_number": sub_game_number, "payload": record, "commit": commit})

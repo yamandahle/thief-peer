@@ -47,31 +47,51 @@ def test_move_is_hidden_from_the_live_turn_message():
 def test_move_is_present_in_the_revealed_audit_record():
     payload = _payload(move="E")
     sealed = seal_turn(payload)
-    record = build_audit_record(payload, sealed["nonce"])
-    assert record["move"] == "E"
+    record = build_audit_record(payload, sealed["nonce"], sealed["commit"])
+    assert record["payload"]["move"] == "E"
     assert record["nonce"] == sealed["nonce"]
+
+
+def test_build_audit_record_uses_the_kit_pinned_nested_shape():
+    # Reconciled live against yanell11: their own reference auditor reads
+    # record["payload"], not the record's own top-level keys -- a flat
+    # record fails every audit against a peer expecting this nesting.
+    payload = _payload()
+    sealed = seal_turn(payload)
+    record = build_audit_record(payload, sealed["nonce"], sealed["commit"])
+    assert set(record.keys()) == {"payload", "nonce", "commit"}
+    assert record["commit"] == sealed["commit"]
+    assert record["payload"] == payload
 
 
 def test_verify_record_accepts_an_honest_record():
     payload = _payload()
     sealed = seal_turn(payload)
-    record = build_audit_record(payload, sealed["nonce"])
+    record = build_audit_record(payload, sealed["nonce"], sealed["commit"])
     assert verify_record(record, sealed["commit"]) is True
 
 
 def test_verify_record_rejects_a_record_with_a_tampered_hidden_field():
     payload = _payload(move="N")
     sealed = seal_turn(payload)
-    tampered_record = build_audit_record(payload, sealed["nonce"])
-    tampered_record["move"] = "S"  # peer claims a different move than it committed to
+    tampered_record = build_audit_record(payload, sealed["nonce"], sealed["commit"])
+    tampered_record["payload"]["move"] = "S"  # peer claims a different move than it committed to
     assert verify_record(tampered_record, sealed["commit"]) is False
 
 
 def test_verify_record_rejects_a_record_missing_its_nonce():
     payload = _payload()
     sealed = seal_turn(payload)
-    record = build_audit_record(payload, sealed["nonce"])
+    record = build_audit_record(payload, sealed["nonce"], sealed["commit"])
     del record["nonce"]
+    assert verify_record(record, sealed["commit"]) is False
+
+
+def test_verify_record_rejects_a_record_missing_its_payload():
+    payload = _payload()
+    sealed = seal_turn(payload)
+    record = build_audit_record(payload, sealed["nonce"], sealed["commit"])
+    del record["payload"]
     assert verify_record(record, sealed["commit"]) is False
 
 

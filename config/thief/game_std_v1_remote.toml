@@ -1,0 +1,23 @@
+# Real cross-team match config -- yamanagh vs yanell11, warm-up.
+
+[network]
+my_port = 8801
+opponent_url = "https://counting-truce-childcare.ngrok-free.dev/mcp"
+opponent_protocol = "std_v1"
+opponent_group_id = "yanell11"
+
+[network_and_league]
+response_timeout_sec = 180.0
+watchdog_timeout_sec = 180.0
+
+[email]
+recipient = "yamandahle@gmail.com"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
+
+[std_v1]
+group_id = "yamanagh"
+members = ["Nagham Manasra", "Yaman Dahle"]

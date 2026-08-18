@@ -26,7 +26,7 @@ def _sealed_record(step: int, move: str):
         barrier_placed=None, capture_claim=None, claim_response=None, win_claim=None,
     )
     sealed = seal_turn(payload)
-    return build_audit_record(payload, sealed["nonce"]), sealed["commit"]
+    return build_audit_record(payload, sealed["nonce"], sealed["commit"]), sealed["commit"]
 
 
 def test_verify_peer_records_all_clean_when_records_match_seen_commits():
@@ -37,7 +37,7 @@ def test_verify_peer_records_all_clean_when_records_match_seen_commits():
 
 def test_verify_peer_records_catches_a_record_rewritten_after_the_fact():
     record, commit = _sealed_record(1, "N")
-    record["move"] = "S"  # peer reveals a different move than the commit it sent live
+    record["payload"]["move"] = "S"  # peer reveals a different move than the commit it sent live
     result = verify_peer_records([record], {1: commit})
     assert result["log_verified"] is False
     assert result["tampered"] is True

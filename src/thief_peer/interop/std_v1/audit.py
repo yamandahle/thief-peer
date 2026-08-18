@@ -76,7 +76,7 @@ def verify_peer_records(records: list[dict], peer_commits: dict[int, str]) -> di
     itself, which would let a peer approve its own tampering."""
     mismatched_steps = []
     for record in records:
-        step = record.get("step")
+        step = (record.get("payload") or {}).get("step")
         expected_commit = peer_commits.get(step)
         if expected_commit is None or not verify_record(record, expected_commit):
             mismatched_steps.append(step)

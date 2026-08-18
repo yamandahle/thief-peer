@@ -186,7 +186,7 @@ def play_series(
         })
         sub_game_meta.append({
             "their_github_commit": their_identity.get("github_commit"),
-            "steps": max((r.get("step", 0) for r in records), default=0),
+            "steps": max(((r.get("payload") or {}).get("step", 0) for r in records), default=0),
             "started_at": started_at,
             "ended_at": ended_at,
             "audit": {

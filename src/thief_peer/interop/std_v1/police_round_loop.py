@@ -93,7 +93,7 @@ def play_sub_game_as_police(
             capture_claim=list(state.position),
         )
         sealed = seal_turn(payload)
-        records.append(build_audit_record(payload, sealed["nonce"]))
+        records.append(build_audit_record(payload, sealed["nonce"], sealed["commit"]))
         my_commits[police_step] = sealed["commit"]
         _phase("COMMITTING")
         send_turn(transport, build_turn_message(payload, sealed["commit"]))

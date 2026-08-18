@@ -18,12 +18,18 @@ def build_identity(
     mcp_servers: dict[str, str],
     llm_model: str,
     scent_model_lock: dict | None = None,
+    counted_games_played: int | None = None,
 ) -> dict:
-    """`scent_model_lock` is a strictly additive, never-required key (see
-    scent_model_lock.py) -- omitted entirely when not given, per Section
-    9's "optional fields MAY be omitted" posture, and invisible to the
-    Section-12 report either way since `report.py::group_details` only
-    ever whitelists specific fields off this dict."""
+    """`scent_model_lock` and `counted_games_played` are both strictly
+    additive, never-required keys -- omitted entirely when not given, per
+    Section 9's "optional fields MAY be omitted" posture, and invisible to
+    the Section-12 report either way since `report.py::group_details` only
+    ever whitelists specific fields off this dict. `counted_games_played`
+    (rule-38, reconciled live against yanell11: they'd recorded `null` for
+    us with nothing populating it) should be the caller's own already-
+    computed `games_played_against_opponent` -- the count *before* this
+    series, not `games_played_including_this`, which only makes sense once
+    a counted match has actually run."""
     commit_hash = current_git_commit_hash()
     identity = {
         "group_id": group_id,
@@ -38,4 +44,6 @@ def build_identity(
     }
     if scent_model_lock is not None:
         identity["scent_model_lock"] = scent_model_lock
+    if counted_games_played is not None:
+        identity["counted_games_played"] = counted_games_played
     return identity

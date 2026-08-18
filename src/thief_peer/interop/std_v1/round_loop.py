@@ -105,7 +105,7 @@ def play_sub_game(
             win_claim=win_claim,
         )
         sealed = seal_turn(payload)
-        records.append(build_audit_record(payload, sealed["nonce"]))
+        records.append(build_audit_record(payload, sealed["nonce"], sealed["commit"]))
         my_commits[step] = sealed["commit"]
         _phase("COMMITTING")
         send_turn(transport, build_turn_message(payload, sealed["commit"]))
@@ -146,7 +146,7 @@ def play_sub_game(
                 claim_response=claim_response,
             )
             final_sealed = seal_turn(final_payload)
-            records.append(build_audit_record(final_payload, final_sealed["nonce"]))
+            records.append(build_audit_record(final_payload, final_sealed["nonce"], final_sealed["commit"]))
             my_commits[final_step] = final_sealed["commit"]
             send_turn(transport, build_turn_message(final_payload, final_sealed["commit"]))
             return "capture", records, peer_commits, my_commits

@@ -81,19 +81,22 @@ def build_turn_message(payload: dict, commit: str) -> dict:
     return {**public, "commit": commit, "timestamp": datetime.now(UTC).isoformat()}
 
 
-def build_audit_record(payload: dict, nonce: str) -> dict:
-    """A revealed record for `submit_audit`'s own `records` list -- the
-    full payload (including `move`, now finally revealed) plus its nonce,
-    letting the receiver recompute `commit_of` and compare against what
-    was actually sent as `commit` during play, and replay the real move
-    sequence (Section 9's own "re-hashes every record... checks that each
-    revealed commit matches what was played")."""
-    return {**payload, "nonce": nonce}
+def build_audit_record(payload: dict, nonce: str, commit: str) -> dict:
+    """A revealed record for `submit_audit`'s own `records` list -- nested,
+    not flat: `{"payload": {...full sealed fields, move now revealed...},
+    "nonce": ..., "commit": ...}`. This is the kit-pinned disclosure shape
+    (reconciled live against yanell11: their own reference auditor reads
+    `record["payload"]`, not the record's own top-level keys) -- a flat
+    `{**payload, "nonce": nonce}` record fails every audit against a peer
+    expecting this nesting, symmetrically in both directions, and looks
+    exactly like real tampering even though nothing was actually altered."""
+    return {"payload": dict(payload), "nonce": nonce, "commit": commit}
 
 
 def verify_record(record: dict, expected_commit: str) -> bool:
+    payload = record.get("payload")
     nonce = record.get("nonce")
-    if nonce is None:
+    if payload is None or nonce is None:
         return False
-    payload = {key: record.get(key) for key in _PAYLOAD_FIELDS}
-    return commit_of(payload, nonce) == expected_commit
+    reconstructed = {key: payload.get(key) for key in _PAYLOAD_FIELDS}
+    return commit_of(reconstructed, nonce) == expected_commit

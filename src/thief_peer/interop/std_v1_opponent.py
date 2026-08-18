@@ -90,10 +90,16 @@ def run_std_v1_series(runtime) -> dict:
     # thread it in. Same `LeagueCounter`/`results/league_counter.json`
     # native already uses -- one shared, protocol-agnostic counter file.
     league_counter = LeagueCounter(Path(runtime.results_dir) / "league_counter.json")
+    # rule-38: the count *before* this series -- must be read first, since
+    # record_game() below mutates the same persisted counter for a counted
+    # run, and reading it after would silently return the post-increment
+    # total instead of what the negotiate greeting is actually supposed
+    # to declare.
+    counted_games_played = league_counter.games_played_against(their_group_id)
     games_played = (
         league_counter.record_game(their_group_id)
         if runtime.is_counted
-        else league_counter.games_played_against(their_group_id)
+        else counted_games_played
     )
     identity = build_identity(
         group_id=my_group_id,
@@ -106,6 +112,7 @@ def run_std_v1_series(runtime) -> dict:
         },
         llm_model=runtime.config.get("llm.model", "template"),
         scent_model_lock=build_scent_model_lock(terms),
+        counted_games_played=counted_games_played,
     )
 
     # Each factory below also assigns its object onto `runtime` itself, on

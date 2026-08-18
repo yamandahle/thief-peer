@@ -62,7 +62,7 @@ def test_play_sub_game_survives_when_it_reaches_max_steps_uncaught():
 
     assert result == "survival"
     assert len(records) == 1
-    assert records[0]["step"] == 1
+    assert records[0]["payload"]["step"] == 1
     assert set(my_commits) == {1}
 
 
@@ -86,8 +86,8 @@ def test_play_sub_game_reports_capture_when_the_cops_claim_lands():
     assert peer_commits == {1: "c1"}
     assert set(my_commits) == {1, 2}
     # A final STAY turn is sent carrying the truthful claim_response.
-    assert records[-1]["claim_response"] == {"claim": [3, 3], "caught": True}
-    assert records[-1]["move"] == "STAY"
+    assert records[-1]["payload"]["claim_response"] == {"claim": [3, 3], "caught": True}
+    assert records[-1]["payload"]["move"] == "STAY"
 
 
 def test_play_sub_game_times_out_when_the_cop_never_answers():
