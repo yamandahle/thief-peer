@@ -173,7 +173,8 @@ def play_series(
         all_clean = all_clean and verify_result["log_verified"]
         ended_at = now_iso()
         audit_state = "verified OK" if verify_result["log_verified"] else "TAMPERED"
-        print(f"[sub-game {sub_game_number}] {end_reason} (role={role}) -- peer audit {audit_state}", flush=True)
+        detail = f" mismatched_steps={verify_result['mismatched_steps']}" if verify_result["tampered"] else ""
+        print(f"[sub-game {sub_game_number}] {end_reason} (role={role}) -- peer audit {audit_state}{detail}", flush=True)
 
         rows.append(_row_for(sub_game_number, role, end_reason, verify_result["tampered"], my_group_id, their_group_id))
         sub_game_reports.append({

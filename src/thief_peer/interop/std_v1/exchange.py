@@ -75,8 +75,26 @@ class StdExchange:
 
     def wait_for_consensus(self, timeout: float) -> dict:
         """The final series_consensus envelope carries no sub_game_number
-        at all -- always the None-keyed bucket."""
-        return self._wait_for(self._audits, None, timeout, "consensus envelope")
+        at all -- always the None-keyed bucket. Spec Section 10 step 3's
+        own explicit warning: "Straggler per-sub-game audits arriving in
+        this window carry no consensus_sha and MUST NOT be mistaken for a
+        consensus envelope." A straggler that also omits sub_game_number
+        lands in this same slot -- found live (yanell11 match): our own
+        final-sub-game audit crashed validate_consensus_envelope because
+        this used to return the first thing in the slot unconditionally.
+        Only accepts an entry that actually looks like the real consensus
+        envelope; a straggler is treated as "not yet arrived" and polled
+        past, giving the real one -- which record_audit's own plain
+        overwrite will place in the same slot moments later -- room to
+        actually land instead of never being looked at again."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                candidate = self._audits.get(None)
+                if candidate is not None and candidate.get("result_claim") == "series_consensus":
+                    return candidate
+            time.sleep(self._poll_interval)
+        raise DeadlineExceededError(f"No consensus envelope received within {timeout}s")
 
     # --- control messages (receive_control) ---
 

@@ -52,6 +52,39 @@ def test_wait_for_consensus_reads_the_none_keyed_audit_bucket():
     }
 
 
+def test_wait_for_consensus_skips_a_straggler_audit_missing_sub_game_number():
+    # Real bug found live (yanell11 match): a final-sub-game audit
+    # envelope that also omits sub_game_number lands in the same
+    # None-keyed slot the real consensus envelope uses. The straggler
+    # must not be mistaken for it -- this waits past it for the real one.
+    exchange = StdExchange(poll_interval=0.01)
+    exchange.record_audit({"sub_game_number": None, "result_claim": "capture", "records": []})
+
+    import threading
+    import time
+
+    def _deliver_real_consensus_late():
+        time.sleep(0.05)
+        exchange.record_audit({"sub_game_number": None, "result_claim": "series_consensus", "consensus_sha": "a" * 64})
+
+    threading.Thread(target=_deliver_real_consensus_late, daemon=True).start()
+
+    result = exchange.wait_for_consensus(timeout=1.0)
+    assert result["result_claim"] == "series_consensus"
+
+
+def test_wait_for_consensus_times_out_if_only_a_straggler_ever_arrives():
+    exchange = StdExchange(poll_interval=0.01)
+    exchange.record_audit({"sub_game_number": None, "result_claim": "survival", "records": []})
+
+    import pytest
+
+    from thief_peer.exceptions import DeadlineExceededError
+
+    with pytest.raises(DeadlineExceededError):
+        exchange.wait_for_consensus(timeout=0.1)
+
+
 def test_latest_control_returns_none_when_empty_then_the_most_recent_message():
     exchange = StdExchange(poll_interval=0.01)
     assert exchange.latest_control() is None
