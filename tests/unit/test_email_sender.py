@@ -7,7 +7,7 @@ directly, not just that "an email was sent" (PRD_7 §5's own framing)."""
 import base64
 import json
 
-from thief_peer.infra.email_sender import SCOPES, build_message, send_report
+from thief_peer.infra.email_sender import SCOPES, build_message, build_recipients, send_report
 
 
 def _sample_report():
@@ -16,6 +16,21 @@ def _sample_report():
 
 def test_scope_is_least_privilege_send_only():
     assert SCOPES == ["https://www.googleapis.com/auth/gmail.send"]
+
+
+def test_build_recipients_without_an_opponent_address_keeps_the_old_single_recipient_behavior():
+    assert build_recipients("prof@uni.edu", None, is_counted=True) == "prof@uni.edu"
+    assert build_recipients("prof@uni.edu", None, is_counted=False) == "prof@uni.edu"
+
+
+def test_build_recipients_counted_reaches_both_the_opponent_and_the_lecturer():
+    assert build_recipients("prof@uni.edu", "opponent@team.com", is_counted=True) == "opponent@team.com, prof@uni.edu"
+
+
+def test_build_recipients_uncounted_reaches_only_the_opponent_never_the_lecturer():
+    result = build_recipients("prof@uni.edu", "opponent@team.com", is_counted=False)
+    assert result == "opponent@team.com"
+    assert "prof@uni.edu" not in result
 
 
 def test_build_message_has_a_json_attachment_part():

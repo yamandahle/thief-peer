@@ -17,6 +17,22 @@ from email.mime.text import MIMEText
 SCOPES = ["https://www.googleapis.com/auth/gmail.send"]
 
 
+def build_recipients(email_recipient: str, opponent_recipient: str | None, *, is_counted: bool) -> str:
+    """The lecturer's own agent-reporting address (rule 51) always joins
+    when the match is counted; a configured opponent address is always
+    CC'd too, so both sides can cross-check the same artefacts without a
+    separate manual send. `opponent_recipient` unset preserves the old,
+    single-recipient behavior exactly. Comma-joined -- `MIMEMultipart`'s
+    own "to" header already accepts multiple addresses that way, so no
+    change is needed anywhere else in this module."""
+    if opponent_recipient is None:
+        return email_recipient
+    recipients = [opponent_recipient]
+    if is_counted:
+        recipients.append(email_recipient)
+    return ", ".join(recipients)
+
+
 def get_service(token_path: str = "token.json"):
     """One-time browser consent already completed (Appendix א §1.5) leaves
     `token_path` reusable for unattended sending afterward."""

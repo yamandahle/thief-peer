@@ -8,7 +8,7 @@ my_port = 8801
 # REQUIRED: the Cop peer's real, reachable MCP URL (localhost for a local
 # test against your own second instance; a tunnel/public URL for a real
 # match against an independently-running Cop process -- see PRD_5).
-opponent_url = "http://127.0.0.1:8802/mcp"
+opponent_url = "https://denotatively-sciuroid-florine.ngrok-free.dev/mcp"   # bestteam's own cop endpoint (we play thief) -- 2026-08-18 friendly, M#52
 
 [llm]
 # Appendix B: hard cap on the Strategy Module's own move-computation time
@@ -28,6 +28,9 @@ step_deadline_seconds = 30
 # that address is:
 #   recipient = "rmisegal+uoh26finalgame@gmail.com"
 recipient = "yamandahle@gmail.com"
+# bestteam contact -- gets every report; the lecturer address above only
+# joins when the match is actually counted (this one, M#52, is not).
+opponent_recipient = "itay.malich2@gmail.com"
 # Path to the OAuth token created by the one-time Gmail browser-consent
 # flow (Appendix א) -- gitignored, never commit the real file.
 token_path = "token.json"

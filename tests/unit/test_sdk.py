@@ -86,6 +86,74 @@ def test_run_builds_a_gatekeeper_and_email_service_from_config_and_delegates(
     assert captured["gatekeeper"] is not None
 
 
+def _make_config_with_opponent_recipient(tmp_path, port: int):
+    toml_path = tmp_path / "game.toml"
+    toml_path.write_text(
+        f'[network]\nmy_port = {port}\nopponent_url = "http://127.0.0.1:{port}/mcp"\n'
+        '[email]\nrecipient = "grader@example.com"\nopponent_recipient = "opponent@theirteam.com"\n',
+        encoding="utf-8",
+    )
+    return ConfigManager(toml_path)
+
+
+def test_run_counted_reaches_both_the_opponent_and_the_lecturer(tmp_path, monkeypatch):
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+    config = _make_config_with_opponent_recipient(tmp_path, port)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = {}
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured["recipient"] = recipient
+
+        def run(self):
+            return {"final_result": {"winner_group": "Thief-Team"}}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    sdk = ThiefSdk(config, results_dir=tmp_path)
+    sdk.run("Thief-Team", is_counted=True)
+
+    assert captured["recipient"] == "opponent@theirteam.com, grader@example.com"
+
+
+def test_run_uncounted_reaches_only_the_opponent_never_the_lecturer(tmp_path, monkeypatch):
+    import socket
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(("0.0.0.0", 0))
+        port = s.getsockname()[1]
+    config = _make_config_with_opponent_recipient(tmp_path, port)
+
+    monkeypatch.setattr(
+        "thief_peer.sdk.sdk.email_sender.get_service", lambda token_path: "fake-service"
+    )
+
+    captured = {}
+
+    class _FakeRuntime:
+        def __init__(self, cfg, group_name, gatekeeper, email_service, recipient, **kwargs):
+            captured["recipient"] = recipient
+
+        def run(self):
+            return {"final_result": {"winner_group": "Thief-Team"}}
+
+    monkeypatch.setattr("thief_peer.sdk.sdk.PeerRuntime", _FakeRuntime)
+
+    sdk = ThiefSdk(config, results_dir=tmp_path)
+    sdk.run("Thief-Team", is_counted=False)
+
+    assert captured["recipient"] == "opponent@theirteam.com"
+
+
 def test_run_with_gui_builds_a_window_and_live_session_and_returns_its_result(
     tmp_path, monkeypatch
 ):

@@ -107,7 +107,14 @@ class ThiefSdk:
             backoff_sec=self._config.get("rate_limiter_gatekeeper.retry_backoff_sec", 5.0),
         )
         service = email_sender.get_service(self._config.get("email.token_path", "token.json"))
-        recipient = self._config.require("email.recipient")
+        # Opponent address always CC'd; the lecturer's own agent-reporting
+        # address only joins when this run is actually counted -- a
+        # friendly/warm-up never mails the lecturer (M#52's own framing).
+        recipient = email_sender.build_recipients(
+            self._config.require("email.recipient"),
+            self._config.get("email.opponent_recipient"),
+            is_counted=is_counted,
+        )
         # docs/TodoCloseGaps.md #2: num_sub_games/sub_game_number were
         # never driven by anything -- every run silently defaulted to
         # "sub-game 1 of 1" regardless of the negotiated
