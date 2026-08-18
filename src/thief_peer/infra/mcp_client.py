@@ -82,6 +82,7 @@ class McpTransport:
         self._response_timeout_sec = response_timeout_sec
         self._client = Client(opponent_url)
         self._connected = False
+        self._connect_lock = asyncio.Lock()
         self._loop = asyncio.new_event_loop()
         self._loop_thread = threading.Thread(target=self._loop.run_forever, daemon=True)
         self._loop_thread.start()
@@ -126,9 +127,21 @@ class McpTransport:
         )
 
     async def _call_async(self, tool_name: str, payload: dict) -> dict:
-        if not self._connected:
-            await self._client.__aenter__()
-            self._connected = True
+        # Real bug found via a live cross-team match (yanell11): two calls
+        # submitted close together (e.g. a negotiate retry firing while an
+        # earlier attempt's own connect was still in flight) both saw
+        # `not self._connected` before either had finished `__aenter__()`,
+        # so both opened their own session -- the MCP Streamable HTTP
+        # transport allows exactly one SSE stream per session, and the
+        # peer's server correctly rejected the second with 409. The check
+        # and the `await` it straddles must be atomic, which a plain `if`
+        # can never be (an `await` always yields control back to the loop,
+        # letting another scheduled call interleave); `asyncio.Lock` makes
+        # the whole connect-or-reuse decision one atomic step instead.
+        async with self._connect_lock:
+            if not self._connected:
+                await self._client.__aenter__()
+                self._connected = True
         try:
             result = await self._client.call_tool(tool_name, payload)
             return result.data
@@ -138,9 +151,12 @@ class McpTransport:
             # loop's own next attempt, or a later unrelated one) gets a
             # healthy connection instead of `Client`'s own internals
             # re-raising this same cached failure forever on a still-open
-            # session.
-            await self._client.close()
-            self._connected = False
+            # session. Locked for the same reason as the connect path --
+            # two failing calls racing this same close/reset must not
+            # interleave either.
+            async with self._connect_lock:
+                await self._client.close()
+                self._connected = False
             raise
 
     def close(self) -> None:

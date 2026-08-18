@@ -266,6 +266,48 @@ def test_call_does_not_sleep_for_backoff_on_an_unsafe_failure(monkeypatch, unuse
     assert sleeps == []
 
 
+def test_concurrent_calls_open_the_session_exactly_once(unused_tcp_port):
+    # Real bug found live (yanell11 match): two calls submitted close
+    # together both saw `not self._connected` before either finished
+    # `__aenter__()`, so both opened a session -- the peer's MCP server
+    # correctly rejected the second SSE stream with 409, since the
+    # Streamable HTTP transport allows exactly one per session.
+    transport = McpTransport(f"http://127.0.0.1:{unused_tcp_port}/mcp")
+
+    aenter_calls = []
+
+    class _FakeClient:
+        async def __aenter__(self):
+            aenter_calls.append(1)
+            # Widen the race window: without the lock, a second coroutine
+            # scheduled on the same loop gets a chance to run its own
+            # `not self._connected` check right here, before this one sets
+            # `self._connected = True`.
+            await asyncio.sleep(0.05)
+
+        async def call_tool(self, tool_name, payload):
+            class _Result:
+                data = {"ok": True, "tool": tool_name}
+
+            return _Result()
+
+        async def close(self):
+            pass
+
+    transport._client = _FakeClient()
+
+    async def _fire_two_concurrent_calls():
+        await asyncio.gather(
+            transport._call_async("negotiate", {"n": 1}),
+            transport._call_async("negotiate", {"n": 2}),
+        )
+
+    future = asyncio.run_coroutine_threadsafe(_fire_two_concurrent_calls(), transport._loop)
+    future.result(timeout=5)
+
+    assert aenter_calls == [1], f"expected exactly one __aenter__ call, got {len(aenter_calls)}"
+
+
 def test_close_is_idempotent_and_safe_with_no_prior_connection(unused_tcp_port):
     transport = McpTransport(f"http://127.0.0.1:{unused_tcp_port}/mcp")  # never called
     transport.close()

@@ -17,17 +17,25 @@ def run_server_in_background(app: FastMCP, port: int) -> threading.Thread:
     connections -- the exact thread-plus-`wait_until_ready` pattern already
     duplicated across every Stage 2-7 integration test fixture, now shared
     for `peer/runtime.py`'s production use (PRD_8 §3)."""
-    thread = threading.Thread(
-        target=app.run,
-        kwargs={
-            "transport": "http",
-            "host": "0.0.0.0",
-            "port": port,
-            "show_banner": False,
-            "log_level": "warning",
-        },
-        daemon=True,
-    )
+    def _run() -> None:
+        try:
+            app.run(
+                transport="http", host="0.0.0.0", port=port,
+                show_banner=False, log_level="info",
+            )
+        except Exception:
+            # Diagnostic only (a live cross-team match found this thread
+            # dying silently with no visible cause) -- a daemon thread's
+            # own uncaught-exception traceback should print via Python's
+            # default threading.excepthook regardless, but making the
+            # failure loud and explicit here removes any doubt about
+            # whether it actually happened.
+            import traceback
+            print("[FATAL] MCP server thread crashed:", flush=True)
+            traceback.print_exc()
+            raise
+
+    thread = threading.Thread(target=_run, daemon=True)
     thread.start()
     wait_until_ready(port)
     return thread
