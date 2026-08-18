@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import time
 
-from thief_peer.exceptions import DeadlineExceededError, SimulationError
+from thief_peer.exceptions import DeadlineExceededError, SimulationError, TransportError
 from thief_peer.interop.std_v1.crypto import commit_of, derive_game_uid, fresh_nonce
 from thief_peer.interop.std_v1.terms import validate_terms
 from thief_peer.interop.std_v1.wire import send_negotiate
@@ -79,7 +79,20 @@ def negotiate_sub_game(
 
     deadline = time.monotonic() + ceiling_sec
     while time.monotonic() < deadline:
-        send_negotiate(transport, my_offer)
+        try:
+            send_negotiate(transport, my_offer)
+        except TransportError:
+            # Spec Section 7: every std_v1 receive tool is idempotent
+            # (enqueue-and-return), so a transient failure here -- the
+            # peer's tunnel not up yet, a 502 from its edge -- is always
+            # safe to retry. McpTransport.call() itself doesn't know that
+            # (it applies the *native* protocol's stricter non-idempotency
+            # judgment to every call uniformly), so std_v1 must absorb a
+            # TransportError here rather than let the whole match crash on
+            # the other side simply not being live yet.
+            remaining = deadline - time.monotonic()
+            time.sleep(min(resend_interval_sec, max(0.0, remaining)))
+            continue
         remaining = deadline - time.monotonic()
         try:
             their_offer = exchange.wait_for_offer(sub_game_number, timeout=min(resend_interval_sec, max(0.0, remaining)))

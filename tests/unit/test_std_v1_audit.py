@@ -6,7 +6,7 @@ the record merely claims for itself."""
 
 import pytest
 
-from thief_peer.exceptions import DeadlineExceededError, SimulationError
+from thief_peer.exceptions import DeadlineExceededError, SimulationError, TransportError
 from thief_peer.interop.std_v1.audit import (
     build_audit_envelope,
     build_consensus_envelope,
@@ -136,6 +136,32 @@ def test_send_and_await_resends_until_the_wait_fn_returns():
     )
     assert result == {"result_claim": "capture"}
     assert transport.calls == 3
+
+
+def test_send_and_await_retries_through_a_transient_transport_error():
+    # submit_audit is idempotent (spec Section 7), so a transient failure
+    # (peer's tunnel briefly down) must be retried, never fatal.
+    class _FlakyTransport:
+        def __init__(self):
+            self.calls = 0
+
+        def call(self, name, payload):
+            self.calls += 1
+            if self.calls < 3:
+                raise TransportError("502 Bad Gateway")
+            return {"acknowledged": True}
+
+    transport = _FlakyTransport()
+
+    def wait_fn(timeout):
+        return {"result_claim": "capture"}
+
+    result = send_and_await(
+        transport, wait_fn, build_audit_envelope("thief", [], "capture", 1),
+        resend_interval_sec=0.01, ceiling_sec=2.0,
+    )
+    assert result == {"result_claim": "capture"}
+    assert transport.calls >= 3
 
 
 def test_send_and_await_raises_deadline_exceeded_past_the_ceiling():

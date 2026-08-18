@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import time
 
-from thief_peer.exceptions import DeadlineExceededError, SimulationError
+from thief_peer.exceptions import DeadlineExceededError, SimulationError, TransportError
 from thief_peer.interop.std_v1.sealing import verify_record
 from thief_peer.interop.std_v1.wire import send_audit
 
@@ -51,7 +51,15 @@ def send_and_await(
     both without duplicating it."""
     deadline = time.monotonic() + ceiling_sec
     while time.monotonic() < deadline:
-        send_audit(transport, envelope)
+        try:
+            send_audit(transport, envelope)
+        except TransportError:
+            # Same reasoning as handshake.py::negotiate_sub_game -- submit_audit
+            # is idempotent per spec Section 7, so a transient failure (peer's
+            # tunnel briefly down) is always safe to retry, not fatal.
+            remaining = deadline - time.monotonic()
+            time.sleep(min(resend_interval_sec, max(0.0, remaining)))
+            continue
         remaining = deadline - time.monotonic()
         try:
             return wait_fn(timeout=min(resend_interval_sec, max(0.0, remaining)))

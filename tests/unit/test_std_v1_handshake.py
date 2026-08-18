@@ -5,7 +5,7 @@ the identical offer while polling the exchange for the peer's own."""
 
 import pytest
 
-from thief_peer.exceptions import DeadlineExceededError, SimulationError
+from thief_peer.exceptions import DeadlineExceededError, SimulationError, TransportError
 from thief_peer.interop.std_v1.crypto import commit_of, derive_game_uid
 from thief_peer.interop.std_v1.exchange import StdExchange
 from thief_peer.interop.std_v1.handshake import build_offer, negotiate_sub_game, validate_offer
@@ -82,6 +82,34 @@ def test_negotiate_sub_game_returns_the_peers_matching_offer_once_it_lands():
     )
     assert result == peer_offer
     assert transport.calls >= 1
+
+
+def test_negotiate_sub_game_retries_through_a_transient_transport_error():
+    # Section 7: every std_v1 receive tool is idempotent, so a transient
+    # failure (peer's tunnel not up yet -- a real 502) must be retried,
+    # never allowed to crash the whole handshake on the first attempt.
+    class _FlakyTransport:
+        def __init__(self):
+            self.calls = 0
+
+        def call(self, name, payload):
+            self.calls += 1
+            if self.calls < 3:
+                raise TransportError("502 Bad Gateway")
+            return {"acknowledged": True}
+
+    exchange = StdExchange(poll_interval=0.01)
+    transport = _FlakyTransport()
+    game_uid = derive_game_uid(_TERMS, "us", "peer")
+    peer_offer = build_offer(_TERMS, "peer", "police", 1, {"identity": "peer"}, game_uid, "peer-nonce")
+    exchange.record_offer(peer_offer)
+
+    result = negotiate_sub_game(
+        transport, exchange, _TERMS, "us", "peer", "thief", 1, {},
+        resend_interval_sec=0.01, ceiling_sec=2.0,
+    )
+    assert result == peer_offer
+    assert transport.calls >= 3
 
 
 def test_negotiate_sub_game_rejects_a_peer_offer_with_the_wrong_game_uid():
