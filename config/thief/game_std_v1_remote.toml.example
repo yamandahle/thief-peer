@@ -18,6 +18,16 @@ opponent_protocol = "std_v1"
 # REQUIRED: the other team's own group id, agreed on ahead of time.
 opponent_group_id = "REPLACE-WITH-THEIR-GROUP-ID"
 
+[network_and_league]
+# PeerRuntime's own defaults (round_deadline_sec=30, watchdog_timeout_sec=180)
+# are fine on localhost but too tight for a real tunnel -- spec Section 7's
+# own guidance is "generous (minutes)" for the per-turn deadline, and
+# yamanagh-cop's own remote config already declares turn_timeout_seconds=180.
+# Explicit here so a copy of this template never silently falls back to the
+# 30s default against a real opponent.
+response_timeout_sec = 180.0
+watchdog_timeout_sec = 180.0
+
 [email]
 recipient = "yamandahle@gmail.com"
 token_path = "token.json"
