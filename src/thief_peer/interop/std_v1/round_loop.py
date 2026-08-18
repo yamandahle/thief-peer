@@ -94,6 +94,7 @@ def play_sub_game(
         my_commits[step] = sealed["commit"]
         _phase("COMMITTING")
         send_turn(transport, build_turn_message(payload, sealed["commit"]))
+        print(f"[turn {step}] sent move={payload['move']}" + (" (survival claim)" if win_claim else ""), flush=True)
         scent.advance(state.position)
         pending_claim_response = None
 
@@ -106,6 +107,7 @@ def play_sub_game(
         except DeadlineExceededError:
             return "timeout", records, peer_commits, my_commits
         peer_commits[cop_message["step"]] = cop_message["commit"]
+        print(f"[turn {cop_message['step']}] received police reply", flush=True)
 
         barrier_placed = cop_message.get("barrier_placed")
         if barrier_placed is not None:

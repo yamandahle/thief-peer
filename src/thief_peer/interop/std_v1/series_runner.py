@@ -142,6 +142,7 @@ def play_series(
             role, sub_game_number, identity, resend_interval_sec, negotiate_ceiling_sec,
         )
         their_identity = their_offer.get("identity", their_identity)
+        print(f"[negotiate] sub-game {sub_game_number} agreed OK -- we play {role}", flush=True)
 
         board = board_factory()
         state = state_factory(role)
@@ -171,6 +172,8 @@ def play_series(
         verify_result = verify_peer_records(peer_envelope.get("records", []), peer_commits)
         all_clean = all_clean and verify_result["log_verified"]
         ended_at = now_iso()
+        audit_state = "verified OK" if verify_result["log_verified"] else "TAMPERED"
+        print(f"[sub-game {sub_game_number}] {end_reason} (role={role}) -- peer audit {audit_state}", flush=True)
 
         rows.append(_row_for(sub_game_number, role, end_reason, verify_result["tampered"], my_group_id, their_group_id))
         sub_game_reports.append({
@@ -208,6 +211,11 @@ def play_series(
     )
     peer_digest = validate_consensus_envelope(peer_envelope)
     agreed = confirm_agreement(all_clean, all_results_agreed, local_digest, peer_digest)
+    print(
+        f"[consensus] {'CONFIRMED' if agreed else 'NOT CONFIRMED'} -- "
+        f"sha_match={local_digest == peer_digest} results_agreed={all_results_agreed} all_clean={all_clean}",
+        flush=True,
+    )
     mutual_agreement = {
         "sha256": local_digest,
         "peer_sha256": peer_digest,

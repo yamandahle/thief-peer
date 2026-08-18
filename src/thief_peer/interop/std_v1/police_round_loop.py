@@ -67,6 +67,7 @@ def play_sub_game_as_police(
     except DeadlineExceededError:
         return "timeout", records, peer_commits, my_commits
     peer_commits[1] = thief_message["commit"]
+    print("[turn 1] received thief opening", flush=True)
     last_thief_scent = thief_message.get("smell_grid") or {}
 
     step = 1
@@ -90,6 +91,7 @@ def play_sub_game_as_police(
         my_commits[step] = sealed["commit"]
         _phase("COMMITTING")
         send_turn(transport, build_turn_message(payload, sealed["commit"]))
+        print(f"[turn {step}] sent move={payload['move']}", flush=True)
         scent.advance(state.position)
 
         _phase("AWAITING_REVEAL")
@@ -97,6 +99,7 @@ def play_sub_game_as_police(
             thief_message = exchange.wait_for_turn(step + 1, timeout=turn_deadline_sec)
         except DeadlineExceededError:
             return "timeout", records, peer_commits, my_commits
+        print(f"[turn {thief_message['step']}] received thief reply", flush=True)
         peer_commits[thief_message["step"]] = thief_message["commit"]
 
         _phase("VERIFYING")
