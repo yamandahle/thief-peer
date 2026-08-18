@@ -54,6 +54,7 @@ class _SpyContext:
         self.repos = {"cop": "x", "thief": "y"}
         self.state = _State(position)
         self.transport = _FakeTransport()
+        self._round_wakeup = threading.Event()
 
         class _Scent:
             def snapshot(self):
@@ -252,6 +253,11 @@ def test_handle_receive_capture_claim_acks_immediately_then_confirms_a_real_capt
     # advances to a step the Cop (who already correctly ended her match)
     # will never send a reveal for, and hangs on wait_for_reveal forever.
     assert context._captured_by_landing is True
+    # And _round_wakeup must fire too, or a wait already in progress for
+    # the *current* round (not just a future one the top-of-loop check
+    # would catch) still runs out its full deadline before noticing --
+    # the exact false-technical_loss bug a real live match hit.
+    assert context._round_wakeup.is_set()
 
 
 def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wrong():
@@ -267,6 +273,7 @@ def test_handle_receive_capture_claim_denies_and_reveals_true_position_when_wron
         ("receive_capture_response", {"confirmed": False, "true_thief_col": 9, "true_thief_row": 9})
     ]
     assert context._captured_by_landing is False
+    assert not context._round_wakeup.is_set()
     assert adapter.peer_trace.capture_claims[-1].confirmed is False
 
 

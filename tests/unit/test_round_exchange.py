@@ -75,6 +75,48 @@ def test_wait_for_reveal_raises_deadline_exceeded_when_nothing_ever_arrives():
         exchange.wait_for_reveal(step=1, timeout=0.1)
 
 
+def test_wait_for_reveal_returns_none_immediately_when_interrupt_already_set():
+    exchange = RoundExchange(poll_interval=0.01)
+    interrupt = threading.Event()
+    interrupt.set()
+
+    started = time.monotonic()
+    result = exchange.wait_for_reveal(step=1, timeout=2.0, interrupt=interrupt)
+
+    assert result is None
+    assert time.monotonic() - started < 0.5  # never actually waited out the deadline
+
+
+def test_wait_for_reveal_unblocks_on_interrupt_set_from_another_thread():
+    # The real bug this covers: a live match where a confirmed capture
+    # landed on the MCP server's own thread *while* the main loop was
+    # already blocked waiting for the next round's reveal -- a reveal the
+    # opponent (having already ended her own match) would never send.
+    # Without the interrupt, this call would run out its full 5s timeout.
+    exchange = RoundExchange(poll_interval=0.01)
+    interrupt = threading.Event()
+
+    def _capture_confirmed():
+        time.sleep(0.05)
+        interrupt.set()
+
+    threading.Thread(target=_capture_confirmed, daemon=True).start()
+
+    started = time.monotonic()
+    result = exchange.wait_for_reveal(step=1, timeout=5.0, interrupt=interrupt)
+    elapsed = time.monotonic() - started
+
+    assert result is None
+    assert elapsed < 1.0
+
+
+def test_wait_for_reveal_still_raises_deadline_exceeded_without_interrupt():
+    exchange = RoundExchange(poll_interval=0.01)
+
+    with pytest.raises(DeadlineExceededError):
+        exchange.wait_for_reveal(step=1, timeout=0.1, interrupt=None)
+
+
 def test_commits_and_reveals_are_tracked_independently_per_step():
     exchange = RoundExchange(poll_interval=0.01)
     exchange.record_commit(step=1, h_commit="hash-for-step-1")

@@ -167,11 +167,12 @@ def test_play_opponent_round_threads_round_exchange_and_deadline_through_for_cop
 
     def fake_play_round_cop(
         step, turn_handler, turn_fsm, scent, trash_talk, round_exchange, transport,
-        round_deadline_sec, strategy_deadline_sec, last_opponent_scent,
+        round_deadline_sec, strategy_deadline_sec, last_opponent_scent, round_wakeup,
     ):
         captured["round_exchange"] = round_exchange
         captured["round_deadline_sec"] = round_deadline_sec
         captured["strategy_deadline_sec"] = strategy_deadline_sec
+        captured["round_wakeup"] = round_wakeup
         return {"payload": {}}, {}, False, None
 
     monkeypatch.setattr(
@@ -187,9 +188,11 @@ def test_play_opponent_round_threads_round_exchange_and_deadline_through_for_cop
     runtime.round_deadline_sec = 12.5
     runtime.strategy_deadline_sec = 7.5
     runtime._last_opponent_scent = {}
+    runtime._round_wakeup = object()
 
     play_opponent_round(runtime, 3)
 
     assert captured["round_exchange"] is runtime.round_exchange
     assert captured["round_deadline_sec"] == 12.5
     assert captured["strategy_deadline_sec"] == 7.5
+    assert captured["round_wakeup"] is runtime._round_wakeup

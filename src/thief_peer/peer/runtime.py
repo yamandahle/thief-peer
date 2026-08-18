@@ -14,6 +14,7 @@ as a private method; reaching into it (or duplicating its formula here) was
 judged out of proportion to this stage's actual scope. Flagged, not hidden.
 """
 
+import threading
 import traceback
 from datetime import UTC, datetime
 from pathlib import Path
@@ -93,6 +94,18 @@ class PeerRuntime(PeerContextMixin):
         self._match_over = False
         self._captured_by_barrier = False
         self._captured_by_landing = False
+        # Set alongside _captured_by_landing (interop/cop_server_tools.py::
+        # handle_receive_capture_claim, on the MCP server's own thread) so a
+        # blocking wait_for_reveal() on the main loop's thread can wake up
+        # immediately instead of running out its full round_deadline_sec --
+        # found via a real live match: her cop peer treats a confirmed
+        # capture as terminal and never sends the next round's reveal, but
+        # this side's own _captured_by_landing check only ever ran at a
+        # round boundary, so a confirmation landing mid-wait for the *next*
+        # round left the loop blocked for the full deadline before timing
+        # out as a false technical_loss instead of ending cleanly as
+        # "captured" at the round that actually caught it.
+        self._round_wakeup = threading.Event()
 
         self.port = config.require("network.my_port")
         self.opponent_url = config.get("network.opponent_url")
@@ -137,6 +150,13 @@ class PeerRuntime(PeerContextMixin):
         technical_loss_traceback: str | None = None
         step = 0
         while step < self.max_moves:
+            if self._captured_by_landing:
+                # A confirmed capture landed between rounds (its own
+                # wakeup already fired mid-wait for the round it
+                # interrupted, if any) -- never start a new round we
+                # already know can't complete.
+                end_reason = "captured"
+                break
             step += 1
             # Wall-clock anchor for this round, persisted alongside the
             # reason below -- docs/todoFIXMCP.md's investigations kept

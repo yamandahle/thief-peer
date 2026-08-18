@@ -56,6 +56,7 @@ def play_round_cop(
     round_deadline_sec: float,
     strategy_deadline_sec: float,
     last_opponent_scent: dict,
+    round_wakeup=None,
 ) -> tuple[dict, dict, bool, str | None]:
     """Returns (sealed_record, next_opponent_scent, technical_loss, reason).
     `reason` is None unless `technical_loss` is True, in which case it's a
@@ -107,7 +108,7 @@ def play_round_cop(
 
     turn_fsm.transition("AWAITING_REVEAL")
     try:
-        round_exchange.wait_for_reveal(step, round_deadline_sec)
+        round_exchange.wait_for_reveal(step, round_deadline_sec, interrupt=round_wakeup)
     except DeadlineExceededError as exc:
         turn_fsm.transition("TECHNICAL_LOSS")
         return record, peer_scent, True, f"opponent's reveal never arrived: {type(exc).__name__}: {exc}"

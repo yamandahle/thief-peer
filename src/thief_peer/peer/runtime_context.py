@@ -87,6 +87,13 @@ class PeerContextMixin:
         self.state.record_barrier(cell)
         if is_captured_by_barrier(self.state, cell):
             self._captured_by_barrier = True
+            # Same fix as the confirmed-landing-capture path
+            # (interop/cop_server_tools.py): wakes up a blocking
+            # wait_for_reveal() immediately instead of leaving the main
+            # loop's thread to run out the full round deadline waiting for
+            # a round an opponent who already ended her own match on this
+            # same barrier will never send.
+            self._round_wakeup.set()
         return {"ok": True}
 
     def handle_receive_capture_claim(self, payload: dict) -> dict:

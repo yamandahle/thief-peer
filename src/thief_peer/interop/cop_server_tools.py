@@ -120,6 +120,11 @@ class CopContextAdapter:
             # round_exchange.wait_for_reveal for a reveal the Cop -- who
             # correctly already ended her own match -- will never send.
             self._context._captured_by_landing = True
+            # Wakes up a blocking wait_for_reveal() immediately instead of
+            # leaving the main loop's thread to run out the full round
+            # deadline waiting for a round the Cop (having already ended
+            # her own match on this same confirmation) will never send.
+            self._context._round_wakeup.set()
         self.peer_trace.record_capture_claim(
             claimed_at_step=claimed_at_step,
             thief_row=thief_row,

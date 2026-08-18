@@ -10,7 +10,10 @@ peer catches the opponent lying) or `self_audit` failing (the opponent
 catches this peer lying) must each override the natural game-outcome winner,
 per rule 19's "any hash mismatch = automatic 0 to the forging team"."""
 
+import pytest
+
 from thief_peer.domain.crypto import CommitReveal
+from thief_peer.exceptions import ConfigError
 from thief_peer.peer.match_end import finalize_match
 
 
@@ -105,6 +108,18 @@ def test_both_sides_compute_the_identical_game_id_regardless_of_call_order(tmp_p
 
     assert result_a["game_id"] == result_b["game_id"]
     assert result_a["game_uid"] == result_b["game_uid"]
+
+
+def test_raises_a_clear_config_error_instead_of_a_bare_stopiteration_on_self_play(
+    tmp_path, monkeypatch
+):
+    """A self-vs-self warm-up (own paired Cop, same real group id on both
+    sides) used to collapse roles/score/github_commit/tokens/log_files --
+    all keyed {group_name: ..., opponent_group_name: ...} -- into a single
+    dict entry, then crash deep inside score_sub_game with a bare
+    StopIteration only after the whole match had already played out."""
+    with pytest.raises(ConfigError, match="identical"):
+        _finalize(tmp_path, monkeypatch, group_name="yamanagh", opponent_group_name="yamanagh")
 
 
 def test_winner_is_self_on_survival(tmp_path, monkeypatch):

@@ -304,6 +304,46 @@ def test_run_stops_the_loop_when_a_confirmed_landing_capture_is_flagged(tmp_path
     assert len(runtime.records) == 1  # stopped after the round that flagged the capture
 
 
+def test_run_never_starts_a_new_round_once_already_flagged_captured(tmp_path, monkeypatch):
+    # A confirmed capture can land between two rounds too (its own
+    # interrupt only helps a wait already in progress) -- the top of the
+    # loop must also refuse to start a round it already knows can't
+    # complete, rather than relying solely on the bottom-of-round check.
+    my_config = _config(tmp_path, "mine", port=8937)
+    their_config = _config(tmp_path, "theirs", port=8938)
+    results_dir = tmp_path / "results"
+
+    from thief_peer.shared.gatekeeper import ApiGatekeeper
+    from thief_peer.shared.rate_limiter import DosDetector, RequestQueue, TokenBucket
+
+    gatekeeper = ApiGatekeeper(
+        token_bucket=TokenBucket(capacity=5, refill_rate=1.0),
+        dos_detector=DosDetector(max_calls=100, window_seconds=60),
+        queue=RequestQueue(max_depth=5),
+    )
+    runtime = PeerRuntime(
+        config=my_config,
+        group_name="Thief-Team",
+        gatekeeper=gatekeeper,
+        email_service=_FakeGmailService(),
+        recipient="grader@example.com",
+        results_dir=results_dir,
+        round_deadline_sec=2.0,
+    )
+    opponent = _CooperativeStubOpponent(runtime, their_config, their_group_name="Cop-Team")
+    runtime.transport = opponent
+    runtime._captured_by_landing = True
+
+    def _must_not_be_called(_runtime, step):
+        raise AssertionError("play_opponent_round must not run once already captured")
+
+    monkeypatch.setattr("thief_peer.peer.runtime.play_opponent_round", _must_not_be_called)
+
+    runtime.run()
+
+    assert runtime.records == []
+
+
 def test_handle_commit_move_and_reveal_move_record_into_round_exchange(tmp_path):
     my_config = _config(tmp_path, "mine", port=8903)
     runtime = PeerRuntime(
@@ -389,6 +429,12 @@ def test_handle_receive_barrier_declaration_flags_capture_on_my_own_cell(tmp_pat
     runtime.handle_receive_barrier_declaration({"row": row, "col": col})
 
     assert runtime._captured_by_barrier is True
+    # Same fix as the confirmed-landing-capture path: a barrier capture
+    # must also wake up a blocking wait_for_reveal() immediately, or the
+    # loop can run out the full round deadline waiting for a round an
+    # opponent who already ended her own match on this barrier will never
+    # send.
+    assert runtime._round_wakeup.is_set()
 
 
 def test_handle_receive_barrier_declaration_accepts_exactly_up_to_max_barriers(tmp_path):

@@ -151,6 +151,7 @@ def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool, str | Non
             runtime.round_deadline_sec,
             runtime.strategy_deadline_sec,
             runtime._last_opponent_scent,
+            runtime._round_wakeup,
         )
     return play_round(
         step,
@@ -164,4 +165,5 @@ def play_opponent_round(runtime, step: int) -> tuple[dict, dict, bool, str | Non
         runtime.round_deadline_sec,
         runtime.strategy_deadline_sec,
         runtime._last_opponent_scent,
+        runtime._round_wakeup,
     )

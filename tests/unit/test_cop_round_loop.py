@@ -180,6 +180,32 @@ def test_play_round_cop_declares_technical_loss_when_her_reveal_never_arrives():
     assert reason is not None and "reveal never arrived" in reason
 
 
+def test_play_round_cop_does_not_declare_technical_loss_when_interrupted_by_a_confirmed_capture():
+    # A confirmed capture (interop/cop_server_tools.py's
+    # handle_receive_capture_claim) sets round_wakeup the instant it lands,
+    # even mid-wait for a reveal that -- since she already ended her own
+    # match on that same confirmation -- will never arrive. This must
+    # return cleanly (not technical_loss), so the caller's own
+    # _captured_by_landing check ends the match as "captured" instead of a
+    # false timeout.
+    import threading
+
+    turn_handler = _FakeTurnHandler()
+    transport = _StubTransport()
+    fsm = TurnFsm()
+    round_wakeup = threading.Event()
+    round_wakeup.set()  # already confirmed by the time this round waits
+
+    record, next_scent, technical_loss, reason = play_round_cop(
+        1, turn_handler, fsm, _FakeScent(), _FakeTrashTalk(),
+        RoundExchange(), transport, 5.0, 1.0, {}, round_wakeup,
+    )
+
+    assert technical_loss is False
+    assert reason is None
+    assert fsm.state == "WAITING_FOR_OPPONENT"
+
+
 def test_play_round_cop_advances_this_sides_own_scent_field_at_its_own_position():
     turn_handler = _FakeTurnHandler()
     scent = _FakeScent()

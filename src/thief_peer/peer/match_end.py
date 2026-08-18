@@ -61,6 +61,7 @@ from thief_peer.domain.game_ids import derive_game_id, derive_game_uid
 from thief_peer.domain.negotiation import canonical_terms
 from thief_peer.domain.protocol import build_audit_payload
 from thief_peer.domain.scoring import score_sub_game
+from thief_peer.exceptions import ConfigError
 from thief_peer.report.artifact_helpers import artifact_filenames
 from thief_peer.report.report_writer import LeagueCounter, write_and_send
 
@@ -112,6 +113,29 @@ def finalize_match(
     technical_loss_reason: str | None = None,
     technical_loss_traceback: str | None = None,
 ) -> dict:
+    # Every per-sub-game field below (roles, score, github_commit, tokens,
+    # log_files) is a dict keyed by group name -- {group_name: ...,
+    # opponent_group_name: ...} -- so an identical group_name on both sides
+    # silently collapses to a single key (the second assignment overwrites
+    # the first), and score_sub_game's `next(... role == "thief")` then
+    # raises a bare, deep-in-the-stack StopIteration after the whole match
+    # already played out. This only happens in a self-vs-self warm-up
+    # (playing your own paired Cop, which legitimately shares your own real
+    # group id) -- a real opponent always has a distinct group id -- but it
+    # deserves a clear, actionable failure here rather than a confusing
+    # crash after the match already ran to completion. Use a different
+    # --group-name for a self-test (e.g. the local-test-double convention's
+    # "dev-team"/"thief-team" pair) rather than your real, shared team id on
+    # both sides.
+    if group_name == opponent_group_name:
+        raise ConfigError(
+            f"Cannot finalize a report: this peer's own group_name "
+            f"({group_name!r}) is identical to the opponent's declared "
+            f"group_name -- the report schema requires two distinct group "
+            f"ids (rule 49). If this is a self-test against your own paired "
+            f"Cop, run it with a different --group-name than your real, "
+            f"shared team id."
+        )
     game_id = derive_game_id(*sorted([group_name, opponent_group_name]))
     game_uid = derive_game_uid(game_id, sub_game_number)
     result_claim = "technical_loss" if end_reason == "technical_loss" else "survival"

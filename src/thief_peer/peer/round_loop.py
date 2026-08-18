@@ -25,6 +25,7 @@ def play_round(
     round_deadline_sec: float,
     strategy_deadline_sec: float,
     last_opponent_scent: dict,
+    round_wakeup=None,
 ) -> tuple[dict, dict, bool, str | None]:
     """Returns (sealed_record, next_opponent_scent, technical_loss, reason).
     `reason` is None unless `technical_loss` is True (docs/todoFIXMCP.md)."""
@@ -74,7 +75,7 @@ def play_round(
 
     turn_fsm.transition("AWAITING_REVEAL")
     try:
-        their_reveal = round_exchange.wait_for_reveal(step, round_deadline_sec)
+        their_reveal = round_exchange.wait_for_reveal(step, round_deadline_sec, interrupt=round_wakeup)
     except DeadlineExceededError as exc:
         turn_fsm.transition("TECHNICAL_LOSS")
         return (
@@ -85,6 +86,11 @@ def play_round(
         )
 
     turn_fsm.transition("VERIFYING")
-    next_scent = their_reveal.get("scent_grid", {})
+    # their_reveal is None when round_wakeup fired instead of a real reveal
+    # arriving (a barrier/landing capture the opponent already ended her
+    # own match on) -- the match is ending this round regardless, so the
+    # scent snapshot no longer matters; carry the last known one forward
+    # rather than crashing on None.get(...).
+    next_scent = their_reveal.get("scent_grid", {}) if their_reveal is not None else last_opponent_scent
     turn_fsm.transition("WAITING_FOR_OPPONENT")
     return record, next_scent, False, None

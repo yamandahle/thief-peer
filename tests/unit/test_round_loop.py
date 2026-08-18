@@ -94,6 +94,29 @@ def test_play_round_declares_technical_loss_when_her_reveal_never_arrives():
     assert reason is not None and "reveal never arrived" in reason
 
 
+def test_play_round_does_not_declare_technical_loss_when_interrupted_by_round_wakeup():
+    # Same fix as the cop_v1 round loop: a confirmed barrier/landing
+    # capture sets round_wakeup the instant it lands, even mid-wait for a
+    # reveal the opponent (having already ended her own match on that same
+    # confirmation) will never send. Must return cleanly, and must not
+    # crash trying to read scent_grid off the missing reveal.
+    import threading
+
+    fsm = TurnFsm()
+    round_wakeup = threading.Event()
+    round_wakeup.set()
+
+    record, next_scent, technical_loss, reason = play_round(
+        1, _FakeTurnHandler(), fsm, _FakeScent(), _FakeTrashTalk(), RoundExchange(),
+        _StubTransport(), "thief", 5.0, 1.0, {"3,3": 0.5}, round_wakeup,
+    )
+
+    assert technical_loss is False
+    assert reason is None
+    assert next_scent == {"3,3": 0.5}  # carried forward, not crashed on None.get(...)
+    assert fsm.state == "WAITING_FOR_OPPONENT"
+
+
 def test_play_round_raises_deadline_exceeded_when_the_strategy_hangs():
     # Deliberately not caught inside play_round itself (no sealed record
     # exists yet) -- must propagate uncaught for PeerRuntime.run()'s outer
