@@ -43,19 +43,33 @@ def get_service(token_path: str = "token.json"):
     return build("gmail", "v1", credentials=creds)
 
 
+def _canonical(payload: dict) -> str:
+    """Rule 9.3.3's own required serialization for the attachment bytes --
+    `sort_keys=True, ensure_ascii=False, separators=(",",":")`, distinct
+    from `domain/crypto.py::canonical_json` (which is ASCII-only, fine for
+    that module's always-ASCII payloads but not a safe substitute here,
+    where a report can carry non-ASCII member names/hints). Confirmed
+    live: yanell11's own cohort had a team's hashes match but its emailed
+    report was a pretty-printed re-serialization instead of these exact
+    bytes, and it nearly scored 0 -- `indent=2` was this module's own
+    previous behavior for both the body and the attachment."""
+    return json.dumps(payload, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+
+
 def build_message(recipient: str, subject: str, report: dict) -> MIMEMultipart:
     message = MIMEMultipart()
     message["to"] = recipient
     message["subject"] = subject
     message.attach(MIMEText("Structured match report attached as JSON.", "plain"))
 
-    attachment = MIMEApplication(json.dumps(report, indent=2).encode("utf-8"), _subtype="json")
-    attachment.add_header("Content-Disposition", "attachment", filename="report.json")
+    attachment = MIMEApplication(_canonical(report).encode("utf-8"), _subtype="json")
+    # Rule 9.3.3: filename derives from game_id, not a fixed generic name.
+    attachment.add_header("Content-Disposition", "attachment", filename=f"result_{report['game_id']}.json")
     message.attach(attachment)
     return message
 
 
-def send_report(service, recipient: str, report: dict, subject: str = "Police-Thief match report") -> dict:
-    message = build_message(recipient, subject, report)
+def send_report(service, recipient: str, report: dict, subject: str | None = None) -> dict:
+    message = build_message(recipient, subject or f"Police-Thief result {report['game_id']}", report)
     raw = base64.urlsafe_b64encode(message.as_bytes()).decode()
     return service.users().messages().send(userId="me", body={"raw": raw}).execute()

@@ -77,6 +77,35 @@ def test_build_message_sets_recipient_and_subject():
     assert message["subject"] == "Match report: g01"
 
 
+def test_build_message_attachment_filename_derives_from_game_id():
+    # Rule 9.3.3: filename derives from game_id, not a fixed generic name
+    # -- confirmed live: a real sent report used the fixed "report.json"
+    # instead, which yanell11's own audit flagged.
+    message = build_message("grader@example.com", "subject", _sample_report())
+    attachment = next(part for part in message.walk() if part.get_content_disposition() == "attachment")
+    assert attachment.get_filename() == "result_a-vs-b.json"
+
+
+def test_build_message_attachment_bytes_are_canonical_not_pretty_printed():
+    # yanell11, live: "In a previous cohort two teams' hashes matched but
+    # one team's email was a re-serialization and it nearly scored 0" --
+    # the attachment bytes must be exactly sort_keys=True, ensure_ascii=
+    # False, separators=(",",":"), never indent=2.
+    report = _sample_report()
+    message = build_message("grader@example.com", "subject", report)
+    attachment = next(part for part in message.walk() if part.get_content_disposition() == "attachment")
+    raw_bytes = attachment.get_payload(decode=True)
+    assert raw_bytes == json.dumps(report, sort_keys=True, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
+
+
+def test_send_report_default_subject_includes_the_game_id():
+    service = _FakeService()
+    send_report(service, "grader@example.com", _sample_report())
+    raw = service.users_obj.messages_obj.sent_body["raw"]
+    decoded_bytes = base64.urlsafe_b64decode(raw)
+    assert b"a-vs-b" in decoded_bytes
+
+
 class _FakeMessages:
     def __init__(self):
         self.sent_body = None
