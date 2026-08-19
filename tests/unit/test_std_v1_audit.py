@@ -87,6 +87,50 @@ def test_peer_github_commit_none_when_no_system_spec_record_present():
     assert peer_github_commit([turn_record]) is None
 
 
+def test_turn_records_only_drops_moamteams_own_step0_record_shape():
+    # Real record pasted live by moamteam after their audit came back
+    # falsely TAMPERED: no "step" key at all, type "step0" (not
+    # yanell11's "system_spec") -- confirms the fix is general, not
+    # keyed to one peer's own chosen string.
+    step0_record = {
+        "commit": "2a02c4bd61e0f8fde0c6cc8d0040dd1117009aaa9ce3d8992a44c6fa4ba3e279",
+        "nonce": "117fdb0eb54e44fffe234c9fc2fb0aec",
+        "payload": {
+            "code_version": "0.1.0", "git_commit": "f436fc345ab93f072a5cd85c17b29e3d846af6c5",
+            "group_id": "moamteam", "type": "step0", "sub_game_number": 1,
+        },
+    }
+    turn_record, _ = _sealed_record(1, "N")
+    assert turn_records_only([step0_record, turn_record]) == [turn_record]
+
+
+def test_verify_peer_records_real_moamteam_record_verifies_against_the_documented_formula():
+    # Bit-for-bit real record from moamteam's own friendly g01, record
+    # index 1 -- independently reproduces their stated commit before
+    # this fix, confirming their formula (and this repo's own) agree.
+    payload = {
+        "hint": "Just slipped south past the back alleys.", "intent": "truth", "move": "MOVE:S",
+        "move_detail": {"barrier_cell": None, "direction": "S", "kind": "step"},
+        "position": [1, 0], "role": "police", "state": "grid=7x7;self=[1, 0];barriers=[]",
+        "step": 1, "sub_game": 1,
+    }
+    record = {
+        "commit": "d591aa2ce360978016edc33c3df473146397f4d70d7854af3d83076885369370",
+        "nonce": "c5125963bf501699944e55864a5748e2",
+        "payload": payload,
+    }
+    result = verify_peer_records([record], {1: record["commit"]})
+    assert result == {"log_verified": True, "tampered": False, "mismatched_steps": []}
+
+
+def test_peer_github_commit_reads_moamteams_own_git_commit_field_off_their_step0_shape():
+    record = {
+        "payload": {"type": "step0", "git_commit": "f436fc345ab93f072a5cd85c17b29e3d846af6c5"},
+        "nonce": "n", "commit": "c",
+    }
+    assert peer_github_commit([record]) == "f436fc345ab93f072a5cd85c17b29e3d846af6c5"
+
+
 def test_peer_github_commit_none_when_the_system_spec_record_declares_no_commit():
     record = {"payload": {"type": "system_spec", "step": 0}, "nonce": "n", "commit": "c"}
     assert peer_github_commit([record]) is None

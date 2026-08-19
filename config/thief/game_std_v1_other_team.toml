@@ -1,7 +1,6 @@
-# Warm-up match config for a second opponent while waiting on yanell11 --
-# a separate file so game_std_v1_remote.toml (yanell11's own reserved
-# config) stays completely untouched. Fill in the four TODOs below with
-# the other team's real details before running.
+# Warm-up match config for team moamteam -- a separate file so
+# game_std_v1_remote.toml (yanell11's own reserved config) stays
+# completely untouched.
 
 [board_and_agents]
 grid_size = 7
@@ -20,9 +19,9 @@ pheromone_decay = 0.1
 
 [network]
 my_port = 8801
-opponent_url = "TODO: their real MCP URL, e.g. https://their-tunnel.ngrok-free.dev/mcp"
+opponent_url = "https://sliver-claim-heaving.ngrok-free.dev/mcp"
 opponent_protocol = "std_v1"
-opponent_group_id = "TODO: their team/group id, as they identify themselves on the wire"
+opponent_group_id = "moamteam"
 public_url = "https://splotchy-bronco-nature.ngrok-free.dev/mcp"
 # Same relay this team already verified locally -- yamanagh-cop's relay
 # process doesn't care which opponent it's serving, no restart needed.
@@ -33,7 +32,7 @@ response_timeout_sec = 180.0
 watchdog_timeout_sec = 180.0
 
 [email]
-recipient = "TODO: their contact email, or your own for a private warm-up"
+recipient = "mohammad@mryosef.com"
 token_path = "token.json"
 
 [repos]

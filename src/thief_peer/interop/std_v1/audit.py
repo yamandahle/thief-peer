@@ -71,31 +71,48 @@ def send_and_await(
 def turn_records_only(records: list[dict]) -> list[dict]:
     """Some peers' own kits disclose an extra per-sub-game metadata record
     alongside their real turn records -- e.g. yanell11's own kit, live: a
-    "Step-0 host-spec record" with `payload.type == "system_spec"`. It was
-    never sent live through receive_turn, so this side never saw a commit
-    for it; verify_peer_records' own "unseen step -> tampered" rule (a
-    deliberate anti-cheat guard against a peer fabricating a turn it never
-    actually played, see test_verify_peer_records_rejects_a_record_for_a_
-    step_we_never_saw_a_commit_for) would misfire on it every time.
-    Filtered out narrowly by its own declared type, not by "unseen step"
-    in general, so a genuinely fabricated turn record is still caught."""
-    return [r for r in records if (r.get("payload") or {}).get("type") != "system_spec"]
+    "Step-0 host-spec record" with `payload.type == "system_spec"`; moamteam's
+    own kit, live: a step-0 declaration with `payload.type == "step0"` and no
+    `step` key at all. It was never sent live through receive_turn, so this
+    side never saw a commit for it; verify_peer_records' own "unseen step ->
+    tampered" rule (a deliberate anti-cheat guard against a peer fabricating
+    a turn it never actually played, see test_verify_peer_records_rejects_a_
+    record_for_a_step_we_never_saw_a_commit_for) would misfire on it every
+    time -- and did, live: moamteam's own step-0 record poisoned every one of
+    six otherwise-clean sub-games into a false TAMPERED verdict, since one
+    unmatched record is enough to fail the whole batch.
+
+    Filtered out by the presence of `payload.type` at all, not by matching a
+    specific peer's own chosen string for it: a real turn payload (this
+    repo's own, yanell11's, moamteam's) never carries a `type` key in the
+    first place, only a declaration/metadata record does -- confirmed against
+    both real peers' own kits, not guessed. Narrower than "unseen step" in
+    general, so a genuinely fabricated turn record is still caught."""
+    return [r for r in records if (r.get("payload") or {}).get("type") is None]
+
+
+_PEER_COMMIT_FIELD_NAMES = ("github_commit", "git_commit")
 
 
 def peer_github_commit(records: list[dict]) -> str | None:
-    """A peer's own system_spec disclosure record (see `turn_records_only`'s
-    own docstring) can declare its own `github_commit` inline -- read here
-    since it's the peer's own declaration inside its sealed audit envelope,
-    not something to take on faith from a side channel. This value was
+    """A peer's own declaration record (see `turn_records_only`'s own
+    docstring) can declare its own commit hash inline -- read here since
+    it's the peer's own declaration inside its sealed audit envelope, not
+    something to take on faith from a side channel. The field NAME isn't
+    universal either -- yanell11's own kit uses `github_commit`, moamteam's
+    uses `git_commit` -- so both are checked, in that order. This value was
     never sent live through receive_turn (same reasoning as
     `turn_records_only`), so it isn't part of this side's own commit-reveal
     verification -- informational for the filed report only, same trust
     level the negotiate-offer identity.github_commit field already had.
-    `None` if no such record is present or it doesn't declare one."""
+    `None` if no declaration record is present or neither field is set."""
     for record in records:
         payload = record.get("payload") or {}
-        if payload.get("type") == "system_spec" and payload.get("github_commit"):
-            return payload["github_commit"]
+        if payload.get("type") is None:
+            continue
+        for field_name in _PEER_COMMIT_FIELD_NAMES:
+            if payload.get(field_name):
+                return payload[field_name]
     return None
 
 
