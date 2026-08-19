@@ -32,6 +32,7 @@ from thief_peer.interop.std_v1.audit import (
     build_sub_game_row,
     confirm_agreement,
     send_and_await,
+    turn_records_only,
     validate_consensus_envelope,
     verify_peer_records,
 )
@@ -183,7 +184,8 @@ def play_series(
             lambda timeout, n=sub_game_number: exchange.wait_for_audit(n, timeout),
             my_envelope, resend_interval_sec, audit_ceiling_sec,
         )
-        verify_result = verify_peer_records(peer_envelope.get("records", []), peer_commits)
+        peer_records = turn_records_only(peer_envelope.get("records", []))
+        verify_result = verify_peer_records(peer_records, peer_commits)
         all_clean = all_clean and verify_result["log_verified"]
         ended_at = now_iso()
         audit_state = "verified OK" if verify_result["log_verified"] else "TAMPERED"

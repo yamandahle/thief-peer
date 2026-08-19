@@ -36,7 +36,6 @@ _PUBLIC_FIELDS = (
 # Hashed into `commit` but withheld from the live message -- revealed only
 # in the per-sub-game audit's `records`.
 _HIDDEN_FIELDS = ("move",)
-_PAYLOAD_FIELDS = _PUBLIC_FIELDS + _HIDDEN_FIELDS
 
 
 def build_turn_payload(
@@ -94,9 +93,22 @@ def build_audit_record(payload: dict, nonce: str, commit: str) -> dict:
 
 
 def verify_record(record: dict, expected_commit: str) -> bool:
+    """Re-hashes `record["payload"]` exactly as disclosed -- never
+    reconstructed from this repo's own `_PUBLIC_FIELDS`/`_HIDDEN_FIELDS`
+    names. A real cross-team peer is free to seal whatever payload shape
+    its own kit uses (Section 9 hashes whatever the sender actually
+    committed to, not a shared fixed schema); reconstructing from our own
+    known field names silently built a *different* object than the one
+    actually committed to, so every cross-team record failed this check
+    regardless of real tampering -- confirmed empirically against
+    yanell11's own real records (their commit reproduces bit-for-bit once
+    hashed verbatim, not reconstructed). This is also strictly safer than
+    the old reconstruction: a peer padding its payload with undeclared
+    extra fields after sealing now breaks the hash immediately, instead of
+    those extra fields being silently dropped before hashing and the
+    tampering going undetected."""
     payload = record.get("payload")
     nonce = record.get("nonce")
     if payload is None or nonce is None:
         return False
-    reconstructed = {key: payload.get(key) for key in _PAYLOAD_FIELDS}
-    return commit_of(reconstructed, nonce) == expected_commit
+    return commit_of(payload, nonce) == expected_commit

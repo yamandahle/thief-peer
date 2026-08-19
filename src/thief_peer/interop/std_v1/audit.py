@@ -68,6 +68,20 @@ def send_and_await(
     raise DeadlineExceededError(f"no matching audit response within {ceiling_sec}s")
 
 
+def turn_records_only(records: list[dict]) -> list[dict]:
+    """Some peers' own kits disclose an extra per-sub-game metadata record
+    alongside their real turn records -- e.g. yanell11's own kit, live: a
+    "Step-0 host-spec record" with `payload.type == "system_spec"`. It was
+    never sent live through receive_turn, so this side never saw a commit
+    for it; verify_peer_records' own "unseen step -> tampered" rule (a
+    deliberate anti-cheat guard against a peer fabricating a turn it never
+    actually played, see test_verify_peer_records_rejects_a_record_for_a_
+    step_we_never_saw_a_commit_for) would misfire on it every time.
+    Filtered out narrowly by its own declared type, not by "unseen step"
+    in general, so a genuinely fabricated turn record is still caught."""
+    return [r for r in records if (r.get("payload") or {}).get("type") != "system_spec"]
+
+
 def verify_peer_records(records: list[dict], peer_commits: dict[int, str]) -> dict:
     """Section 9's own mutual audit: re-hash every one of the peer's
     revealed records and compare against the commit this side actually

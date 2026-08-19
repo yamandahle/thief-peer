@@ -87,6 +87,24 @@ def test_verify_record_rejects_a_record_missing_its_nonce():
     assert verify_record(record, sealed["commit"]) is False
 
 
+def test_verify_record_accepts_a_peers_own_differently_shaped_payload():
+    # A real cross-team peer's kit is free to seal a payload with entirely
+    # different field names than ours -- verify_record must re-hash
+    # whatever it actually received, not assume our own schema. These are
+    # yanell11's own real records (live match), reproduced verbatim.
+    record = {
+        "payload": {
+            "hint": "Somewhere between Mount Carmel and nowhere, good luck.",
+            "intent": "truth", "move": "move:E", "position": [0, 1], "role": "police",
+            "state": "grid=7x7;self=[0, 1];barriers=[]", "step": 1,
+            "tokens_step": 0, "tokens_total": 0, "type": "turn",
+        },
+        "nonce": "bc853589450320c7891fc33889bdc7a9",
+    }
+    expected_commit = "6b59c1f71ff064b542eadeb9d393319d8a1a905b50d7c4ab2be41f61080447a6"
+    assert verify_record(record, expected_commit) is True
+
+
 def test_verify_record_rejects_a_record_missing_its_payload():
     payload = _payload()
     sealed = seal_turn(payload)

@@ -14,6 +14,7 @@ from thief_peer.interop.std_v1.audit import (
     build_sub_game_row,
     confirm_agreement,
     send_and_await,
+    turn_records_only,
     validate_consensus_envelope,
     verify_peer_records,
 )
@@ -59,6 +60,30 @@ def test_verify_peer_records_never_trusts_a_commit_the_record_claims_for_itself(
     record["commit"] = "forged-not-a-real-commit"
     result = verify_peer_records([record], {1: commit})
     assert result["log_verified"] is True  # still verifies against the real commit we saw
+
+
+def test_turn_records_only_drops_a_system_spec_record():
+    turn_record, _ = _sealed_record(1, "N")
+    system_spec_record = {"payload": {"type": "system_spec", "step": 0}, "nonce": "n", "commit": "c"}
+    assert turn_records_only([system_spec_record, turn_record]) == [turn_record]
+
+
+def test_turn_records_only_keeps_a_real_step_0_turn_record():
+    # Only the declared type, never the step number itself, decides what
+    # gets filtered -- a peer numbering turns from 0 must still be caught
+    # by verify_peer_records if it fabricates one.
+    turn_record, _ = _sealed_record(0, "N")
+    assert turn_records_only([turn_record]) == [turn_record]
+
+
+def test_verify_peer_records_still_rejects_a_fabricated_turn_after_filtering():
+    # turn_records_only must never weaken the existing anti-cheat guard
+    # (test_verify_peer_records_rejects_a_record_for_a_step_we_never_saw_a_
+    # commit_for) -- it only removes non-turn metadata, not unseen turns.
+    fabricated, _real_commit = _sealed_record(5, "E")
+    result = verify_peer_records(turn_records_only([fabricated]), {})
+    assert result["tampered"] is True
+    assert result["mismatched_steps"] == [5]
 
 
 def test_build_sub_game_row_has_exactly_the_five_spec_keys():
