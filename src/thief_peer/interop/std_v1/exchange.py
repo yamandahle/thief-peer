@@ -35,11 +35,13 @@ def _audit_belongs_to(envelope: dict, sub_game_number: int) -> bool:
     embedded in its own disclosed records, checked at both the record
     wrapper's own top level (this repo's own convention, replay_log.py::
     build_records) and inside `payload` (yanell11's own kit's convention)
-    since a peer's schema is free to differ. An envelope with no records
-    at all (Section 10's own explicit consensus envelope always has
-    `records: []`) is never routed here -- wait_for_consensus owns that
-    shape entirely -- so an empty list here has nothing to check and is
-    trusted rather than rejected outright."""
+    since a peer's schema is free to differ. `record_audit` now routes a
+    series_consensus envelope into its own dedicated slot before this is
+    ever called, so the explicit reject below should be unreachable in
+    practice -- kept anyway as defense in depth against some other future
+    message type also arriving with no sub_game_number and no records."""
+    if envelope.get("result_claim") == "series_consensus":
+        return False
     declared = envelope.get("sub_game_number")
     if declared is not None:
         return declared == sub_game_number
@@ -60,6 +62,7 @@ class StdExchange:
         self._offers: dict[int | None, dict] = {}
         self._turns: dict[int, dict] = {}
         self._audits: dict[int | None, dict] = {}
+        self._consensus: dict | None = None
         self._controls: list[dict] = []
 
     # --- negotiation offers (Section 3) ---
@@ -92,8 +95,26 @@ class StdExchange:
     # --- audit / consensus envelopes (Section 10) ---
 
     def record_audit(self, message: dict) -> None:
+        """A series_consensus envelope goes into its own dedicated slot,
+        never `self._audits`. Real bug found live (yanell11 match): when
+        both message categories shared the same None-keyed slot (neither
+        ever declares `sub_game_number`, per the spec's own "omitted
+        entirely when absent" wording for a peer whose kit doesn't
+        populate it), whichever arrived *second* silently overwrote and
+        destroyed the other -- their consensus envelope could be
+        overwritten by a same-slot per-sub-game audit landing moments
+        later, with no error and nothing left for wait_for_consensus to
+        ever find (their sender's own {'ok': True} on the first attempt,
+        our own report still showing peer_sha256: null -- accepted, then
+        clobbered, not dropped in transit or read wrong). Filtering only
+        at read time (see `_audit_belongs_to`) closes half the hazard but
+        not this half; separate storage removes the shared-slot overwrite
+        entirely."""
         with self._lock:
-            self._audits[message.get("sub_game_number")] = message
+            if message.get("result_claim") == "series_consensus":
+                self._consensus = message
+            else:
+                self._audits[message.get("sub_game_number")] = message
 
     def wait_for_audit(self, sub_game_number: int, timeout: float) -> dict:
         """Section 10's own "a message without its own sub_game_number is
@@ -128,23 +149,20 @@ class StdExchange:
         raise DeadlineExceededError(f"No audit envelope received (key={sub_game_number!r}) within {timeout}s")
 
     def wait_for_consensus(self, timeout: float) -> dict:
-        """The final series_consensus envelope carries no sub_game_number
-        at all -- always the None-keyed bucket. Spec Section 10 step 3's
-        own explicit warning: "Straggler per-sub-game audits arriving in
-        this window carry no consensus_sha and MUST NOT be mistaken for a
-        consensus envelope." A straggler that also omits sub_game_number
-        lands in this same slot -- found live (yanell11 match): our own
-        final-sub-game audit crashed validate_consensus_envelope because
-        this used to return the first thing in the slot unconditionally.
-        Only accepts an entry that actually looks like the real consensus
-        envelope; a straggler is treated as "not yet arrived" and polled
-        past, giving the real one -- which record_audit's own plain
-        overwrite will place in the same slot moments later -- room to
-        actually land instead of never being looked at again."""
+        """The final series_consensus envelope now lives in its own
+        dedicated slot (`record_audit` routes it there, never into
+        `self._audits`), so a same-slot per-sub-game audit straggler can
+        no longer overwrite or be mistaken for it -- the two historical
+        bugs this used to guard against (Section 10 step 3's own
+        "straggler...MUST NOT be mistaken for a consensus envelope"
+        warning, and the shared-slot overwrite found live against
+        yanell11) are now structurally impossible rather than merely
+        filtered at read time. The `result_claim` check stays as defense
+        in depth against a malformed write somehow landing here anyway."""
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
             with self._lock:
-                candidate = self._audits.get(None)
+                candidate = self._consensus
                 if candidate is not None and candidate.get("result_claim") == "series_consensus":
                     return candidate
             time.sleep(self._poll_interval)

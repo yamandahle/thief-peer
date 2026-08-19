@@ -139,6 +139,39 @@ def test_wait_for_audit_prefers_the_exact_keyed_entry_over_the_none_bucket():
     assert exchange.wait_for_audit(2, timeout=0.2)["sender"] == "specific"
 
 
+def test_wait_for_audit_never_consumes_a_consensus_envelope_from_the_none_slot():
+    # Real bug found live (yanell11 match): the final series_consensus
+    # envelope also has records: [] and also lands in the None-keyed slot
+    # -- wait_for_audit's own "no records to check -> trust it" fallback
+    # used to accept it as if it were the sub-game's own audit, so it was
+    # gone (consumed, not re-readable) by the time wait_for_consensus went
+    # looking for it. Their sender got {'ok': True} on the first attempt;
+    # our own report still showed peer_sha256: null -- accepted, then
+    # consumed by the wrong wait, not lost in transit.
+    exchange = StdExchange(poll_interval=0.01)
+    exchange.record_audit({"sender": "thief", "result_claim": "series_consensus", "records": [], "consensus_sha": "a" * 64})
+
+    import threading
+    import time
+
+    def _deliver_real_audit_late():
+        time.sleep(0.05)
+        exchange.record_audit({
+            "sender": "thief", "result_claim": "survival",
+            "records": [{"payload": {"sub_game_number": 6, "step": 1, "type": "turn"}}],
+        })
+
+    threading.Thread(target=_deliver_real_audit_late, daemon=True).start()
+
+    result = exchange.wait_for_audit(6, timeout=1.0)
+    assert result["result_claim"] == "survival"
+
+    # And the consensus envelope is still there afterward, unconsumed,
+    # for wait_for_consensus to actually find.
+    consensus = exchange.wait_for_consensus(timeout=0.2)
+    assert consensus["consensus_sha"] == "a" * 64
+
+
 def test_wait_for_audit_times_out_if_only_a_straggler_ever_arrives():
     exchange = StdExchange(poll_interval=0.01)
     exchange.record_audit({
