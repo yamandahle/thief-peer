@@ -28,6 +28,31 @@ import time
 from thief_peer.exceptions import DeadlineExceededError
 
 
+def _audit_belongs_to(envelope: dict, sub_game_number: int) -> bool:
+    """True if `envelope` can be trusted as belonging to `sub_game_number`
+    -- its own declared field if present (explicit disagreement is a
+    definite reject, not just inconclusive), else the sub_game_number
+    embedded in its own disclosed records, checked at both the record
+    wrapper's own top level (this repo's own convention, replay_log.py::
+    build_records) and inside `payload` (yanell11's own kit's convention)
+    since a peer's schema is free to differ. An envelope with no records
+    at all (Section 10's own explicit consensus envelope always has
+    `records: []`) is never routed here -- wait_for_consensus owns that
+    shape entirely -- so an empty list here has nothing to check and is
+    trusted rather than rejected outright."""
+    declared = envelope.get("sub_game_number")
+    if declared is not None:
+        return declared == sub_game_number
+    records = envelope.get("records") or []
+    if not records:
+        return True
+    return any(
+        record.get("sub_game_number") == sub_game_number
+        or (record.get("payload") or {}).get("sub_game_number") == sub_game_number
+        for record in records
+    )
+
+
 class StdExchange:
     def __init__(self, poll_interval: float = 0.05):
         self._poll_interval = poll_interval
@@ -71,7 +96,36 @@ class StdExchange:
             self._audits[message.get("sub_game_number")] = message
 
     def wait_for_audit(self, sub_game_number: int, timeout: float) -> dict:
-        return self._wait_for_either_key(self._audits, sub_game_number, timeout, "audit envelope")
+        """Section 10's own "a message without its own sub_game_number is
+        accepted on arrival, for whichever sub-game is currently being
+        waited on" rule is a real hazard, not just a convenience: a peer
+        whose kit omits that optional envelope field entirely (confirmed
+        live: yanell11's own audit envelopes never carry it, per the
+        spec's own "omitted entirely when absent" wording) has every one
+        of its audit envelopes land in the same None-keyed slot,
+        overwriting whichever one was there before -- purely by arrival
+        timing, not by which sub-game it's actually for. A stale one
+        still sitting there when this side starts waiting on the *next*
+        sub-game gets accepted as if it were the real thing (confirmed
+        live: our own sub-game-4 wait grabbed their sub-game-3 police
+        disclosure this way, producing both a spurious TAMPERED audit and
+        a contradictory result_claim). Falling back to the sub_game_number
+        embedded in the disclosed records themselves -- present
+        regardless of the envelope's own optional field, and, per
+        yanell11's own kit, sealed inside the commit so it "can't drift"
+        -- is a peer-schema-agnostic way to tell a genuine match from a
+        same-slot straggler, mirroring wait_for_consensus's own
+        result_claim check for the identical class of bug."""
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            with self._lock:
+                candidate = self._audits.get(sub_game_number)
+                if candidate is None:
+                    candidate = self._audits.get(None)
+                if candidate is not None and _audit_belongs_to(candidate, sub_game_number):
+                    return candidate
+            time.sleep(self._poll_interval)
+        raise DeadlineExceededError(f"No audit envelope received (key={sub_game_number!r}) within {timeout}s")
 
     def wait_for_consensus(self, timeout: float) -> dict:
         """The final series_consensus envelope carries no sub_game_number
