@@ -67,6 +67,70 @@ def test_final_result_defaults_games_played_to_zero_and_peer_to_none():
     assert result["games_played_including_this"] == {"A": 0, "B": None}
 
 
+def test_build_result_report_falls_back_to_the_top_level_identity_commit():
+    # A sub-game this process actually played itself -- series_runner.py
+    # never set meta["my_github_commit"] for it, so this must fall back to
+    # the top-level identity commit rather than reporting nothing.
+    rows = [_row("A", 20, 5)]
+    meta = [{
+        "their_github_commit": "b" * 40, "steps": 10,
+        "started_at": "x", "ended_at": "y",
+        "audit": {"log_verified": True, "tampered": False, "result_agreed": True},
+    }]
+    my_identity = {"github_commit": "a" * 40, "repos": {}}
+    report = build_result_report(
+        "A-vs-B", "uid-1", "A", "B", my_identity, {}, rows, meta,
+        {"sha256": "x", "confirmed": True}, "t0", "t1",
+    )
+    assert report["sub_games"][0]["github_commit"]["A"] == "a" * 40
+
+
+def test_build_result_report_uses_the_relayed_commit_when_meta_declares_one():
+    # Rule 49/[REPORT] accuracy: a relayed Police sub-game was really played
+    # by a different repo's commit -- series_runner.py sets
+    # meta["my_github_commit"] for exactly that case, and it must win over
+    # the top-level identity commit (which is this process's own, not the
+    # relay's).
+    rows = [_row("A", 20, 5)]
+    meta = [{
+        "their_github_commit": "b" * 40, "my_github_commit": "c" * 40, "steps": 10,
+        "started_at": "x", "ended_at": "y",
+        "audit": {"log_verified": True, "tampered": False, "result_agreed": True},
+    }]
+    my_identity = {"github_commit": "a" * 40, "repos": {}}
+    report = build_result_report(
+        "A-vs-B", "uid-1", "A", "B", my_identity, {}, rows, meta,
+        {"sha256": "x", "confirmed": True}, "t0", "t1",
+    )
+    assert report["sub_games"][0]["github_commit"]["A"] == "c" * 40
+
+
+def test_build_result_report_league_counted_defaults_to_false():
+    rows = [_row("A", 20, 5)]
+    meta = [{
+        "their_github_commit": "b" * 40, "steps": 10, "started_at": "x", "ended_at": "y",
+        "audit": {"log_verified": True, "tampered": False, "result_agreed": True},
+    }]
+    report = build_result_report(
+        "A-vs-B", "uid-1", "A", "B", {"github_commit": "a" * 40}, {}, rows, meta,
+        {"sha256": "x", "confirmed": True}, "t0", "t1",
+    )
+    assert report["league"] == {"counted": False}
+
+
+def test_build_result_report_league_counted_true_when_the_series_actually_counted():
+    rows = [_row("A", 20, 5)]
+    meta = [{
+        "their_github_commit": "b" * 40, "steps": 10, "started_at": "x", "ended_at": "y",
+        "audit": {"log_verified": True, "tampered": False, "result_agreed": True},
+    }]
+    report = build_result_report(
+        "A-vs-B", "uid-1", "A", "B", {"github_commit": "a" * 40}, {}, rows, meta,
+        {"sha256": "x", "confirmed": True}, "t0", "t1", is_counted=True,
+    )
+    assert report["league"] == {"counted": True}
+
+
 def test_build_result_report_has_the_full_section_12_top_level_shape():
     rows = [_row("A", 20, 5)]
     meta = [{

@@ -32,6 +32,7 @@ from thief_peer.interop.std_v1.audit import (
     build_consensus_object,
     build_sub_game_row,
     confirm_agreement,
+    peer_github_commit,
     send_and_await,
     turn_records_only,
     validate_consensus_envelope,
@@ -143,6 +144,8 @@ def play_series(
     games_played_including_this: int = 0,
     counted_games_played: int | None = None,
     police_relay_transport=None,
+    cop_github_commit: str | None = None,
+    is_counted: bool = False,
 ) -> dict:
     """Runs every sub-game (1..`my_terms["num_games"]`) to completion, then
     the final series-consensus exchange. `board_factory()`/`scent_factory()`
@@ -273,7 +276,18 @@ def play_series(
             "verify": verify_result,
         })
         sub_game_meta.append({
-            "their_github_commit": their_identity.get("github_commit"),
+            # A peer's own sealed system_spec record, if it declares one,
+            # wins over the negotiate-offer identity field -- reconciled
+            # live against yanell11: their kit declares it there instead of
+            # (or in addition to) identity.github_commit.
+            "their_github_commit": peer_github_commit(peer_envelope.get("records", [])) or their_identity.get("github_commit"),
+            # Rule 49/[REPORT] accuracy: a relayed Police sub-game was really
+            # played by yamanagh-cop's own commit, not this process's -- only
+            # substituted when the relay was actually used this sub-game
+            # (role == "police" and a relay commit was actually fetched);
+            # every other sub-game keeps attributing to this process's own
+            # commit, since that's genuinely the code that played it.
+            "my_github_commit": cop_github_commit if role == "police" and cop_github_commit else identity.get("github_commit"),
             "steps": max(((r.get("payload") or {}).get("step", 0) for r in records), default=0),
             "started_at": started_at,
             "ended_at": ended_at,
@@ -330,6 +344,7 @@ def play_series(
         game_id, game_uid, my_group_id, their_group_id, identity, their_identity,
         rows, sub_game_meta, mutual_agreement, game_started_at, game_ended_at,
         games_played_including_this, their_games_played_including_this,
+        is_counted=is_counted,
     )
 
     return {

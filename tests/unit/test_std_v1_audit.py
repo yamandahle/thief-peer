@@ -13,6 +13,7 @@ from thief_peer.interop.std_v1.audit import (
     build_consensus_object,
     build_sub_game_row,
     confirm_agreement,
+    peer_github_commit,
     send_and_await,
     turn_records_only,
     validate_consensus_envelope,
@@ -74,6 +75,21 @@ def test_turn_records_only_keeps_a_real_step_0_turn_record():
     # by verify_peer_records if it fabricates one.
     turn_record, _ = _sealed_record(0, "N")
     assert turn_records_only([turn_record]) == [turn_record]
+
+
+def test_peer_github_commit_reads_it_off_the_system_spec_record():
+    record = {"payload": {"type": "system_spec", "step": 0, "github_commit": "a" * 40}, "nonce": "n", "commit": "c"}
+    assert peer_github_commit([record]) == "a" * 40
+
+
+def test_peer_github_commit_none_when_no_system_spec_record_present():
+    turn_record, _ = _sealed_record(1, "N")
+    assert peer_github_commit([turn_record]) is None
+
+
+def test_peer_github_commit_none_when_the_system_spec_record_declares_no_commit():
+    record = {"payload": {"type": "system_spec", "step": 0}, "nonce": "n", "commit": "c"}
+    assert peer_github_commit([record]) is None
 
 
 def test_verify_peer_records_still_rejects_a_fabricated_turn_after_filtering():

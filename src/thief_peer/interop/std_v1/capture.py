@@ -43,8 +43,15 @@ def evaluate_capture(
         barrier_cell: Cell = tuple(barrier_placed)
         if is_captured_by_barrier(state, barrier_cell):
             return True
-        if is_captured_by_stuck(state, board):
-            return True
+    # Condition C (rule 47, "no legal move") is a function of this side's
+    # own *accumulated* known_barriers, not this turn's specific barrier --
+    # a barrier placed on an earlier turn can box this side in on a later
+    # turn where the Cop doesn't place a new one at all. Gating this check
+    # on `barrier_placed is not None` (moamteam's own real find, cost them
+    # a series) would silently skip that case forever, since nothing else
+    # in this loop ever re-checks it.
+    if is_captured_by_stuck(state, board):
+        return True
     return False
 
 

@@ -48,6 +48,8 @@ from pathlib import Path
 from thief_peer.domain.board import Board
 from thief_peer.domain.own_state import OwnGameState
 from thief_peer.domain.scent import ScentField
+from thief_peer.exceptions import DeadlineExceededError, TransportError
+from thief_peer.infra import email_sender
 from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.interop.std_v1 import replay_log
 from thief_peer.interop.std_v1.exchange import StdExchange
@@ -178,6 +180,20 @@ def run_std_v1_series(runtime) -> dict:
     # a real match, and reverted instantly by removing the one config key.
     cop_relay_url = runtime.config.get("network.cop_relay_url")
     police_relay_transport = McpTransport(cop_relay_url) if cop_relay_url else None
+    # Rule 49/[REPORT] accuracy: the relayed Police sub-games are really
+    # played by yamanagh-cop's own commit, not this process's -- fetched
+    # once up front (the relay's own commit doesn't change mid-series) and
+    # threaded through so the filed report attributes each sub-game to the
+    # repo that actually played it, not uniformly to this one. Best-effort:
+    # a relay that's briefly unreachable for this one call must not abort
+    # the whole series before it even starts -- report.py already falls
+    # back to this process's own commit when `cop_github_commit` is None.
+    cop_github_commit = None
+    if police_relay_transport is not None:
+        try:
+            cop_github_commit = police_relay_transport.call("relay_identity", {})["github_commit"]
+        except (DeadlineExceededError, TransportError) as exc:
+            print(f"[relay] could not fetch yamanagh-cop's own commit for reporting: {exc}", flush=True)
     try:
         result = play_series(
             runtime.transport,
@@ -196,6 +212,8 @@ def run_std_v1_series(runtime) -> dict:
             games_played_including_this=games_played,
             counted_games_played=counted_games_played,
             police_relay_transport=police_relay_transport,
+            cop_github_commit=cop_github_commit,
+            is_counted=runtime.is_counted,
         )
     finally:
         if police_relay_transport is not None:
@@ -281,8 +299,16 @@ def send_std_v1_report_email(result: dict, runtime) -> bool:
     forgotten right before the one run that actually counts (confirmed
     live: yanell11, "if yours is missing, late, or unconfirmed, both teams
     score zero for the series -- we've each burned our one counted game").
-    An uncounted/warm-up run keeps using the configured recipient."""
-    recipient = LEAGUE_RESULT_EMAIL if runtime.is_counted else runtime.recipient
+    `[email] recipient` is CC'd on every send regardless (so the opponent
+    can diff against their own filing, confirmed live: "send a copy to
+    yanalserhan3@gmail.com so we can diff") -- an uncounted/warm-up run
+    already used that same address as its sole recipient, so
+    `build_recipients`' own `is_counted` gate (email_sender.py) is what
+    adds the league address on top for a counted run instead of replacing
+    the opponent address outright."""
+    recipient = email_sender.build_recipients(
+        LEAGUE_RESULT_EMAIL, runtime.recipient, is_counted=runtime.is_counted
+    )
     return send_report_email(runtime.gatekeeper, runtime.email_service, recipient, result["report"])
 
 

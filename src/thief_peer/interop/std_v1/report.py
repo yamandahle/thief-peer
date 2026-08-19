@@ -108,11 +108,15 @@ def build_result_report(
     game_ended_at: str,
     games_played_including_this: int = 0,
     their_games_played_including_this: int | None = None,
+    is_counted: bool = False,
 ) -> dict:
     """`sub_game_meta[i]` supplies the per-row fields Section 11's own
     canonical row doesn't carry: `their_github_commit`, `steps`,
     `started_at`, `ended_at`, and this sub-game's own `audit` outcome
-    (`log_verified`/`tampered`/`result_agreed`)."""
+    (`log_verified`/`tampered`/`result_agreed`). `is_counted` is outside
+    Section 11's own hashed consensus object (like `tokens`/`steps`/
+    timestamps already are) -- purely informational, reconciled live
+    against yanell11's own kit convention (`league.counted`)."""
     # One log file for the whole series (interop/std_v1_opponent.py writes
     # it under this exact name, mirroring report/artifact_helpers.py's own
     # `log_{game_uid}.json` convention) -- every sub-game's records live in
@@ -129,7 +133,11 @@ def build_result_report(
             **row,
             "tie": row["winner_group"] is None,
             "github_commit": {
-                my_group_id: valid_commit(my_identity.get("github_commit")),
+                # `meta["my_github_commit"]`, if series_runner.py set one, is
+                # a relayed sub-game's real playing commit (yamanagh-cop's,
+                # not this process's) -- falls back to the top-level identity
+                # commit for a sub-game this process actually played itself.
+                my_group_id: valid_commit(meta.get("my_github_commit", my_identity.get("github_commit"))),
                 their_group_id: valid_commit(meta["their_github_commit"]),
             },
             "tokens": {my_group_id: 0, their_group_id: 0},
@@ -172,6 +180,7 @@ def build_result_report(
         "timezone": "UTC",
         "game_started_at": game_started_at,
         "game_ended_at": game_ended_at,
+        "league": {"counted": is_counted},
         "mutual_agreement": mutual_agreement,
         "final_result": final_result(
             rows, my_group_id, their_group_id,

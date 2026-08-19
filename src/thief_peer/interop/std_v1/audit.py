@@ -82,6 +82,23 @@ def turn_records_only(records: list[dict]) -> list[dict]:
     return [r for r in records if (r.get("payload") or {}).get("type") != "system_spec"]
 
 
+def peer_github_commit(records: list[dict]) -> str | None:
+    """A peer's own system_spec disclosure record (see `turn_records_only`'s
+    own docstring) can declare its own `github_commit` inline -- read here
+    since it's the peer's own declaration inside its sealed audit envelope,
+    not something to take on faith from a side channel. This value was
+    never sent live through receive_turn (same reasoning as
+    `turn_records_only`), so it isn't part of this side's own commit-reveal
+    verification -- informational for the filed report only, same trust
+    level the negotiate-offer identity.github_commit field already had.
+    `None` if no such record is present or it doesn't declare one."""
+    for record in records:
+        payload = record.get("payload") or {}
+        if payload.get("type") == "system_spec" and payload.get("github_commit"):
+            return payload["github_commit"]
+    return None
+
+
 def verify_peer_records(records: list[dict], peer_commits: dict[int, str]) -> dict:
     """Section 9's own mutual audit: re-hash every one of the peer's
     revealed records and compare against the commit this side actually

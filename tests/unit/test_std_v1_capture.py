@@ -44,6 +44,20 @@ def test_evaluate_capture_false_when_barrier_placed_elsewhere_and_thief_not_stuc
     assert evaluate_capture(state, board, [1, 1], barrier_placed=[0, 0]) is False
 
 
+def test_evaluate_capture_true_when_stuck_by_an_older_barrier_and_no_new_one_this_turn():
+    # Real gap found via moamteam's own interop brief (their D6): a barrier
+    # placed on an EARLIER turn can box this side in on a LATER turn where
+    # the Cop doesn't declare a new barrier at all -- condition C must be
+    # checked every turn regardless of `barrier_placed`, not only on the
+    # turn a barrier happens to land.
+    barriers = {(2, 3), (4, 3), (3, 4), (3, 2)}
+    state = OwnGameState(position=(3, 3))
+    for cell in barriers:
+        state.record_barrier(cell)
+    board = Board(size=7, barriers=barriers)
+    assert evaluate_capture(state, board, [1, 1], barrier_placed=None) is True
+
+
 def test_build_claim_response_echoes_claim_and_reports_caught_truthfully():
     assert build_claim_response([2, 5], caught=True) == {"claim": [2, 5], "caught": True}
     assert build_claim_response([2, 5], caught=False) == {"claim": [2, 5], "caught": False}

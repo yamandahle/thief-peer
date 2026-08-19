@@ -309,9 +309,12 @@ class _FakeGatekeeper:
         return fn(*args, **kwargs)
 
 
-def test_send_std_v1_report_email_sends_to_the_league_address_when_counted(monkeypatch):
+def test_send_std_v1_report_email_ccs_the_opponent_and_reaches_the_league_address_when_counted(monkeypatch):
     # Rules 9.3/35: a counted run's result must reach the fixed league
-    # address automatically, never the (easy to forget) configured recipient.
+    # address automatically. The configured [email] recipient (the
+    # opponent's own address for std_v1) is CC'd too, so both sides can
+    # diff their filings (confirmed live: yanell11, "send a copy to
+    # yanalserhan3@gmail.com so we can diff").
     sent = {}
     monkeypatch.setattr(
         "thief_peer.report.report_writer.email_sender.send_report",
@@ -321,14 +324,14 @@ def test_send_std_v1_report_email_sends_to_the_league_address_when_counted(monke
     runtime = _FakeRuntime("std_v1")
     runtime.gatekeeper = _FakeGatekeeper()
     runtime.email_service = "fake-gmail-service"
-    runtime.recipient = "lecturer@example.com"
+    runtime.recipient = "opponent@example.com"
     runtime.is_counted = True
 
     sent_ok = send_std_v1_report_email(result, runtime)
 
     assert sent_ok is True
     assert sent["service"] == "fake-gmail-service"
-    assert sent["recipient"] == "rmisegal+uoh26finalgame@gmail.com"
+    assert sent["recipient"] == "opponent@example.com, rmisegal+uoh26finalgame@gmail.com"
     assert sent["report"] == result["report"]
 
 

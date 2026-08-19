@@ -54,9 +54,10 @@ def test_build_message_attachment_content_matches_the_report_exactly():
     assert decoded == report
 
 
-def test_build_message_body_text_does_not_contain_the_raw_report_json():
-    # The body is a short human-readable note, never the report data itself
-    # -- the JSON only exists in the attachment part (PRD_7 §2.5, §4).
+def test_build_message_body_text_is_the_exact_same_canonical_bytes_as_the_attachment():
+    # Rule 9.3.3: the body must be the exact canonical bytes, never a prose
+    # note or a pretty-printed re-serialization -- a previous cohort nearly
+    # scored 0 on exactly this (email_sender.py's own docstring).
     report = _sample_report()
     message = build_message("grader@example.com", "Match report", report)
 
@@ -67,8 +68,10 @@ def test_build_message_body_text_does_not_contain_the_raw_report_json():
     ]
     assert len(body_parts) == 1
     body_text = body_parts[0].get_payload(decode=True).decode("utf-8")
-    assert json.dumps(report) not in body_text
-    assert '"game_id"' not in body_text
+    attachment = next(part for part in message.walk() if part.get_content_disposition() == "attachment")
+    attachment_bytes = attachment.get_payload(decode=True).decode("utf-8")
+    assert body_text == attachment_bytes
+    assert body_text == json.dumps(report, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
 
 
 def test_build_message_sets_recipient_and_subject():

@@ -60,9 +60,14 @@ def build_message(recipient: str, subject: str, report: dict) -> MIMEMultipart:
     message = MIMEMultipart()
     message["to"] = recipient
     message["subject"] = subject
-    message.attach(MIMEText("Structured match report attached as JSON.", "plain"))
+    # Rule 9.3.3: the body must be the exact same canonical bytes as the
+    # attachment -- never a prose note or a pretty-printed re-serialization
+    # (this module's own attachment fix already exists for the identical
+    # reason; a previous cohort nearly scored 0 on the body specifically).
+    canonical_bytes = _canonical(report)
+    message.attach(MIMEText(canonical_bytes, "plain"))
 
-    attachment = MIMEApplication(_canonical(report).encode("utf-8"), _subtype="json")
+    attachment = MIMEApplication(canonical_bytes.encode("utf-8"), _subtype="json")
     # Rule 9.3.3: filename derives from game_id, not a fixed generic name.
     attachment.add_header("Content-Disposition", "attachment", filename=f"result_{report['game_id']}.json")
     message.attach(attachment)
