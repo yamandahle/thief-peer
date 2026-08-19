@@ -225,7 +225,9 @@ class _FakeGatekeeper:
         return fn(*args, **kwargs)
 
 
-def test_send_std_v1_report_email_sends_the_report_via_the_gatekeeper(monkeypatch):
+def test_send_std_v1_report_email_sends_to_the_league_address_when_counted(monkeypatch):
+    # Rules 9.3/35: a counted run's result must reach the fixed league
+    # address automatically, never the (easy to forget) configured recipient.
     sent = {}
     monkeypatch.setattr(
         "thief_peer.report.report_writer.email_sender.send_report",
@@ -236,10 +238,30 @@ def test_send_std_v1_report_email_sends_the_report_via_the_gatekeeper(monkeypatc
     runtime.gatekeeper = _FakeGatekeeper()
     runtime.email_service = "fake-gmail-service"
     runtime.recipient = "lecturer@example.com"
+    runtime.is_counted = True
 
     sent_ok = send_std_v1_report_email(result, runtime)
 
     assert sent_ok is True
     assert sent["service"] == "fake-gmail-service"
-    assert sent["recipient"] == "lecturer@example.com"
+    assert sent["recipient"] == "rmisegal+uoh26finalgame@gmail.com"
     assert sent["report"] == result["report"]
+
+
+def test_send_std_v1_report_email_sends_to_the_configured_recipient_when_not_counted(monkeypatch):
+    sent = {}
+    monkeypatch.setattr(
+        "thief_peer.report.report_writer.email_sender.send_report",
+        lambda service, recipient, report: sent.update(service=service, recipient=recipient, report=report),
+    )
+    result = {"report": {"report_type": "std_v1_result", "game_id": "us-vs-them"}}
+    runtime = _FakeRuntime("std_v1")
+    runtime.gatekeeper = _FakeGatekeeper()
+    runtime.email_service = "fake-gmail-service"
+    runtime.recipient = "lecturer@example.com"
+    runtime.is_counted = False
+
+    sent_ok = send_std_v1_report_email(result, runtime)
+
+    assert sent_ok is True
+    assert sent["recipient"] == "lecturer@example.com"

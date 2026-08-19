@@ -25,6 +25,7 @@ row-level null-on-tie rule.
 
 from __future__ import annotations
 
+from thief_peer.exceptions import DeadlineExceededError, SimulationError
 from thief_peer.interop.std_v1.audit import (
     build_audit_envelope,
     build_consensus_envelope,
@@ -41,8 +42,10 @@ from thief_peer.interop.std_v1.handshake import negotiate_sub_game
 from thief_peer.interop.std_v1.police_round_loop import play_sub_game_as_police
 from thief_peer.interop.std_v1.replay_log import build_records
 from thief_peer.interop.std_v1.report import build_result_report, now_iso
+from thief_peer.interop.std_v1.report import final_result as build_final_result
 from thief_peer.interop.std_v1.round_loop import play_sub_game
 from thief_peer.interop.std_v1.roles import opposite_role, role_for_sub_game
+from thief_peer.interop.std_v1.settlement_hash import settlement_hash
 
 NATURAL_ROLE = "thief"
 
@@ -69,6 +72,48 @@ def _row_for(
         winner = my_group_id if score[my_group_id] > score[their_group_id] else their_group_id
     roles = {my_group_id: my_role, their_group_id: their_role}
     return build_sub_game_row(sub_game_number, result, roles, score, winner)
+
+
+def _resolve_consensus(
+    transport,
+    exchange,
+    final_role: str,
+    local_digest: str,
+    resend_interval_sec: float,
+    consensus_ceiling_sec: float,
+    all_clean: bool,
+    all_results_agreed: bool,
+) -> tuple[bool, str | None]:
+    """Runs the final consensus exchange and returns `(agreed, peer_digest)`
+    -- NEVER raises. A missing or malformed peer envelope
+    (DeadlineExceededError/SimulationError) is treated as `(False, None)`,
+    not a fatal error that aborts the whole series -- confirmed live: a run
+    with a clean 6/6 audited match on both sides still crashed the whole
+    process right here (before this was caught), so the caller never
+    reached write_std_v1_result/send_std_v1_report_email at all -- no
+    report, no email, on ANY run so far, regardless of how clean the match
+    actually was. Each side's own report is independently computed from
+    its own locally-verified data (spec: "both teams independently build
+    the final result JSON"); the peer's own envelope is confirmation of
+    agreement, not a precondition for having a report to send at all."""
+    try:
+        peer_envelope = send_and_await(
+            transport,
+            lambda timeout: exchange.wait_for_consensus(timeout),
+            build_consensus_envelope(final_role, local_digest),
+            resend_interval_sec, consensus_ceiling_sec,
+        )
+        peer_digest = validate_consensus_envelope(peer_envelope)
+    except (DeadlineExceededError, SimulationError) as exc:
+        print(f"[consensus] NOT CONFIRMED -- peer envelope never arrived or was invalid: {exc}", flush=True)
+        return False, None
+    agreed = confirm_agreement(all_clean, all_results_agreed, local_digest, peer_digest)
+    print(
+        f"[consensus] {'CONFIRMED' if agreed else 'NOT CONFIRMED'} -- "
+        f"sha_match={local_digest == peer_digest} results_agreed={all_results_agreed} all_clean={all_clean}",
+        flush=True,
+    )
+    return agreed, peer_digest
 
 
 def play_series(
@@ -220,25 +265,29 @@ def play_series(
     )
 
     final_role = role_for_sub_game(NATURAL_ROLE, my_terms["num_games"])
-    peer_envelope = send_and_await(
-        transport,
-        lambda timeout: exchange.wait_for_consensus(timeout),
-        build_consensus_envelope(final_role, local_digest),
-        resend_interval_sec, consensus_ceiling_sec,
+    agreed, peer_digest = _resolve_consensus(
+        transport, exchange, final_role, local_digest,
+        resend_interval_sec, consensus_ceiling_sec, all_clean, all_results_agreed,
     )
-    peer_digest = validate_consensus_envelope(peer_envelope)
-    agreed = confirm_agreement(all_clean, all_results_agreed, local_digest, peer_digest)
-    print(
-        f"[consensus] {'CONFIRMED' if agreed else 'NOT CONFIRMED'} -- "
-        f"sha_match={local_digest == peer_digest} results_agreed={all_results_agreed} all_clean={all_clean}",
-        flush=True,
-    )
+    final_result_obj = build_final_result(rows, my_group_id, their_group_id, games_played_including_this)
     mutual_agreement = {
         "sha256": local_digest,
         "peer_sha256": peer_digest,
         "sha_match": local_digest == peer_digest,
         "results_agreed": all_results_agreed,
         "confirmed": agreed,
+        # Not part of our own published interop guide's documented
+        # mutual_agreement shape (docs/NEXT_OPPONENT_INTEROP_GUIDE_PUBLIC.md
+        # #424: sha256/peer_sha256/sha_match/results_agreed/confirmed,
+        # SHA-256 over {game_id, game_uid, sub_games}, compact separators)
+        # -- yanell11's own kit hashes a *different* object ({game_id,
+        # aggregate, sub_games-trimmed-to-5-fields}, spaced separators) and
+        # calls that same result key "sha256" in her own report. Added
+        # here as an extra, clearly-named field for her side to check
+        # against, rather than overwriting our own documented `sha256`
+        # value and silently breaking that contract for any other team
+        # relying on the published guide.
+        "settlement_sha256_yanell11_kit": settlement_hash(game_id, final_result_obj, rows),
     }
     report = build_result_report(
         game_id, game_uid, my_group_id, their_group_id, identity, their_identity,

@@ -238,6 +238,9 @@ def write_std_v1_config(result: dict, terms: dict, results_dir: str | Path) -> P
     return out_path
 
 
+LEAGUE_RESULT_EMAIL = "rmisegal+uoh26finalgame@gmail.com"
+
+
 def send_std_v1_report_email(result: dict, runtime) -> bool:
     """Rule 32: both teams' agents must each email their own copy of the
     final result. Reuses `report/report_writer.py::send_report_email`
@@ -246,8 +249,17 @@ def send_std_v1_report_email(result: dict, runtime) -> bool:
     invoked directly here since std_v1 doesn't go through that function's
     own native-shaped `write_and_send` pipeline. Called from `PeerRuntime.
     run()` after `write_std_v1_result` has already put `result["report"]`
-    on disk, so a failed send never loses the result itself (rules 33/34)."""
-    return send_report_email(runtime.gatekeeper, runtime.email_service, runtime.recipient, result["report"])
+    on disk, so a failed send never loses the result itself (rules 33/34).
+
+    Rules 9.3/35: a *counted* series' result MUST reach the fixed league
+    address automatically -- never left to whatever `[email] recipient`
+    happens to be configured, which is one manual edit away from being
+    forgotten right before the one run that actually counts (confirmed
+    live: yanell11, "if yours is missing, late, or unconfirmed, both teams
+    score zero for the series -- we've each burned our one counted game").
+    An uncounted/warm-up run keeps using the configured recipient."""
+    recipient = LEAGUE_RESULT_EMAIL if runtime.is_counted else runtime.recipient
+    return send_report_email(runtime.gatekeeper, runtime.email_service, recipient, result["report"])
 
 
 def write_std_v1_result(result: dict, results_dir: str | Path) -> Path:
