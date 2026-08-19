@@ -25,8 +25,15 @@ def build_offer(
     identity: dict,
     game_uid: str,
     nonce: str,
+    counted_games_played: int | None = None,
 ) -> dict:
-    return {
+    """`counted_games_played` is additive only -- outside my own spec's
+    Section 3 field list, but requested live (yanell11: "we read it
+    top-level, not inside identity") alongside the same value this repo
+    already sends inside `identity`, so it's sent both places rather than
+    moved, hedging against either reading without removing the field a
+    receiver following my own spec would expect inside `identity`."""
+    offer = {
         "terms": terms,
         "nonce": nonce,
         "signature": commit_of(terms, nonce),
@@ -36,6 +43,9 @@ def build_offer(
         "identity": identity,
         "game_uid": game_uid,
     }
+    if counted_games_played is not None:
+        offer["counted_games_played"] = counted_games_played
+    return offer
 
 
 def validate_offer(offer: dict, my_terms: dict) -> None:
@@ -67,6 +77,7 @@ def negotiate_sub_game(
     identity: dict,
     resend_interval_sec: float = 2.0,
     ceiling_sec: float = 300.0,
+    counted_games_played: int | None = None,
 ) -> dict:
     """Sends this side's own offer, then repeatedly re-sends the identical
     offer (same nonce/terms/identity, never regenerated on a retry -- the
@@ -75,7 +86,10 @@ def negotiate_sub_game(
     Returns the peer's own validated offer."""
     game_uid = derive_game_uid(my_terms, my_group_id, their_group_id)
     nonce = fresh_nonce()
-    my_offer = build_offer(my_terms, my_group_id, role, sub_game_number, identity, game_uid, nonce)
+    my_offer = build_offer(
+        my_terms, my_group_id, role, sub_game_number, identity, game_uid, nonce,
+        counted_games_played=counted_games_played,
+    )
 
     deadline = time.monotonic() + ceiling_sec
     while time.monotonic() < deadline:

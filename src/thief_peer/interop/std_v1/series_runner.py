@@ -94,6 +94,7 @@ def play_series(
     consensus_ceiling_sec: float = 200.0,
     turn_fsm_factory=None,
     games_played_including_this: int = 0,
+    counted_games_played: int | None = None,
 ) -> dict:
     """Runs every sub-game (1..`my_terms["num_games"]`) to completion, then
     the final series-consensus exchange. `board_factory()`/`scent_factory()`
@@ -125,7 +126,13 @@ def play_series(
     the caller (`interop/std_v1_opponent.py`, via the same `LeagueCounter`
     native's `report/report_writer.py` uses) before this call, since it
     depends on `results_dir`/`is_counted` bookkeeping this module has no
-    reason to know about."""
+    reason to know about. `counted_games_played`, if given, is passed
+    straight through to every per-sub-game `negotiate_sub_game` call so it
+    lands at the top level of the wire offer too (yanell11, live: "we read
+    it top-level, not inside identity") -- `identity` above already
+    carries the same value under that same key (identity.py's own
+    additive field), so this is a second placement of one already-computed
+    number, not a second source of truth."""
     game_id = derive_game_id(my_group_id, their_group_id)
     game_uid = derive_game_uid(my_terms, my_group_id, their_group_id)
     max_steps = my_terms["max_steps"]
@@ -146,6 +153,7 @@ def play_series(
         their_offer = negotiate_sub_game(
             transport, exchange, my_terms, my_group_id, their_group_id,
             role, sub_game_number, identity, resend_interval_sec, negotiate_ceiling_sec,
+            counted_games_played=counted_games_played,
         )
         their_identity = their_offer.get("identity", their_identity)
         print(f"[negotiate] sub-game {sub_game_number} agreed OK -- we play {role}", flush=True)

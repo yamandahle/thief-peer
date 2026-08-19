@@ -43,6 +43,16 @@ def test_build_offer_signs_terms_with_the_given_nonce():
     assert offer["game_uid"] == "uid-1"
 
 
+def test_build_offer_puts_counted_games_played_at_the_top_level_when_given():
+    offer = build_offer(_TERMS, "us", "thief", 1, {"group_id": "us"}, "uid-1", "nonce-1", counted_games_played=3)
+    assert offer["counted_games_played"] == 3
+
+
+def test_build_offer_omits_counted_games_played_when_not_given():
+    offer = build_offer(_TERMS, "us", "thief", 1, {"group_id": "us"}, "uid-1", "nonce-1")
+    assert "counted_games_played" not in offer
+
+
 def test_validate_offer_accepts_a_well_formed_matching_offer():
     offer = build_offer(_TERMS, "peer", "police", 1, {}, "uid-1", "nonce-1")
     validate_offer(offer, _TERMS)  # must not raise

@@ -174,6 +174,7 @@ def run_std_v1_series(runtime) -> dict:
         turn_deadline_sec=runtime.round_deadline_sec,
         turn_fsm_factory=turn_fsm_factory,
         games_played_including_this=games_played,
+        counted_games_played=counted_games_played,
     )
     write_std_v1_log(result, runtime.results_dir)
     write_std_v1_declaration(result, terms, runtime.results_dir, games_played)
