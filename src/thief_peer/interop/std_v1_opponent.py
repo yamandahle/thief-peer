@@ -43,6 +43,7 @@ Cop shows a mismatched smell_grid shape, not a bug in this mapping.
 from __future__ import annotations
 
 import json
+import time
 from pathlib import Path
 
 from thief_peer.domain.board import Board
@@ -281,6 +282,26 @@ def write_std_v1_config(result: dict, terms: dict, results_dir: str | Path) -> P
 
 
 LEAGUE_RESULT_EMAIL = "rmisegal+uoh26finalgame@gmail.com"
+
+# Real bug found live against moamteam (their own diagnosis, confirmed
+# against this repo's own code): this side's MCP server tears down the
+# instant PeerRuntime.run() returns, with no equivalent to
+# interop/cop_opponent.py's own cop_shutdown_grace -- an in-flight final
+# call from the peer (their own audit/consensus retry, or just their
+# session's own close) can land against an already-dead server. That
+# exact failure hit US once already this session, from the other side
+# (moamteam's own process tore down mid-exchange) -- this closes the
+# same gap on our own side before it does the same thing to a future
+# opponent who finishes after we do.
+STD_V1_SHUTDOWN_GRACE_SECONDS = 20.0
+
+
+def std_v1_shutdown_grace() -> None:
+    """Unlike cop_v1's own event-based wait (a specific "she called back"
+    signal to wait on), std_v1 has no equivalent confirmation to wait for
+    -- this is a simple fixed hold, matching moamteam's own fix for the
+    identical problem on their side."""
+    time.sleep(STD_V1_SHUTDOWN_GRACE_SECONDS)
 
 
 def send_std_v1_report_email(result: dict, runtime) -> bool:

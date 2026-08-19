@@ -10,6 +10,7 @@ send -- never a real Gmail call in these tests, only a fake gatekeeper/
 service asserting on what was passed."""
 
 import json
+import time
 
 from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.interop.std_v1.exchange import StdExchange
@@ -17,6 +18,7 @@ from thief_peer.interop.std_v1_opponent import (
     maybe_register_std_v1_tools,
     run_std_v1_series,
     send_std_v1_report_email,
+    std_v1_shutdown_grace,
     write_std_v1_config,
     write_std_v1_declaration,
     write_std_v1_result,
@@ -352,3 +354,18 @@ def test_send_std_v1_report_email_sends_to_the_configured_recipient_when_not_cou
 
     assert sent_ok is True
     assert sent["recipient"] == "lecturer@example.com"
+
+
+def test_std_v1_shutdown_grace_actually_holds_for_the_configured_duration(monkeypatch):
+    # Real bug found live against moamteam: this side's server used to tear
+    # down the instant run() returned, with no equivalent to
+    # cop_opponent.py's own cop_shutdown_grace -- an in-flight final call
+    # from the peer could land against an already-dead server. Confirms
+    # the hold is real (not a no-op), via a shortened duration so this test
+    # doesn't actually wait the real 20s.
+    monkeypatch.setattr("thief_peer.interop.std_v1_opponent.STD_V1_SHUTDOWN_GRACE_SECONDS", 0.05)
+    started = time.monotonic()
+
+    std_v1_shutdown_grace()
+
+    assert time.monotonic() - started >= 0.05
