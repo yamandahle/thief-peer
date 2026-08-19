@@ -11,6 +11,7 @@ service asserting on what was passed."""
 
 import json
 
+from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.interop.std_v1.exchange import StdExchange
 from thief_peer.interop.std_v1_opponent import (
     maybe_register_std_v1_tools,
@@ -128,6 +129,89 @@ def test_run_std_v1_series_threads_runtimes_own_collaborators_into_play_series(m
     assert json.loads(log_path.read_text(encoding="utf-8"))["protocol"] == "std_v1"
     assert (runtime.results_dir / "declaration_us-vs-them.json").exists()
     assert (runtime.results_dir / "config_us-vs-them-uid.json").exists()
+
+
+def test_run_std_v1_series_leaves_police_relay_transport_none_by_default(monkeypatch, tmp_path):
+    # rule 1/2 rollback safety: with no `network.cop_relay_url` configured,
+    # play_series must not receive a relay transport -- every even
+    # sub-game keeps using the old built-in police_brain.py stand-in
+    # unchanged, exactly as it did before this feature existed.
+    terms_path = tmp_path / "terms.json"
+    terms_path.write_text(json.dumps({
+        "board_size": 7, "smell_grid_size": 5, "decay_per_step": 0.1, "emit_intensity": 0.9,
+        "min_center_intensity": 0.5, "max_steps": 35, "barriers_max": 14, "setting": "Haifa",
+        "hint_max_words": 15, "axis_origin_corner": "top-left", "axis_start_index": 0,
+        "thief_start": [3, 3], "cop_start": [0, 0], "num_games": 1,
+    }), encoding="utf-8")
+
+    captured = {}
+
+    def fake_play_series(transport, exchange, terms, my_group_id, their_group_id, identity,
+                          board_factory, state_factory, turn_handler_factory, scent_factory,
+                          trash_talk, turn_deadline_sec=10.0, **kwargs):
+        captured["police_relay_transport"] = kwargs.get("police_relay_transport")
+        return {
+            "game_id": "us-vs-them", "game_uid": "us-vs-them-uid", "records": [],
+            "report": {"groups": ["us", "them"], "final_result": {}},
+        }
+
+    monkeypatch.setattr("thief_peer.interop.std_v1_opponent.play_series", fake_play_series)
+
+    runtime = _FakeRuntime("std_v1", {
+        "std_v1.terms_path": str(terms_path),
+        "std_v1.group_id": "us",
+        "network.opponent_group_id": "them",
+    })
+    runtime._std_v1_exchange = StdExchange()
+    runtime.results_dir = tmp_path / "results"
+
+    run_std_v1_series(runtime)
+
+    assert captured["police_relay_transport"] is None
+
+
+def test_run_std_v1_series_builds_and_closes_a_relay_transport_when_configured(monkeypatch, tmp_path):
+    # When `network.cop_relay_url` is set, a real McpTransport pointed at
+    # it is threaded through to play_series, and closed once the series
+    # finishes (mirrors how runtime.transport's own lifetime is managed
+    # elsewhere -- this repo never leaves a background transport thread
+    # running past the match it was built for).
+    terms_path = tmp_path / "terms.json"
+    terms_path.write_text(json.dumps({
+        "board_size": 7, "smell_grid_size": 5, "decay_per_step": 0.1, "emit_intensity": 0.9,
+        "min_center_intensity": 0.5, "max_steps": 35, "barriers_max": 14, "setting": "Haifa",
+        "hint_max_words": 15, "axis_origin_corner": "top-left", "axis_start_index": 0,
+        "thief_start": [3, 3], "cop_start": [0, 0], "num_games": 1,
+    }), encoding="utf-8")
+
+    captured = {}
+
+    def fake_play_series(transport, exchange, terms, my_group_id, their_group_id, identity,
+                          board_factory, state_factory, turn_handler_factory, scent_factory,
+                          trash_talk, turn_deadline_sec=10.0, **kwargs):
+        captured["police_relay_transport"] = kwargs.get("police_relay_transport")
+        return {
+            "game_id": "us-vs-them", "game_uid": "us-vs-them-uid", "records": [],
+            "report": {"groups": ["us", "them"], "final_result": {}},
+        }
+
+    monkeypatch.setattr("thief_peer.interop.std_v1_opponent.play_series", fake_play_series)
+
+    runtime = _FakeRuntime("std_v1", {
+        "std_v1.terms_path": str(terms_path),
+        "std_v1.group_id": "us",
+        "network.opponent_group_id": "them",
+        "network.cop_relay_url": "http://127.0.0.1:8901/mcp",
+    })
+    runtime._std_v1_exchange = StdExchange()
+    runtime.results_dir = tmp_path / "results"
+
+    run_std_v1_series(runtime)
+
+    transport = captured["police_relay_transport"]
+    assert isinstance(transport, McpTransport)
+    assert transport.opponent_url == "http://127.0.0.1:8901/mcp"
+    assert transport._connected is False  # closed after the series, never left open
 
 
 def test_run_std_v1_series_factories_sync_live_state_onto_runtime(monkeypatch, tmp_path):

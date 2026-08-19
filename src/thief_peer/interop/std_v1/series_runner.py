@@ -39,6 +39,7 @@ from thief_peer.interop.std_v1.audit import (
 )
 from thief_peer.interop.std_v1.crypto import consensus_digest, derive_game_id, derive_game_uid
 from thief_peer.interop.std_v1.handshake import negotiate_sub_game
+from thief_peer.interop.std_v1.police_relay_loop import play_sub_game_as_police as play_sub_game_as_police_relay
 from thief_peer.interop.std_v1.police_round_loop import play_sub_game_as_police
 from thief_peer.interop.std_v1.replay_log import build_records
 from thief_peer.interop.std_v1.report import build_result_report, now_iso
@@ -141,6 +142,7 @@ def play_series(
     turn_fsm_factory=None,
     games_played_including_this: int = 0,
     counted_games_played: int | None = None,
+    police_relay_transport=None,
 ) -> dict:
     """Runs every sub-game (1..`my_terms["num_games"]`) to completion, then
     the final series-consensus exchange. `board_factory()`/`scent_factory()`
@@ -178,7 +180,16 @@ def play_series(
     it top-level, not inside identity") -- `identity` above already
     carries the same value under that same key (identity.py's own
     additive field), so this is a second placement of one already-computed
-    number, not a second source of truth."""
+    number, not a second source of truth.
+
+    `police_relay_transport`, if given, is an `infra/mcp_client.py::
+    McpTransport` pointed at a separate `yamanagh-cop` process's loopback
+    relay port (rule 1/2: real Police decisions must come from a genuinely
+    separate process, not this repo's own built-in `police_brain.py`
+    stand-in) -- every even sub-game then runs `police_relay_loop.py`
+    instead of `police_round_loop.py`. `None` (the default) keeps the old
+    built-in-stand-in path unchanged, so this is an opt-in switch, not a
+    behavior change for anyone who hasn't wired a relay up yet."""
     game_id = derive_game_id(my_group_id, their_group_id)
     game_uid = derive_game_uid(my_terms, my_group_id, their_group_id)
     max_steps = my_terms["max_steps"]
@@ -226,6 +237,11 @@ def play_series(
             end_reason, records, peer_commits, my_commits = play_sub_game(
                 turn_handler, board, state, scent, trash_talk, transport, exchange,
                 max_steps, turn_deadline_sec, on_phase,
+            )
+        elif police_relay_transport is not None:
+            end_reason, records, peer_commits, my_commits = play_sub_game_as_police_relay(
+                transport, exchange, max_steps, turn_deadline_sec,
+                police_relay_transport, sub_game_number, on_phase,
             )
         else:
             end_reason, records, peer_commits, my_commits = play_sub_game_as_police(

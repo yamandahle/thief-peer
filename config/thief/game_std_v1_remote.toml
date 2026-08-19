@@ -1,17 +1,45 @@
 # Real cross-team match config -- yamanagh vs yanell11, warm-up.
 
+# PeerRuntime.__init__ builds these native-protocol placeholder components
+# before it checks opponent_protocol and short-circuits into std_v1 mode
+# -- values here are never actually used once that happens (std_v1 loads
+# its own real terms from std_v1.terms_path instead), but the keys must
+# exist or config construction fails before std_v1 is ever reached.
+[board_and_agents]
+grid_size = 7
+thief_start = [0, 0]
+
+[world]
+hint_max_words = 15
+
+[movement_and_barriers]
+max_moves = 35
+survival_threshold = 35
+
+[pheromones]
+pheromone_center_intensity = 0.9
+pheromone_decay = 0.1
+
 [network]
 my_port = 8801
 opponent_url = "https://counting-truce-childcare.ngrok-free.dev/mcp"
 opponent_protocol = "std_v1"
 opponent_group_id = "yanell11"
+public_url = "https://splotchy-bronco-nature.ngrok-free.dev/mcp"
+# Rule 1/2 fix: real Police-role decisions come from the separately-running
+# yamanagh-cop repo's own loopback relay ("uv run python -m cop relay",
+# yamanagh-cop\src\cop\std_v1\relay_server.py) instead of this repo's
+# built-in police_brain.py stand-in. Left commented out until a local
+# relay run has been verified clean -- uncomment once ready (rollback: just
+# re-comment this line, no code change needed).
+cop_relay_url = "http://127.0.0.1:8901/mcp"
 
 [network_and_league]
 response_timeout_sec = 180.0
 watchdog_timeout_sec = 180.0
 
 [email]
-recipient = "yamandahle@gmail.com"
+recipient = "yanalserhan3@gmail.com"
 token_path = "token.json"
 
 [repos]

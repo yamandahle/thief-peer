@@ -48,6 +48,7 @@ from pathlib import Path
 from thief_peer.domain.board import Board
 from thief_peer.domain.own_state import OwnGameState
 from thief_peer.domain.scent import ScentField
+from thief_peer.infra.mcp_client import McpTransport
 from thief_peer.interop.std_v1 import replay_log
 from thief_peer.interop.std_v1.exchange import StdExchange
 from thief_peer.interop.std_v1.identity import build_identity
@@ -167,23 +168,38 @@ def run_std_v1_series(runtime) -> dict:
         runtime.turn_fsm = turn_fsm
         return turn_fsm
 
-    result = play_series(
-        runtime.transport,
-        runtime._std_v1_exchange,
-        terms,
-        my_group_id,
-        their_group_id,
-        identity,
-        board_factory,
-        state_factory,
-        turn_handler_factory,
-        scent_factory,
-        runtime.trash_talk,
-        turn_deadline_sec=runtime.round_deadline_sec,
-        turn_fsm_factory=turn_fsm_factory,
-        games_played_including_this=games_played,
-        counted_games_played=counted_games_played,
-    )
+    # rule 1/2: real Police decisions must come from a genuinely separate
+    # `yamanagh-cop` process, not this repo's own built-in `police_brain.py`
+    # stand-in. `network.cop_relay_url`, if configured, points at that
+    # process's loopback relay port (see interop/std_v1/police_relay_loop.py
+    # and yamanagh-cop's own std_v1/relay_server.py); left unset, every even
+    # sub-game keeps using the old built-in stand-in unchanged -- an opt-in
+    # switch so this can be verified once, locally, before relying on it in
+    # a real match, and reverted instantly by removing the one config key.
+    cop_relay_url = runtime.config.get("network.cop_relay_url")
+    police_relay_transport = McpTransport(cop_relay_url) if cop_relay_url else None
+    try:
+        result = play_series(
+            runtime.transport,
+            runtime._std_v1_exchange,
+            terms,
+            my_group_id,
+            their_group_id,
+            identity,
+            board_factory,
+            state_factory,
+            turn_handler_factory,
+            scent_factory,
+            runtime.trash_talk,
+            turn_deadline_sec=runtime.round_deadline_sec,
+            turn_fsm_factory=turn_fsm_factory,
+            games_played_including_this=games_played,
+            counted_games_played=counted_games_played,
+            police_relay_transport=police_relay_transport,
+        )
+    finally:
+        if police_relay_transport is not None:
+            police_relay_transport.close()
     write_std_v1_log(result, runtime.results_dir)
     write_std_v1_declaration(result, terms, runtime.results_dir, games_played)
     write_std_v1_config(result, terms, runtime.results_dir)

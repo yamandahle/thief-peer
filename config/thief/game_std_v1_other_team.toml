@@ -1,0 +1,45 @@
+# Warm-up match config for a second opponent while waiting on yanell11 --
+# a separate file so game_std_v1_remote.toml (yanell11's own reserved
+# config) stays completely untouched. Fill in the four TODOs below with
+# the other team's real details before running.
+
+[board_and_agents]
+grid_size = 7
+thief_start = [0, 0]
+
+[world]
+hint_max_words = 15
+
+[movement_and_barriers]
+max_moves = 35
+survival_threshold = 35
+
+[pheromones]
+pheromone_center_intensity = 0.9
+pheromone_decay = 0.1
+
+[network]
+my_port = 8801
+opponent_url = "TODO: their real MCP URL, e.g. https://their-tunnel.ngrok-free.dev/mcp"
+opponent_protocol = "std_v1"
+opponent_group_id = "TODO: their team/group id, as they identify themselves on the wire"
+public_url = "https://splotchy-bronco-nature.ngrok-free.dev/mcp"
+# Same relay this team already verified locally -- yamanagh-cop's relay
+# process doesn't care which opponent it's serving, no restart needed.
+cop_relay_url = "http://127.0.0.1:8901/mcp"
+
+[network_and_league]
+response_timeout_sec = 180.0
+watchdog_timeout_sec = 180.0
+
+[email]
+recipient = "TODO: their contact email, or your own for a private warm-up"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
+
+[std_v1]
+group_id = "yamanagh"
+members = ["Nagham Manasra", "Yaman Dahle"]
