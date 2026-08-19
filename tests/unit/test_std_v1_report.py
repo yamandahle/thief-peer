@@ -52,15 +52,19 @@ def test_final_result_counts_row_ties_separately_from_series_ties():
 
 
 def test_final_result_carries_games_played_and_never_claims_a_diversity_bonus():
+    # Both are per-group objects (rule-38's own count is inherently
+    # per-team, since each side tracks its own separate counter).
     rows = [_row("A", 20, 5)]
-    result = final_result(rows, "A", "B", games_played_including_this=4)
-    assert result["games_played_including_this"] == 4
-    assert result["diversity_reward_applied"] is False
+    result = final_result(rows, "A", "B", games_played_including_this=4, their_games_played_including_this=7)
+    assert result["games_played_including_this"] == {"A": 4, "B": 7}
+    assert result["diversity_reward_applied"] == {"A": False, "B": False}
 
 
-def test_final_result_defaults_games_played_to_zero():
+def test_final_result_defaults_games_played_to_zero_and_peer_to_none():
+    # None (not a guessed 0) when the peer never declared a value on the wire.
     rows = [_row("A", 20, 5)]
-    assert final_result(rows, "A", "B")["games_played_including_this"] == 0
+    result = final_result(rows, "A", "B")
+    assert result["games_played_including_this"] == {"A": 0, "B": None}
 
 
 def test_build_result_report_has_the_full_section_12_top_level_shape():
@@ -78,16 +82,17 @@ def test_build_result_report_has_the_full_section_12_top_level_shape():
     report = build_result_report(
         "A-vs-B", "uid-1", "A", "B", my_identity, their_identity, rows, meta,
         {"sha256": "x", "confirmed": True}, "2026-01-01T00:00:00+00:00", "2026-01-01T00:01:00+00:00",
-        games_played_including_this=2,
+        games_played_including_this=2, their_games_played_including_this=5,
     )
     assert report["report_type"] == "std_v1_result"
     assert report["schema_version"] == "1.0"
     assert report["groups"] == ["A", "B"]
     assert report["sub_games"][0]["tie"] is False
     assert report["sub_games"][0]["github_commit"] == {"A": "a" * 40, "B": "b" * 40}
+    assert report["sub_games"][0]["log_files"] == {"A": "log_uid-1.json", "B": "log_uid-1.json"}
     assert report["final_result"]["winner_group"] == "A"
-    assert report["final_result"]["games_played_including_this"] == 2
-    assert report["final_result"]["diversity_reward_applied"] is False
+    assert report["final_result"]["games_played_including_this"] == {"A": 2, "B": 5}
+    assert report["final_result"]["diversity_reward_applied"] == {"A": False, "B": False}
     assert report["mutual_agreement"] == {"sha256": "x", "confirmed": True}
     # `links` names all four series artifacts (declaration/config/log/result
     # -- interop/std_v1_opponent.py::write_std_v1_declaration/write_std_v1_

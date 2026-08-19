@@ -137,7 +137,7 @@ def play_series(
     # own write-report-then-notify flow fires "a few seconds after
     # settlement", not synchronously) -- kept separate from the tighter
     # per-sub-game audit_ceiling_sec above rather than widening that too.
-    consensus_ceiling_sec: float = 200.0,
+    consensus_ceiling_sec: float = 400.0,
     turn_fsm_factory=None,
     games_played_including_this: int = 0,
     counted_games_played: int | None = None,
@@ -189,6 +189,7 @@ def play_series(
     sub_game_meta: list[dict] = []
     all_records: list[dict] = []
     their_identity: dict = {}
+    their_games_played_including_this: int | None = None
     all_clean = True
     game_started_at = now_iso()
 
@@ -202,6 +203,16 @@ def play_series(
             counted_games_played=counted_games_played,
         )
         their_identity = their_offer.get("identity", their_identity)
+        # Peers put this at the top level of their own offer, inside
+        # identity, or omit it entirely -- checked in that order, keeping
+        # whatever this side last saw declared if a later sub-game's offer
+        # doesn't repeat it, rather than treating a missing key as "reset
+        # to unknown."
+        their_games_played_including_this = (
+            their_offer.get("counted_games_played")
+            if their_offer.get("counted_games_played") is not None
+            else their_identity.get("counted_games_played", their_games_played_including_this)
+        )
         print(f"[negotiate] sub-game {sub_game_number} agreed OK -- we play {role}", flush=True)
 
         board = board_factory()
@@ -302,7 +313,7 @@ def play_series(
     report = build_result_report(
         game_id, game_uid, my_group_id, their_group_id, identity, their_identity,
         rows, sub_game_meta, mutual_agreement, game_started_at, game_ended_at,
-        games_played_including_this,
+        games_played_including_this, their_games_played_including_this,
     )
 
     return {

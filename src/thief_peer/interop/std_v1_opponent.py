@@ -101,14 +101,22 @@ def run_std_v1_series(runtime) -> dict:
         if runtime.is_counted
         else counted_games_played
     )
+    # `network.public_url` is optional -- the localhost address is real and
+    # correct for actually running the server, but useless to a peer
+    # reading the filed report to see how to reach us (reconciled live
+    # against yanell11). No code here can discover a tunnel's own assigned
+    # public hostname on its own (ngrok picks it dynamically), so this is
+    # a config value the operator fills in for the current match rather
+    # than something auto-detected.
+    reported_server_url = runtime.config.get("network.public_url") or f"http://127.0.0.1:{runtime.port}/mcp"
     identity = build_identity(
         group_id=my_group_id,
         group_name=runtime.group_name,
         members=runtime.config.get("std_v1.members", []),
         repos=runtime.repos,
         mcp_servers={
-            "thief": f"http://127.0.0.1:{runtime.port}/mcp",
-            "cop": f"http://127.0.0.1:{runtime.port}/mcp",
+            "thief": reported_server_url,
+            "cop": reported_server_url,
         },
         llm_model=runtime.config.get("llm.model", "template"),
         scent_model_lock=build_scent_model_lock(terms),

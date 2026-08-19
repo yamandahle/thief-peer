@@ -38,6 +38,7 @@ def final_result(
     my_group_id: str,
     their_group_id: str,
     games_played_including_this: int = 0,
+    their_games_played_including_this: int | None = None,
 ) -> dict:
     """Section 6's cumulative series aggregate, including the +2 tie
     bonus -- applied once to each side, and only when the raw cumulative
@@ -49,10 +50,17 @@ def final_result(
     `docs/TodoCloseGaps.md` reached for the native path's own
     `report/series_result.py::merge_sub_game_into_series`) -- carried
     through here for the same reason: harmless bonus fields, computed
-    honestly from data already available (`LeagueCounter`, via
-    `interop/std_v1_opponent.py`) rather than hardcoded. No diversity-bonus
-    logic exists in this repo, so `diversity_reward_applied` is always
-    `False`, matching that same precedent exactly."""
+    honestly from data already available rather than hardcoded. Both are
+    now per-group objects (reconciled live against yanell11 -- rule-38's
+    own count is inherently per-team, since each side tracks its own
+    separate counter): our own value from `LeagueCounter` (via
+    `interop/std_v1_opponent.py`), theirs from whatever they actually
+    declared on the wire (`counted_games_played`, spec Section 3) --
+    `None` when they never declared one, not a guessed 0, since an absent
+    peer declaration is a real fact worth keeping distinct from an
+    explicitly-declared zero. No diversity-bonus logic exists in this
+    repo, so `diversity_reward_applied` is always `False` for both
+    sides."""
     total = {my_group_id: 0, their_group_id: 0}
     won = {my_group_id: 0, their_group_id: 0}
     ties = 0
@@ -78,8 +86,11 @@ def final_result(
         "winner_group": winner_group,
         "series_tie": series_tie,
         "tokens_total_series": {my_group_id: 0, their_group_id: 0},
-        "games_played_including_this": games_played_including_this,
-        "diversity_reward_applied": False,
+        "games_played_including_this": {
+            my_group_id: games_played_including_this,
+            their_group_id: their_games_played_including_this,
+        },
+        "diversity_reward_applied": {my_group_id: False, their_group_id: False},
     }
 
 
@@ -96,6 +107,7 @@ def build_result_report(
     game_started_at: str,
     game_ended_at: str,
     games_played_including_this: int = 0,
+    their_games_played_including_this: int | None = None,
 ) -> dict:
     """`sub_game_meta[i]` supplies the per-row fields Section 11's own
     canonical row doesn't carry: `their_github_commit`, `steps`,
@@ -106,6 +118,10 @@ def build_result_report(
     # `log_{game_uid}.json` convention) -- every sub-game's records live in
     # it together, tagged by `sub_game_number` (replay_log.py::build_records),
     # so every row references the same file rather than a per-sub-game one.
+    # `log_files` is keyed per-group (reconciled live against yanell11),
+    # not a plain list -- both sides currently point at this same one file
+    # since neither side's own log is split per sub-game, but the shape
+    # leaves room for a peer whose own log naming differs per side.
     log_filename = f"log_{game_uid}.json"
     sub_games = []
     for row, meta in zip(rows, sub_game_meta, strict=True):
@@ -118,7 +134,7 @@ def build_result_report(
             },
             "tokens": {my_group_id: 0, their_group_id: 0},
             "audit": meta["audit"],
-            "log_files": [log_filename],
+            "log_files": {my_group_id: log_filename, their_group_id: log_filename},
             "steps": meta["steps"],
             "started_at": meta["started_at"],
             "ended_at": meta["ended_at"],
@@ -157,7 +173,10 @@ def build_result_report(
         "game_started_at": game_started_at,
         "game_ended_at": game_ended_at,
         "mutual_agreement": mutual_agreement,
-        "final_result": final_result(rows, my_group_id, their_group_id, games_played_including_this),
+        "final_result": final_result(
+            rows, my_group_id, their_group_id,
+            games_played_including_this, their_games_played_including_this,
+        ),
     }
 
 
