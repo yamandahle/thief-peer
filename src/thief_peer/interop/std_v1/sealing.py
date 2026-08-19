@@ -92,6 +92,26 @@ def build_audit_record(payload: dict, nonce: str, commit: str) -> dict:
     return {"payload": dict(payload), "nonce": nonce, "commit": commit}
 
 
+def build_step0_record(sender: str, github_commit: str | None) -> dict:
+    """A sealed declaration record disclosed alongside the real turn
+    records in `submit_audit` -- real gap found live (yanell11, after we'd
+    already built the reading side for her own equivalent record): this
+    repo never sent one at all, so a peer's own audit had nothing to read
+    `github_commit` off of, no matter how correct our negotiate-offer
+    identity was. `payload.type` marks it as non-turn metadata (matches
+    `audit.py::turn_records_only`'s own "any type key at all -> not a real
+    turn" rule, so this repo's own peer never mistakes it for a fabricated
+    turn record); `"system_spec"` specifically matches yanell11's own
+    established convention, since this record exists for her benefit.
+    `github_commit` is `None` when the caller has no commit to declare
+    (e.g. the relay's own commit fetch failed) -- included as `None`
+    rather than omitted, so a peer reading it sees an honest absence
+    instead of inferring one from a missing key."""
+    payload = {"type": "system_spec", "sender": sender, "github_commit": github_commit}
+    sealed = seal_turn(payload)
+    return build_audit_record(payload, sealed["nonce"], sealed["commit"])
+
+
 def verify_record(record: dict, expected_commit: str) -> bool:
     """Re-hashes `record["payload"]` exactly as disclosed -- never
     reconstructed from this repo's own `_PUBLIC_FIELDS`/`_HIDDEN_FIELDS`

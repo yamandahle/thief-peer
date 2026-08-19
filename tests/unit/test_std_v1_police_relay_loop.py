@@ -53,7 +53,10 @@ def test_play_sub_game_as_police_waits_for_the_thiefs_step_one_turn_first():
         relay_transport=relay, sub_game_number=2,
     )
     assert result == "timeout"
-    assert records == []
+    # records[0] is the sealed step-0 declaration (sealing.py::build_step0_record),
+    # not a turn -- no police turn was ever relayed before the timeout.
+    assert len(records) == 1
+    assert records[0]["payload"]["type"] == "system_spec"
     assert my_commits == {}
     assert relay.calls[0][0] == "start_police_subgame"
 
@@ -70,7 +73,11 @@ def test_play_sub_game_as_police_reports_capture_when_thief_confirms_caught():
 
     assert result == "capture"
     assert peer_commits == {1: "c1", 2: "c2"}
-    assert len(records) == 1  # one relayed police turn (step 1) before the confirmation arrived
+    # records[0] is the sealed step-0 declaration; records[1] is the one
+    # relayed police turn (step 1) before the confirmation arrived.
+    assert len(records) == 2
+    assert records[0]["payload"]["type"] == "system_spec"
+    assert records[1]["payload"]["step"] == 1
     assert my_commits == {1: "commit-1"}
 
 

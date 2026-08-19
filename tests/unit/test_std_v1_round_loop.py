@@ -61,8 +61,11 @@ def test_play_sub_game_survives_when_it_reaches_max_steps_uncaught():
     )
 
     assert result == "survival"
-    assert len(records) == 1
-    assert records[0]["payload"]["step"] == 1
+    # records[0] is the sealed step-0 declaration (sealing.py::build_step0_record),
+    # not a turn -- the real turn record follows it.
+    assert len(records) == 2
+    assert records[0]["payload"]["type"] == "system_spec"
+    assert records[1]["payload"]["step"] == 1
     assert set(my_commits) == {1}
 
 

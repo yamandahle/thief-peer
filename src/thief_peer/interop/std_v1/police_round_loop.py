@@ -24,6 +24,7 @@ from thief_peer.exceptions import DeadlineExceededError
 from thief_peer.interop.std_v1.police_brain import believed_thief_cell, choose_police_move
 from thief_peer.interop.std_v1.sealing import (
     build_audit_record,
+    build_step0_record,
     build_turn_message,
     build_turn_payload,
     seal_turn,
@@ -45,12 +46,17 @@ def play_sub_game_as_police(
     turn_deadline_sec: float,
     thief_start,
     on_phase=None,
+    github_commit: str | None = None,
 ) -> tuple[str, list[dict], dict[int, str], dict[int, str]]:
     """Mirrors round_loop.py::play_sub_game's return shape (now also
     returning `my_commits`, this side's own live commits keyed by step,
     for the same replay-log-pairing reason). Waits for the Thief's own
     step-1 turn first (Section 10: "the Thief sends the first turn of
     each sub-game"), then alternates on even step numbers.
+
+    `github_commit`, if given, seeds a sealed step-0 declaration record as
+    `records[0]` -- see round_loop.py::play_sub_game's own docstring for
+    the full reasoning (real peer-audit gap found live against yanell11).
 
     `on_phase`, if given, is called with one of TurnFsm's own state names
     (peer/turn_fsm.py) at each of that book state machine's transition
@@ -64,7 +70,7 @@ def play_sub_game_as_police(
         if on_phase is not None:
             on_phase(name)
 
-    records: list[dict] = []
+    records: list[dict] = [build_step0_record("police", github_commit)]
     peer_commits: dict[int, str] = {}
     my_commits: dict[int, str] = {}
 

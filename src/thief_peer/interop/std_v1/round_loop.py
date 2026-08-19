@@ -39,6 +39,7 @@ from thief_peer.exceptions import DeadlineExceededError
 from thief_peer.interop.std_v1.capture import build_claim_response, evaluate_capture
 from thief_peer.interop.std_v1.sealing import (
     build_audit_record,
+    build_step0_record,
     build_turn_message,
     build_turn_payload,
     seal_turn,
@@ -61,6 +62,7 @@ def play_sub_game(
     max_steps: int,
     turn_deadline_sec: float,
     on_phase=None,
+    github_commit: str | None = None,
 ) -> tuple[str, list[dict], dict[int, str], dict[int, str]]:
     """Returns (result, records, peer_commits, my_commits) -- `result` is one
     of "capture"/"survival"/"timeout", mirroring police_round_loop.py's own
@@ -71,6 +73,12 @@ def play_sub_game(
     revealed records; `my_commits` are this side's own live commits, keyed
     by step, kept so a replay log can pair each revealed record with the
     commit it was actually sealed under.
+
+    `github_commit`, if given, seeds a sealed step-0 declaration record as
+    `records[0]` (see `sealing.py::build_step0_record`'s own docstring for
+    why this exists) -- a real peer-audit gap found live, since without it
+    a peer's own report has nothing to read our commit off of no matter
+    how correct our negotiate-offer identity is.
 
     `on_phase`, if given, is called with one of TurnFsm's own state names
     (peer/turn_fsm.py) at each of that book state machine's transition
@@ -83,7 +91,7 @@ def play_sub_game(
         if on_phase is not None:
             on_phase(name)
 
-    records: list[dict] = []
+    records: list[dict] = [build_step0_record("thief", github_commit)]
     peer_commits: dict[int, str] = {}
     my_commits: dict[int, str] = {}
     last_cop_scent: dict[str, float] = {}

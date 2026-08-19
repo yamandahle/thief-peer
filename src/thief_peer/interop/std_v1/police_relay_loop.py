@@ -19,7 +19,7 @@ four-tool wire client (`wire.py::send_turn` etc.) already proves that
 from __future__ import annotations
 
 from thief_peer.exceptions import DeadlineExceededError
-from thief_peer.interop.std_v1.sealing import build_audit_record, build_turn_message
+from thief_peer.interop.std_v1.sealing import build_audit_record, build_step0_record, build_turn_message
 from thief_peer.interop.std_v1.wire import send_turn
 
 
@@ -31,18 +31,25 @@ def play_sub_game_as_police(
     relay_transport,
     sub_game_number: int,
     on_phase=None,
+    github_commit: str | None = None,
 ) -> tuple[str, list[dict], dict[int, str], dict[int, str]]:
     """Mirrors `police_round_loop.py::play_sub_game_as_police`'s return
     shape and wire behavior exactly -- see that module's own docstring for
     the full protocol reasoning. Position/belief/scent state now lives
     entirely inside the relay's own `Std1TurnHandler`, so this loop
-    doesn't need `board`/`state`/`scent`/`thief_start` at all."""
+    doesn't need `board`/`state`/`scent`/`thief_start` at all.
+
+    `github_commit` here is yamanagh-cop's own commit (fetched once via
+    `relay_identity`, threaded down from std_v1_opponent.py), not this
+    process's -- it's genuinely yamanagh-cop's own code playing this role,
+    so its step-0 declaration should say so (see round_loop.py::
+    play_sub_game's own docstring for why this record exists at all)."""
 
     def _phase(name: str) -> None:
         if on_phase is not None:
             on_phase(name)
 
-    records: list[dict] = []
+    records: list[dict] = [build_step0_record("police", github_commit)]
     peer_commits: dict[int, str] = {}
     my_commits: dict[int, str] = {}
 

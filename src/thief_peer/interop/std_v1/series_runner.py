@@ -240,16 +240,19 @@ def play_series(
             end_reason, records, peer_commits, my_commits = play_sub_game(
                 turn_handler, board, state, scent, trash_talk, transport, exchange,
                 max_steps, turn_deadline_sec, on_phase,
+                github_commit=identity.get("github_commit"),
             )
         elif police_relay_transport is not None:
             end_reason, records, peer_commits, my_commits = play_sub_game_as_police_relay(
                 transport, exchange, max_steps, turn_deadline_sec,
                 police_relay_transport, sub_game_number, on_phase,
+                github_commit=cop_github_commit,
             )
         else:
             end_reason, records, peer_commits, my_commits = play_sub_game_as_police(
                 board, state, scent, transport, exchange, max_steps, turn_deadline_sec,
                 thief_start, on_phase,
+                github_commit=identity.get("github_commit"),
             )
         all_records.extend(build_records(records, my_commits, sub_game_number))
 
