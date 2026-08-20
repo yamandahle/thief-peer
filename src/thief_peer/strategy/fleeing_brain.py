@@ -12,14 +12,25 @@ from thief_peer.domain.board import Board, Cell
 from thief_peer.domain.own_state import OwnGameState
 from thief_peer.strategy.brain_base import BrainBase
 
-# Weighted-sum combination (PRD_3 §3): expected distance dominates in open
-# space, but a large mobility gap (the signature of a real dead end, not
-# just "slightly fewer options") can still outweigh a small distance edge --
-# this is what keeps the Thief out of corners the naive single-peak-fleeing
-# baseline walks straight into.
-EXPECTED_DISTANCE_WEIGHT = 1.0
-MOBILITY_WEIGHT = 1.5
-LOOKAHEAD_WEIGHT = 0.1
+# Weighted-sum combination (PRD_3 §3). Mobility dominates on purpose --
+# empirically A/B'd live against yamanagh-cop's own real (post-staleness-
+# fix) CopBrain, no network, same real belief/scent code a live match uses
+# (see thief_vs_real_cop_sim.py in scratch): "flee the believed cop cell in
+# a straight line" is exactly the predictable pattern a greedy-Manhattan
+# pursuer closes on fastest (baseline 1.0/1.5/0.1 -> captured turn 16;
+# raising EXPECTED_DISTANCE_WEIGHT made it worse, not better). "Maximize
+# open escape routes" produces harder-to-corner movement instead. A small
+# nonzero EXPECTED_DISTANCE_WEIGHT is kept anyway rather than zeroing it --
+# pure mobility scored best in that one test (turn 25) but was only
+# validated against our own Cop's specific pursuit style; going fully
+# distance-blind risks losing badly against a real opponent that hunts
+# differently. LOOKAHEAD_WEIGHT dropped to 0: its `belief.most_likely()`
+# single-cell point estimate is far noisier than _expected_distance's own
+# full-distribution read, and weighting it up measurably hurt survival in
+# the same test.
+EXPECTED_DISTANCE_WEIGHT = 0.1
+MOBILITY_WEIGHT = 3.0
+LOOKAHEAD_WEIGHT = 0.0
 TIE_EPSILON = 1e-6
 
 

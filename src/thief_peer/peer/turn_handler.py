@@ -21,9 +21,21 @@ class TurnHandler:
         self.brain = brain
         self.belief = BeliefGrid(board.size)
 
-    def play_turn(self, opponent_scent_snapshot: dict[str, float]) -> Decision:
+    def play_turn(
+        self,
+        opponent_scent_snapshot: dict[str, float],
+        declared_position: tuple[int, int] | None = None,
+        declared_radius: int = 0,
+    ) -> Decision:
+        """`declared_position` (PLAN.md Stage 7.4), if given, is the
+        opponent's own stated cell -- its `capture_claim` (radius 0) or the
+        cell orthogonally adjacent to a `barrier_placed` it declared
+        (radius 1) -- folded in via `BeliefGrid.observe_declaration` as a
+        second evidence channel, separate from scent."""
         self.belief.diffuse()
         self.belief.observe_scent(opponent_scent_snapshot)
+        if declared_position is not None:
+            self.belief.observe_declaration(declared_position, radius=declared_radius)
         decision = self.brain.decide(self.state, self.board, self.belief)
         self.state.apply_move(decision.direction, self.board)
         return decision

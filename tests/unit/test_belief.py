@@ -81,6 +81,51 @@ def test_most_likely_returns_the_argmax_cell():
     assert belief.most_likely() == (3, 4)
 
 
+def test_observe_declaration_concentrates_trust_on_the_declared_cell():
+    belief = BeliefGrid(board_size=5)
+    belief.observe_declaration((2, 2), radius=0, trust=0.9)
+    matrix = belief.as_matrix()
+
+    assert abs(matrix[2][2] - 0.9) < 1e-9
+    total = sum(sum(row) for row in matrix)
+    assert abs(total - 1.0) < 1e-9
+
+
+def test_observe_declaration_radius_one_spreads_trust_over_the_orthogonal_cross():
+    belief = BeliefGrid(board_size=5)
+    belief.observe_declaration((2, 2), radius=1, trust=0.9)
+    matrix = belief.as_matrix()
+
+    cross = [(2, 2), (1, 2), (3, 2), (2, 1), (2, 3)]
+    declared_mass = sum(matrix[r][c] for r, c in cross)
+    assert abs(declared_mass - 0.9) < 1e-9
+    # A diagonal neighbor is NOT part of the radius-1 orthogonal cross.
+    assert matrix[1][1] < matrix[2][2]
+
+
+def test_observe_declaration_never_zeroes_out_the_rest_of_the_board():
+    # Rule 21/22: lying about a capture is a real, permitted-to-happen
+    # violation, not something structurally impossible -- so a declaration
+    # must never collapse belief to certainty the way observe_scent's own
+    # unfakeable signal is allowed to.
+    belief = BeliefGrid(board_size=5)
+    belief.observe_declaration((0, 0), radius=0, trust=0.99)
+    matrix = belief.as_matrix()
+
+    for r in range(5):
+        for c in range(5):
+            if (r, c) != (0, 0):
+                assert matrix[r][c] > 0.0
+
+
+def test_observe_declaration_composes_with_observe_scent_and_stays_normalized():
+    belief = BeliefGrid(board_size=5)
+    belief.observe_scent({"1,1": 0.5})
+    belief.observe_declaration((3, 3), radius=0, trust=0.8)
+    total = sum(sum(row) for row in belief.as_matrix())
+    assert abs(total - 1.0) < 1e-9
+
+
 def test_lie_detection_scent_alone_drives_belief_regardless_of_any_claim():
     # Mirrors the book's Ch.4.4 worked example: a scent field concentrated
     # in one region wins out over any opposing claim, because BeliefGrid

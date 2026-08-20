@@ -16,9 +16,11 @@ class _FakeTurnHandler:
         self.state = state
         self._directions = iter(directions)
         self.seen_scents = []
+        self.seen_declarations = []
 
-    def play_turn(self, opponent_scent_snapshot):
+    def play_turn(self, opponent_scent_snapshot, declared_position=None, declared_radius=0):
         self.seen_scents.append(opponent_scent_snapshot)
+        self.seen_declarations.append((declared_position, declared_radius))
         direction = next(self._directions, None)
         return Decision(move_type=None, direction=direction)
 

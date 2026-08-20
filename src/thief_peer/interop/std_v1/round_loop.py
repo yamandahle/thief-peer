@@ -95,12 +95,16 @@ def play_sub_game(
     peer_commits: dict[int, str] = {}
     my_commits: dict[int, str] = {}
     last_cop_scent: dict[str, float] = {}
+    last_cop_declared_position: tuple[int, int] | None = None
+    last_cop_declared_radius = 0
     pending_claim_response: dict | None = None
 
     step = 1
     while step <= max_steps:
         _phase("COMPUTING_MOVE")
-        decision = turn_handler.play_turn(last_cop_scent)
+        decision = turn_handler.play_turn(
+            last_cop_scent, last_cop_declared_position, last_cop_declared_radius
+        )
         decision.hint = trash_talk.generate_hint(step)
         win_claim = {"type": "survival"} if step == max_steps else None
         payload = build_turn_payload(
@@ -135,6 +139,18 @@ def play_sub_game(
         barrier_placed = cop_message.get("barrier_placed")
         if barrier_placed is not None:
             state.record_barrier(tuple(barrier_placed))
+        # PLAN.md Stage 7.4: the Cop's own stated cell, folded into next
+        # turn's belief as a direct-evidence declaration -- capture_claim
+        # (radius 0, exact) takes priority over barrier_placed (radius 1,
+        # only pins the Cop within one cell) when both are present, since
+        # it's the stronger signal.
+        capture_claim = cop_message.get("capture_claim")
+        if capture_claim is not None:
+            last_cop_declared_position, last_cop_declared_radius = tuple(capture_claim), 0
+        elif barrier_placed is not None:
+            last_cop_declared_position, last_cop_declared_radius = tuple(barrier_placed), 1
+        else:
+            last_cop_declared_position, last_cop_declared_radius = None, 0
         _phase("VERIFYING")
         caught = evaluate_capture(state, board, cop_message["capture_claim"], barrier_placed)
         claim_response = build_claim_response(cop_message["capture_claim"], caught)
