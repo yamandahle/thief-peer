@@ -83,7 +83,14 @@ def test_run_dispatches_std_v1_matches_straight_to_run_std_v1_series(tmp_path, m
     )
     monkeypatch.setattr(
         "thief_peer.peer.runtime.run_std_v1_series",
-        lambda self: {"game_id": "us-vs-them", "report": {"report_type": "std_v1_result"}},
+        lambda self: {
+            "game_id": "us-vs-them",
+            "report": {
+                "report_type": "std_v1_result",
+                "mutual_agreement": {"confirmed": False},
+                "league": {"counted": False},
+            },
+        },
     )
     written = {}
     monkeypatch.setattr(
@@ -93,7 +100,8 @@ def test_run_dispatches_std_v1_matches_straight_to_run_std_v1_series(tmp_path, m
 
     result = runtime.run()
 
-    assert result == {"game_id": "us-vs-them", "report": {"report_type": "std_v1_result"}}
+    assert result["game_id"] == "us-vs-them"
+    assert result["report"]["report_type"] == "std_v1_result"
     assert native_loop_touched["value"] is False  # native handshake/round-loop never entered
     assert written["result"] == result
     assert written["results_dir"] == runtime.results_dir
@@ -103,20 +111,108 @@ def test_run_emails_the_report_after_writing_it_for_a_std_v1_series(tmp_path, mo
     runtime = _std_v1_runtime(tmp_path, monkeypatch, port=8907)
     monkeypatch.setattr(
         "thief_peer.peer.runtime.run_std_v1_series",
-        lambda self: {"game_id": "us-vs-them", "report": {"report_type": "std_v1_result"}},
+        lambda self: {
+            "game_id": "us-vs-them",
+            "report": {
+                "report_type": "std_v1_result",
+                "mutual_agreement": {"confirmed": False},
+                "league": {"counted": False},
+            },
+        },
     )
     monkeypatch.setattr("thief_peer.peer.runtime.write_std_v1_result", lambda result, results_dir: None)
 
     emailed = {}
     monkeypatch.setattr(
         "thief_peer.peer.runtime.send_std_v1_report_email",
-        lambda result, runtime: emailed.update(result=result, runtime=runtime),
+        lambda result, runtime, *, is_counted: emailed.update(
+            result=result, runtime=runtime, is_counted=is_counted
+        ),
     )
 
     result = runtime.run()
 
     assert emailed["result"] == result
     assert emailed["runtime"] is runtime
+    assert emailed["is_counted"] is False  # confirmed=False -> not treated as counted
+
+
+class _SpyLeagueCounter:
+    def __init__(self):
+        self.recorded = []
+
+    def record_game(self, opponent_group_id):
+        self.recorded.append(opponent_group_id)
+        return len(self.recorded)
+
+
+def test_run_does_not_cc_the_lecturer_or_persist_the_league_slot_when_unconfirmed(tmp_path, monkeypatch):
+    # The actual fix: an attempt run as counted (is_counted=True) that ends
+    # with mutual_agreement.confirmed=False must not reach the lecturer or
+    # consume the one-shot counted-game slot -- a broken/unconfirmed peer
+    # must never burn a real attempt for nothing (real risk named live by
+    # yanell11's own team: "both teams score zero -- we've each burned our
+    # one counted game").
+    runtime = _std_v1_runtime(tmp_path, monkeypatch, port=8908)
+    runtime.is_counted = True
+    spy_counter = _SpyLeagueCounter()
+
+    def fake_series(self):
+        self._league_counter = spy_counter
+        self._their_group_id = "opponent-team"
+        return {
+            "game_id": "us-vs-them",
+            "report": {
+                "report_type": "std_v1_result",
+                "mutual_agreement": {"confirmed": False},
+                "league": {"counted": True},  # the attempt's own optimistic declaration
+            },
+        }
+
+    monkeypatch.setattr("thief_peer.peer.runtime.run_std_v1_series", fake_series)
+    monkeypatch.setattr("thief_peer.peer.runtime.write_std_v1_result", lambda result, results_dir: None)
+    emailed = {}
+    monkeypatch.setattr(
+        "thief_peer.peer.runtime.send_std_v1_report_email",
+        lambda result, runtime, *, is_counted: emailed.update(is_counted=is_counted),
+    )
+
+    result = runtime.run()
+
+    assert spy_counter.recorded == []  # slot never consumed
+    assert emailed["is_counted"] is False  # lecturer never CC'd
+    assert result["report"]["league"]["counted"] is False  # report corrected to match reality
+
+
+def test_run_does_cc_the_lecturer_and_persist_the_league_slot_when_confirmed(tmp_path, monkeypatch):
+    runtime = _std_v1_runtime(tmp_path, monkeypatch, port=8909)
+    runtime.is_counted = True
+    spy_counter = _SpyLeagueCounter()
+
+    def fake_series(self):
+        self._league_counter = spy_counter
+        self._their_group_id = "opponent-team"
+        return {
+            "game_id": "us-vs-them",
+            "report": {
+                "report_type": "std_v1_result",
+                "mutual_agreement": {"confirmed": True},
+                "league": {"counted": True},
+            },
+        }
+
+    monkeypatch.setattr("thief_peer.peer.runtime.run_std_v1_series", fake_series)
+    monkeypatch.setattr("thief_peer.peer.runtime.write_std_v1_result", lambda result, results_dir: None)
+    emailed = {}
+    monkeypatch.setattr(
+        "thief_peer.peer.runtime.send_std_v1_report_email",
+        lambda result, runtime, *, is_counted: emailed.update(is_counted=is_counted),
+    )
+
+    runtime.run()
+
+    assert spy_counter.recorded == ["opponent-team"]
+    assert emailed["is_counted"] is True
 
 
 def test_run_closes_the_transport_after_a_std_v1_series_even_though_finalize_match_is_skipped(
@@ -125,7 +221,14 @@ def test_run_closes_the_transport_after_a_std_v1_series_even_though_finalize_mat
     runtime = _std_v1_runtime(tmp_path, monkeypatch, port=8906)
     monkeypatch.setattr(
         "thief_peer.peer.runtime.run_std_v1_series",
-        lambda self: {"game_id": "x", "report": {"report_type": "std_v1_result"}},
+        lambda self: {
+            "game_id": "x",
+            "report": {
+                "report_type": "std_v1_result",
+                "mutual_agreement": {"confirmed": False},
+                "league": {"counted": False},
+            },
+        },
     )
     monkeypatch.setattr("thief_peer.peer.runtime.write_std_v1_result", lambda result, results_dir: None)
 

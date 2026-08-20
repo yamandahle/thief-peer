@@ -61,3 +61,23 @@ def test_evaluate_capture_true_when_stuck_by_an_older_barrier_and_no_new_one_thi
 def test_build_claim_response_echoes_claim_and_reports_caught_truthfully():
     assert build_claim_response([2, 5], caught=True) == {"claim": [2, 5], "caught": True}
     assert build_claim_response([2, 5], caught=False) == {"claim": [2, 5], "caught": False}
+
+
+def test_evaluate_capture_does_not_crash_when_capture_claim_is_none():
+    # Real bug found live (ali-ahm1): a real opponent only claims when
+    # confident, so capture_claim is legitimately absent on most turns --
+    # condition A simply has nothing to check, not a TypeError.
+    state = OwnGameState(position=(3, 3))
+    board = Board(size=7, barriers=set())
+    assert evaluate_capture(state, board, None, barrier_placed=None) is False
+
+
+def test_evaluate_capture_still_finds_a_barrier_or_stuck_capture_with_no_claim():
+    state = OwnGameState(position=(3, 3))
+    board = Board(size=7, barriers=set())
+    assert evaluate_capture(state, board, None, barrier_placed=[3, 3]) is True
+
+
+def test_build_claim_response_returns_none_when_capture_claim_is_none():
+    assert build_claim_response(None, caught=False) is None
+    assert build_claim_response(None, caught=True) is None

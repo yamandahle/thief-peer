@@ -100,11 +100,22 @@ def run_std_v1_series(runtime) -> dict:
     # total instead of what the negotiate greeting is actually supposed
     # to declare.
     counted_games_played = league_counter.games_played_against(their_group_id)
-    games_played = (
-        league_counter.record_game(their_group_id)
-        if runtime.is_counted
-        else counted_games_played
-    )
+    # Rule 38/52 integrity fix: the counted-game slot must NOT be consumed
+    # here, before the series has even started -- a real risk yanell11's
+    # own team named explicitly ("if yours is missing, late, or
+    # unconfirmed, both teams score zero -- we've each burned our one
+    # counted game"), and one this repo used to hit literally: an attempt
+    # run with is_counted=True that later ends unconfirmed (peer envelope
+    # never arrives) would already have spent the slot for nothing.
+    # `games_played` here is only the *declared* number for this attempt's
+    # own identity/negotiate offer and report -- the real, persisted
+    # increment happens in `peer/runtime.py::run()`, only once this
+    # series' own `mutual_agreement.confirmed` is actually known. The
+    # `LeagueCounter`/opponent id are stashed on `runtime` for that later
+    # call to use.
+    games_played = counted_games_played + 1 if runtime.is_counted else counted_games_played
+    runtime._league_counter = league_counter
+    runtime._their_group_id = their_group_id
     # `network.public_url` is optional -- the localhost address is real and
     # correct for actually running the server, but useless to a peer
     # reading the filed report to see how to reach us (reconciled live
@@ -304,7 +315,7 @@ def std_v1_shutdown_grace() -> None:
     time.sleep(STD_V1_SHUTDOWN_GRACE_SECONDS)
 
 
-def send_std_v1_report_email(result: dict, runtime) -> bool:
+def send_std_v1_report_email(result: dict, runtime, *, is_counted: bool) -> bool:
     """Rule 32: both teams' agents must each email their own copy of the
     final result. Reuses `report/report_writer.py::send_report_email`
     verbatim -- the exact same gatekeeper-wrapped Gmail-send call and
@@ -314,21 +325,27 @@ def send_std_v1_report_email(result: dict, runtime) -> bool:
     run()` after `write_std_v1_result` has already put `result["report"]`
     on disk, so a failed send never loses the result itself (rules 33/34).
 
-    Rules 9.3/35: a *counted* series' result MUST reach the fixed league
-    address automatically -- never left to whatever `[email] recipient`
-    happens to be configured, which is one manual edit away from being
-    forgotten right before the one run that actually counts (confirmed
-    live: yanell11, "if yours is missing, late, or unconfirmed, both teams
-    score zero for the series -- we've each burned our one counted game").
+    `is_counted` here is the caller's *effective* decision (attempted-as-
+    counted AND `mutual_agreement.confirmed`), not simply `runtime.
+    is_counted` -- see `PeerRuntime.run()`'s own confirmation gate. An
+    attempt run as counted that ends unconfirmed must not reach the
+    lecturer as though it were a real result (the whole point of this
+    fix): both teams score zero for the series if the filing turns out to
+    be missing/unconfirmed on either side, which is exactly the outcome
+    this gate exists to prevent for an obviously-incomplete run.
+
+    Rules 9.3/35: a genuinely *counted* series' result MUST reach the
+    fixed league address automatically -- never left to whatever `[email]
+    recipient` happens to be configured, which is one manual edit away
+    from being forgotten right before the one run that actually counts.
     `[email] recipient` is CC'd on every send regardless (so the opponent
-    can diff against their own filing, confirmed live: "send a copy to
-    yanalserhan3@gmail.com so we can diff") -- an uncounted/warm-up run
-    already used that same address as its sole recipient, so
-    `build_recipients`' own `is_counted` gate (email_sender.py) is what
-    adds the league address on top for a counted run instead of replacing
-    the opponent address outright."""
+    can diff against their own filing) -- an uncounted/warm-up run already
+    used that same address as its sole recipient, so `build_recipients`'
+    own `is_counted` gate (email_sender.py) is what adds the league
+    address on top for a counted run instead of replacing the opponent
+    address outright."""
     recipient = email_sender.build_recipients(
-        LEAGUE_RESULT_EMAIL, runtime.recipient, is_counted=runtime.is_counted
+        LEAGUE_RESULT_EMAIL, runtime.recipient, is_counted=is_counted
     )
     return send_report_email(runtime.gatekeeper, runtime.email_service, recipient, result["report"])
 

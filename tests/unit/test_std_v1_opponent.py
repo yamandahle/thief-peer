@@ -329,7 +329,7 @@ def test_send_std_v1_report_email_ccs_the_opponent_and_reaches_the_league_addres
     runtime.recipient = "opponent@example.com"
     runtime.is_counted = True
 
-    sent_ok = send_std_v1_report_email(result, runtime)
+    sent_ok = send_std_v1_report_email(result, runtime, is_counted=True)
 
     assert sent_ok is True
     assert sent["service"] == "fake-gmail-service"
@@ -350,7 +350,7 @@ def test_send_std_v1_report_email_sends_to_the_configured_recipient_when_not_cou
     runtime.recipient = "lecturer@example.com"
     runtime.is_counted = False
 
-    sent_ok = send_std_v1_report_email(result, runtime)
+    sent_ok = send_std_v1_report_email(result, runtime, is_counted=False)
 
     assert sent_ok is True
     assert sent["recipient"] == "lecturer@example.com"

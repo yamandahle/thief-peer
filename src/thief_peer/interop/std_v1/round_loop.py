@@ -152,8 +152,14 @@ def play_sub_game(
         else:
             last_cop_declared_position, last_cop_declared_radius = None, 0
         _phase("VERIFYING")
-        caught = evaluate_capture(state, board, cop_message["capture_claim"], barrier_placed)
-        claim_response = build_claim_response(cop_message["capture_claim"], caught)
+        caught = evaluate_capture(state, board, capture_claim, barrier_placed)
+        claim_response = build_claim_response(capture_claim, caught)
+        if claim_response is None and caught:
+            # Captured via barrier/stuck (conditions B/C) on a turn the Cop
+            # made no landing claim at all -- there's still a truthful cell
+            # to confirm, our own actual position, even though the Cop's
+            # own capture_claim was absent this turn.
+            claim_response = {"claim": list(state.position), "caught": True}
 
         if caught:
             # Section 5: the Thief still owes one final turn message

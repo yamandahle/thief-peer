@@ -95,6 +95,28 @@ def test_play_sub_game_reports_capture_when_the_cops_claim_lands():
     assert records[-1]["payload"]["move"] == "STAY"
 
 
+def test_play_sub_game_reports_capture_via_barrier_with_no_claim_this_turn():
+    # Real bug found live (ali-ahm1): a real opponent's police omits
+    # capture_claim on turns it isn't confident, including a turn that
+    # still lands a barrier capture -- the truthful claim_response must
+    # fall back to this side's own actual position, not crash or omit it.
+    state = OwnGameState(position=(3, 3))
+    board = Board(size=7, barriers=set())
+    turn_handler = _FakeTurnHandler(state, [Direction.N])
+    exchange = StdExchange(poll_interval=0.01)
+    exchange.record_turn({
+        "step": 1, "commit": "c1", "capture_claim": None, "barrier_placed": [3, 3], "smell_grid": {},
+    })
+
+    result, records, peer_commits, my_commits = play_sub_game(
+        turn_handler, board, state, _FakeScent(), _FakeTrashTalk(),
+        _StubTransport(), exchange, max_steps=35, turn_deadline_sec=0.2,
+    )
+
+    assert result == "capture"
+    assert records[-1]["payload"]["claim_response"] == {"claim": [3, 3], "caught": True}
+
+
 def test_play_sub_game_times_out_when_the_cop_never_answers():
     state = OwnGameState(position=(3, 3))
     board = Board(size=7, barriers=set())

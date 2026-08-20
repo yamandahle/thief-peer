@@ -55,7 +55,19 @@ def validate_offer(offer: dict, my_terms: dict) -> None:
     terms = offer.get("terms")
     validate_terms(terms)
     if terms != my_terms:
-        raise SimulationError("peer's terms differ from ours -- refusing the greeting (rule 3)")
+        # Naming the exact field on any mismatch (same diagnostic standard
+        # report.py's own verify_peer already holds itself to) -- a blind
+        # "terms != my_terms" told a real cross-team debugging session
+        # nothing about which key actually differed.
+        all_keys = set(terms) | set(my_terms)
+        diffs = {
+            key: {"ours": my_terms.get(key), "theirs": terms.get(key)}
+            for key in sorted(all_keys)
+            if my_terms.get(key) != terms.get(key)
+        }
+        raise SimulationError(
+            f"peer's terms differ from ours -- refusing the greeting (rule 3): {diffs}"
+        )
     nonce = offer.get("nonce")
     signature = offer.get("signature")
     if not nonce or not signature:

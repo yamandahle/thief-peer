@@ -139,8 +139,29 @@ class PeerRuntime(PeerContextMixin):
             # entire num_games-sub-game series itself and returns its own
             # summary dict.
             result = run_std_v1_series(self)
+            # A counted attempt must not be treated as a real counted
+            # result -- consuming the one-shot league slot, reaching the
+            # lecturer -- unless the series actually settled: both sides
+            # agreeing is what "complete" means here (mutual_agreement.
+            # confirmed), not just having played through six sub-games.
+            # An unconfirmed attempt (peer envelope missing/invalid, a
+            # real, repeatedly-observed failure mode against real
+            # opponents) falls back to warmup-shaped behavior on our own
+            # side: no lecturer CC, no counted-game slot spent, so a
+            # broken opponent process never burns our one shot at them.
+            confirmed = result["report"]["mutual_agreement"]["confirmed"]
+            effective_is_counted = self.is_counted and confirmed
+            result["report"]["league"]["counted"] = effective_is_counted
+            if self.is_counted and not confirmed:
+                print(
+                    "[league] series ended unconfirmed -- NOT persisting the counted-game "
+                    f"slot for {getattr(self, '_their_group_id', '?')!r}, not CC'ing the lecturer",
+                    flush=True,
+                )
+            elif effective_is_counted:
+                self._league_counter.record_game(self._their_group_id)
             write_std_v1_result(result, self.results_dir)
-            send_std_v1_report_email(result, self)
+            send_std_v1_report_email(result, self, is_counted=effective_is_counted)
             std_v1_shutdown_grace()
             if self.transport is not None:
                 self.transport.close()

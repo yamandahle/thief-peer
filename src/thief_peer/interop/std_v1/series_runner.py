@@ -257,18 +257,43 @@ def play_series(
         all_records.extend(build_records(records, my_commits, sub_game_number))
 
         my_envelope = build_audit_envelope(role, records, end_reason, sub_game_number)
-        peer_envelope = send_and_await(
-            transport,
-            lambda timeout, n=sub_game_number: exchange.wait_for_audit(n, timeout),
-            my_envelope, resend_interval_sec, audit_ceiling_sec,
-        )
-        peer_records = turn_records_only(peer_envelope.get("records", []))
-        verify_result = verify_peer_records(peer_records, peer_commits)
-        all_clean = all_clean and verify_result["log_verified"]
-        ended_at = now_iso()
-        audit_state = "verified OK" if verify_result["log_verified"] else "TAMPERED"
-        detail = f" mismatched_steps={verify_result['mismatched_steps']}" if verify_result["tampered"] else ""
-        print(f"[sub-game {sub_game_number}] {end_reason} (role={role}) -- peer audit {audit_state}{detail}", flush=True)
+        # A slow/missing peer audit for THIS sub-game must not lose the
+        # other five: real bug found live (ali-ahm1) -- this call had no
+        # timeout handling at all, so one late audit response crashed the
+        # whole series and threw away every sub-game already played,
+        # including this one's own 35 real turns. Mirrors the final
+        # series-consensus exchange's own graceful-degradation pattern
+        # (series_runner.py's own consensus handling, a few lines below):
+        # our own report is independently computed from our own
+        # locally-verified data regardless of whether the peer's envelope
+        # ever arrives -- a missing peer audit is "not verified", a real,
+        # honest third state, never silently "verified OK" (an empty
+        # records list would otherwise vacuously pass verify_peer_records)
+        # and never a crash.
+        try:
+            peer_envelope = send_and_await(
+                transport,
+                lambda timeout, n=sub_game_number: exchange.wait_for_audit(n, timeout),
+                my_envelope, resend_interval_sec, audit_ceiling_sec,
+            )
+        except DeadlineExceededError:
+            peer_envelope = {}
+            verify_result = {"log_verified": False, "tampered": False, "mismatched_steps": []}
+            all_clean = False
+            ended_at = now_iso()
+            print(
+                f"[sub-game {sub_game_number}] {end_reason} (role={role}) -- "
+                f"peer audit NOT RECEIVED within {audit_ceiling_sec}s",
+                flush=True,
+            )
+        else:
+            peer_records = turn_records_only(peer_envelope.get("records", []))
+            verify_result = verify_peer_records(peer_records, peer_commits)
+            all_clean = all_clean and verify_result["log_verified"]
+            ended_at = now_iso()
+            audit_state = "verified OK" if verify_result["log_verified"] else "TAMPERED"
+            detail = f" mismatched_steps={verify_result['mismatched_steps']}" if verify_result["tampered"] else ""
+            print(f"[sub-game {sub_game_number}] {end_reason} (role={role}) -- peer audit {audit_state}{detail}", flush=True)
 
         rows.append(_row_for(sub_game_number, role, end_reason, verify_result["tampered"], my_group_id, their_group_id))
         sub_game_reports.append({

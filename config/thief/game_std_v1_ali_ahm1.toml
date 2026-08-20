@@ -1,0 +1,44 @@
+# Warm-up match config for team ali-ahm1 -- a separate file so
+# game_std_v1_remote.toml (yanell11's own reserved config) and
+# game_std_v1_other_team.toml (moamteam's own) stay completely untouched.
+
+[board_and_agents]
+grid_size = 7
+thief_start = [0, 0]
+
+[world]
+hint_max_words = 15
+
+[movement_and_barriers]
+max_moves = 35
+survival_threshold = 35
+
+[pheromones]
+pheromone_center_intensity = 0.9
+pheromone_decay = 0.1
+
+[network]
+my_port = 8801
+opponent_url = "https://sputter-petted-fanciness.ngrok-free.dev/mcp"
+opponent_protocol = "std_v1"
+opponent_group_id = "ali-ahm1"
+public_url = "https://splotchy-bronco-nature.ngrok-free.dev/mcp"
+# Same relay every other opponent already verified locally -- yamanagh-cop's
+# relay process doesn't care which opponent it's serving, no restart needed.
+cop_relay_url = "http://127.0.0.1:8901/mcp"
+
+[network_and_league]
+response_timeout_sec = 180.0
+watchdog_timeout_sec = 180.0
+
+[email]
+recipient = "atrabe08@gmail.com"
+token_path = "token.json"
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
+
+[std_v1]
+group_id = "yamanagh"
+members = ["Nagham Manasra", "Yaman Dahle"]
