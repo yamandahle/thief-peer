@@ -30,6 +30,25 @@ def test_league_counter_survives_a_simulated_process_restart(tmp_path):
     assert fresh_instance.games_played_against("cop-team") == 2
 
 
+def test_total_games_played_sums_across_every_opponent(tmp_path):
+    # Rule 38 / book Sec 9.2.1 (printed p.70), verified against the book's
+    # own text, not guessed: the Game-Count Declaration is a league-wide
+    # running total ("how many games it has played so far"), not a
+    # per-opponent count -- confirmed by the book's own worked example,
+    # where two teams playing each other declared *different* numbers in
+    # this same field, only possible for an unqualified running total.
+    counter = LeagueCounter(tmp_path / "league.json")
+    counter.record_game("team-a")
+    counter.record_game("team-a")
+    counter.record_game("team-b")
+    assert counter.total_games_played() == 3
+
+
+def test_total_games_played_is_zero_for_a_brand_new_counter(tmp_path):
+    counter = LeagueCounter(tmp_path / "league.json")
+    assert counter.total_games_played() == 0
+
+
 def test_league_counter_tracks_different_opponents_independently(tmp_path):
     counter = LeagueCounter(tmp_path / "league.json")
     counter.record_game("cop-team-a")

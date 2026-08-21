@@ -28,6 +28,21 @@ class LeagueCounter:
     def games_played_against(self, opponent_group_id: str) -> int:
         return self._load().get(opponent_group_id, 0)
 
+    def total_games_played(self) -> int:
+        """The book's own "Game-Count Declaration" (Sec. 9.2.1, printed
+        p.70): "each group declares to its opponent how many games it has
+        already played *so far*" -- unqualified, not "against this
+        opponent". Confirmed against the book's own worked example: two
+        teams' reports for the identical match showed *different* values
+        for this field, which is only possible for a league-wide running
+        total, never for a per-opponent count (two teams meeting each
+        other would necessarily report the same number). Rule 52's own
+        one-counted-game-per-opponent enforcement stays exactly on
+        `games_played_against`/`record_game` above, unaffected -- this is
+        a second, separate view over the same underlying per-opponent
+        storage, for the declaration field only."""
+        return sum(self._load().values())
+
     def record_game(self, opponent_group_id: str) -> int:
         data = self._load()
         data[opponent_group_id] = data.get(opponent_group_id, 0) + 1

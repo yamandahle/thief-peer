@@ -94,12 +94,18 @@ def run_std_v1_series(runtime) -> dict:
     # thread it in. Same `LeagueCounter`/`results/league_counter.json`
     # native already uses -- one shared, protocol-agnostic counter file.
     league_counter = LeagueCounter(Path(runtime.results_dir) / "league_counter.json")
-    # rule-38: the count *before* this series -- must be read first, since
-    # record_game() below mutates the same persisted counter for a counted
-    # run, and reading it after would silently return the post-increment
-    # total instead of what the negotiate greeting is actually supposed
-    # to declare.
-    counted_games_played = league_counter.games_played_against(their_group_id)
+    # rule-38/9.2.1 (verified against the book's own text, printed p.70,
+    # not guessed): the Game-Count Declaration is "how many games it has
+    # played so far" -- unqualified, a league-wide running total, not a
+    # per-opponent count. `total_games_played()` sums the same underlying
+    # per-opponent storage `record_game()` still writes to below (rule 52's
+    # own one-counted-game-per-opponent enforcement is unaffected -- this
+    # is only a second view over that data for the declared number). Must
+    # be read first, since record_game() below mutates the same persisted
+    # counter for a counted run, and reading it after would silently
+    # return the post-increment total instead of what the negotiate
+    # greeting is actually supposed to declare.
+    counted_games_played = league_counter.total_games_played()
     # Rule 38/52 integrity fix: the counted-game slot must NOT be consumed
     # here, before the series has even started -- a real risk yanell11's
     # own team named explicitly ("if yours is missing, late, or
