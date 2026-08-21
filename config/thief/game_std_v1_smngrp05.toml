@@ -1,0 +1,49 @@
+# Match config for team SMNGRP05 -- a separate file so the other
+# opponents' own reserved configs stay completely untouched. Reused for
+# both the friendly and (URL/email updated) the real counted series.
+
+[board_and_agents]
+grid_size = 7
+thief_start = [0, 0]
+
+[world]
+hint_max_words = 15
+
+[movement_and_barriers]
+max_moves = 35
+survival_threshold = 35
+
+[pheromones]
+pheromone_center_intensity = 0.9
+pheromone_decay = 0.1
+
+[network]
+my_port = 8801
+opponent_url = "https://53ed-147-236-163-154.ngrok-free.app/mcp"
+opponent_protocol = "std_v1"
+opponent_group_id = "SMNGRP05"
+public_url = "https://splotchy-bronco-nature.ngrok-free.dev/mcp"
+# Same relay every other opponent already verified locally -- yamanagh-cop's
+# relay process doesn't care which opponent it's serving, no restart needed.
+cop_relay_url = "http://127.0.0.1:8901/mcp"
+
+[network_and_league]
+response_timeout_sec = 180.0
+watchdog_timeout_sec = 180.0
+
+[email]
+recipient = "afafgharra000@gmail.com"
+token_path = "token.json"
+# SMNGRP05's own stated convention for a counted report: lecturer only, no
+# opponent CC (unlike yanell11/moamteam, who get CC'd alongside the
+# lecturer). This flag only affects counted sends -- warm-up runs are
+# unaffected either way. See std_v1_opponent.py::send_std_v1_report_email.
+cc_opponent_on_counted_report = false
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
+
+[std_v1]
+group_id = "yamanagh"
+members = ["Nagham Manasra", "Yaman Dahle"]

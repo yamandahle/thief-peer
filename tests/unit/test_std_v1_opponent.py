@@ -337,6 +337,44 @@ def test_send_std_v1_report_email_ccs_the_opponent_and_reaches_the_league_addres
     assert sent["report"] == result["report"]
 
 
+def test_send_std_v1_report_email_can_suppress_the_opponent_cc_on_a_counted_send(monkeypatch):
+    # Opt-in, per-opponent convention: some teams want the league address
+    # as the sole recipient on a counted filing.
+    sent = {}
+    monkeypatch.setattr(
+        "thief_peer.report.report_writer.email_sender.send_report",
+        lambda service, recipient, report: sent.update(recipient=recipient),
+    )
+    result = {"report": {"report_type": "std_v1_result", "game_id": "us-vs-them"}}
+    runtime = _FakeRuntime("std_v1", {"email.cc_opponent_on_counted_report": False})
+    runtime.gatekeeper = _FakeGatekeeper()
+    runtime.email_service = "fake-gmail-service"
+    runtime.recipient = "opponent@example.com"
+
+    send_std_v1_report_email(result, runtime, is_counted=True)
+
+    assert sent["recipient"] == "rmisegal+uoh26finalgame@gmail.com"
+
+
+def test_send_std_v1_report_email_keeps_ccing_the_opponent_by_default_when_counted(monkeypatch):
+    # The flag is opt-in -- every existing config that never sets it keeps
+    # today's behavior (opponent CC'd alongside the league address).
+    sent = {}
+    monkeypatch.setattr(
+        "thief_peer.report.report_writer.email_sender.send_report",
+        lambda service, recipient, report: sent.update(recipient=recipient),
+    )
+    result = {"report": {"report_type": "std_v1_result", "game_id": "us-vs-them"}}
+    runtime = _FakeRuntime("std_v1")
+    runtime.gatekeeper = _FakeGatekeeper()
+    runtime.email_service = "fake-gmail-service"
+    runtime.recipient = "opponent@example.com"
+
+    send_std_v1_report_email(result, runtime, is_counted=True)
+
+    assert sent["recipient"] == "opponent@example.com, rmisegal+uoh26finalgame@gmail.com"
+
+
 def test_send_std_v1_report_email_sends_to_the_configured_recipient_when_not_counted(monkeypatch):
     sent = {}
     monkeypatch.setattr(

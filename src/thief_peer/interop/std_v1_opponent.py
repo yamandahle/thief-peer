@@ -344,14 +344,22 @@ def send_std_v1_report_email(result: dict, runtime, *, is_counted: bool) -> bool
     fixed league address automatically -- never left to whatever `[email]
     recipient` happens to be configured, which is one manual edit away
     from being forgotten right before the one run that actually counts.
-    `[email] recipient` is CC'd on every send regardless (so the opponent
+    `[email] recipient` is CC'd on every send by default (so the opponent
     can diff against their own filing) -- an uncounted/warm-up run already
     used that same address as its sole recipient, so `build_recipients`'
     own `is_counted` gate (email_sender.py) is what adds the league
     address on top for a counted run instead of replacing the opponent
-    address outright."""
+    address outright. `[email] cc_opponent_on_counted_report = false`
+    (opt-in, per-config) suppresses the opponent CC on a *counted* send
+    only -- some opponents' own stated convention wants the league
+    address as the sole recipient on a counted filing; friendly/warm-up
+    sends are unaffected either way, since a warm-up already goes to the
+    opponent alone with no league address involved at all."""
+    opponent_recipient = runtime.recipient
+    if is_counted and not runtime.config.get("email.cc_opponent_on_counted_report", True):
+        opponent_recipient = None
     recipient = email_sender.build_recipients(
-        LEAGUE_RESULT_EMAIL, runtime.recipient, is_counted=is_counted
+        LEAGUE_RESULT_EMAIL, opponent_recipient, is_counted=is_counted
     )
     return send_report_email(runtime.gatekeeper, runtime.email_service, recipient, result["report"])
 
