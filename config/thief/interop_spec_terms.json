@@ -6,7 +6,7 @@
   "min_center_intensity": 0.5,
   "max_steps": 35,
   "barriers_max": 14,
-  "setting": "Haifa",
+  "setting": "New York",
   "hint_max_words": 15,
   "axis_origin_corner": "top-left",
   "axis_start_index": 0,
