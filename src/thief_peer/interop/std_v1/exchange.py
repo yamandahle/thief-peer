@@ -28,6 +28,22 @@ import time
 from thief_peer.exceptions import DeadlineExceededError
 
 
+def _as_int_if_numeric(value):
+    """Coerce a numeric-string sub_game_number/step (e.g. `"3"`) to `int`.
+    Exact symptom reported live (najamjad): their `submit_audit` got a 200
+    back (`record_audit` stored it fine) but `wait_for_audit`'s int-keyed
+    lookup never found it -- a peer that serializes the number as a JSON
+    string lands in a different dict slot than every int-keyed lookup
+    checks, with no error on either side (accepted, then silently
+    unfindable, not dropped in transit). `None` and an already-`int`
+    value pass through unchanged; a genuinely non-numeric value is left
+    as-is so it still surfaces as a real anomaly rather than being
+    silently swallowed here."""
+    if isinstance(value, str) and value.lstrip("-").isdigit():
+        return int(value)
+    return value
+
+
 def _audit_belongs_to(envelope: dict, sub_game_number: int) -> bool:
     """True if `envelope` can be trusted as belonging to `sub_game_number`
     -- its own declared field if present (explicit disagreement is a
@@ -42,7 +58,7 @@ def _audit_belongs_to(envelope: dict, sub_game_number: int) -> bool:
     message type also arriving with no sub_game_number and no records."""
     if envelope.get("result_claim") == "series_consensus":
         return False
-    declared = envelope.get("sub_game_number")
+    declared = _as_int_if_numeric(envelope.get("sub_game_number"))
     if declared is not None:
         return declared == sub_game_number
     records = envelope.get("records") or []
@@ -69,7 +85,7 @@ class StdExchange:
 
     def record_offer(self, message: dict) -> None:
         with self._lock:
-            self._offers[message.get("sub_game_number")] = message
+            self._offers[_as_int_if_numeric(message.get("sub_game_number"))] = message
 
     def wait_for_offer(self, sub_game_number: int, timeout: float) -> dict:
         return self._wait_for_either_key(self._offers, sub_game_number, timeout, "negotiation offer")
@@ -78,7 +94,7 @@ class StdExchange:
 
     def record_turn(self, message: dict) -> None:
         with self._lock:
-            self._turns[message["step"]] = message
+            self._turns[_as_int_if_numeric(message["step"])] = message
 
     def wait_for_turn(self, step: int, timeout: float) -> dict:
         return self._wait_for(self._turns, step, timeout, "turn")
@@ -114,7 +130,7 @@ class StdExchange:
             if message.get("result_claim") == "series_consensus":
                 self._consensus = message
             else:
-                self._audits[message.get("sub_game_number")] = message
+                self._audits[_as_int_if_numeric(message.get("sub_game_number"))] = message
 
     def wait_for_audit(self, sub_game_number: int, timeout: float) -> dict:
         """Section 10's own "a message without its own sub_game_number is

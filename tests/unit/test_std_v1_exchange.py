@@ -30,6 +30,28 @@ def test_reset_turns_prevents_a_leftover_message_from_the_previous_sub_game():
         exchange.wait_for_turn(1, timeout=0.05)  # must not see the stale message
 
 
+def test_wait_for_turn_finds_a_step_sent_as_a_numeric_string():
+    # najamjad, live: a peer whose kit serializes step/sub_game_number as
+    # a JSON string lands in a different dict slot than every int-keyed
+    # wait -- accepted (200 OK from submit_audit's own {"ok": True}), then
+    # silently never found, not dropped in transit.
+    exchange = StdExchange(poll_interval=0.01)
+    exchange.record_turn({"step": "1", "move": "N"})
+    assert exchange.wait_for_turn(1, timeout=0.2) == {"step": "1", "move": "N"}
+
+
+def test_wait_for_offer_finds_a_sub_game_number_sent_as_a_numeric_string():
+    exchange = StdExchange(poll_interval=0.01)
+    exchange.record_offer({"sub_game_number": "3", "group_id": "peer"})
+    assert exchange.wait_for_offer(3, timeout=0.2) == {"sub_game_number": "3", "group_id": "peer"}
+
+
+def test_wait_for_audit_finds_a_sub_game_number_sent_as_a_numeric_string():
+    exchange = StdExchange(poll_interval=0.01)
+    exchange.record_audit({"sub_game_number": "3", "records": []})
+    assert exchange.wait_for_audit(3, timeout=0.2) == {"sub_game_number": "3", "records": []}
+
+
 def test_offer_with_no_sub_game_number_is_accepted_for_any_wait():
     exchange = StdExchange(poll_interval=0.01)
     exchange.record_offer({"sub_game_number": None, "group_id": "peer"})
