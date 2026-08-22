@@ -34,6 +34,10 @@ watchdog_timeout_sec = 180.0
 [email]
 recipient = "atrabe08@gmail.com"
 token_path = "token.json"
+# Explicit decision for the counted report: lecturer only, no opponent
+# CC -- overrides the default (true) even though ali-ahm1 themselves
+# proposed CC'ing both teams. Only affects counted sends.
+cc_opponent_on_counted_report = false
 
 [repos]
 thief = "https://github.com/yamandahle/thief-peer"
