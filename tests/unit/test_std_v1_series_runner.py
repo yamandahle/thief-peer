@@ -6,7 +6,12 @@ two-sided series would duplicate those without adding real coverage."""
 
 from thief_peer.interop.std_v1.crypto import consensus_digest
 from thief_peer.interop.std_v1.exchange import StdExchange
-from thief_peer.interop.std_v1.series_runner import _SCORE_TABLE, _resolve_consensus, _row_for
+from thief_peer.interop.std_v1.series_runner import (
+    _SCORE_TABLE,
+    _resolve_consensus,
+    _row_for,
+    _transport_for_role,
+)
 
 
 class _StubTransport:
@@ -64,6 +69,21 @@ def test_resolve_consensus_does_not_confirm_on_a_digest_mismatch():
 
     assert agreed is False
     assert peer_digest == "b" * 64
+
+
+def test_transport_for_role_uses_the_one_transport_for_both_roles_when_unset():
+    # Every existing single-URL opponent's behavior: transport_when_police
+    # is None, so both roles dial the same transport.
+    transport = _StubTransport()
+    assert _transport_for_role("thief", transport, None) is transport
+    assert _transport_for_role("police", transport, None) is transport
+
+
+def test_transport_for_role_dials_the_second_transport_only_for_police():
+    transport = _StubTransport()
+    transport_when_police = _StubTransport()
+    assert _transport_for_role("thief", transport, transport_when_police) is transport
+    assert _transport_for_role("police", transport, transport_when_police) is transport_when_police
 
 
 def test_row_for_capture_scores_20_5_police_thief_split():

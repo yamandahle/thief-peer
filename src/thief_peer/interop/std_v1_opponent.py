@@ -212,6 +212,19 @@ def run_std_v1_series(runtime) -> dict:
             cop_github_commit = police_relay_transport.call("relay_identity", {})["github_commit"]
         except (DeadlineExceededError, TransportError) as exc:
             print(f"[relay] could not fetch yamanagh-cop's own commit for reporting: {exc}", flush=True)
+    # Some opponents (najamjad, live) run two genuinely separate processes
+    # behind two permanent, role-bound URLs rather than one shared endpoint
+    # -- `network.opponent_url_when_police`, if configured, is dialed for
+    # every police-role sub-game instead of the one `runtime.opponent_url`
+    # every other opponent already uses for the whole series. Left unset,
+    # `play_series` falls back to the single-URL behavior unchanged.
+    opponent_url_when_police = runtime.config.get("network.opponent_url_when_police")
+    transport_when_police = (
+        McpTransport(opponent_url_when_police, response_timeout_sec=runtime.round_deadline_sec)
+        if opponent_url_when_police
+        else None
+    )
+    negotiate_ceiling_sec = runtime.config.get("network_and_league.negotiate_ceiling_sec", 300.0)
     try:
         result = play_series(
             runtime.transport,
@@ -226,16 +239,20 @@ def run_std_v1_series(runtime) -> dict:
             scent_factory,
             runtime.trash_talk,
             turn_deadline_sec=runtime.round_deadline_sec,
+            negotiate_ceiling_sec=negotiate_ceiling_sec,
             turn_fsm_factory=turn_fsm_factory,
             games_played_including_this=games_played,
             counted_games_played=counted_games_played,
             police_relay_transport=police_relay_transport,
             cop_github_commit=cop_github_commit,
             is_counted=runtime.is_counted,
+            transport_when_police=transport_when_police,
         )
     finally:
         if police_relay_transport is not None:
             police_relay_transport.close()
+        if transport_when_police is not None:
+            transport_when_police.close()
     write_std_v1_log(result, runtime.results_dir)
     write_std_v1_declaration(result, terms, runtime.results_dir, games_played)
     write_std_v1_config(result, terms, runtime.results_dir)

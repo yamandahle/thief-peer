@@ -61,6 +61,17 @@ _SCORE_TABLE = {
 }
 
 
+def _transport_for_role(role: str, transport, transport_when_police):
+    """Some opponents (najamjad, live) run two genuinely separate processes
+    behind two permanent, role-bound URLs -- `transport` carries every
+    thief-role sub-game, `transport_when_police` (if given) every
+    police-role one. `None` (the default) means every single-URL opponent's
+    existing behavior is unchanged: `transport` for both roles."""
+    if role == "thief" or transport_when_police is None:
+        return transport
+    return transport_when_police
+
+
 def _row_for(
     sub_game_number: int, my_role: str, end_reason: str, tampered: bool, my_group_id: str, their_group_id: str
 ) -> dict:
@@ -146,6 +157,7 @@ def play_series(
     police_relay_transport=None,
     cop_github_commit: str | None = None,
     is_counted: bool = False,
+    transport_when_police=None,
 ) -> dict:
     """Runs every sub-game (1..`my_terms["num_games"]`) to completion, then
     the final series-consensus exchange. `board_factory()`/`scent_factory()`
@@ -192,7 +204,22 @@ def play_series(
     stand-in) -- every even sub-game then runs `police_relay_loop.py`
     instead of `police_round_loop.py`. `None` (the default) keeps the old
     built-in-stand-in path unchanged, so this is an opt-in switch, not a
-    behavior change for anyone who hasn't wired a relay up yet."""
+    behavior change for anyone who hasn't wired a relay up yet.
+
+    `transport_when_police`, if given, is a second `McpTransport` used for
+    every wire call (negotiate/turn/audit) on sub-games where this side
+    plays police, while `transport` continues to carry every thief-role
+    sub-game -- some opponents (najamjad, live) run two genuinely separate
+    processes behind two permanent, role-bound URLs rather than one shared
+    endpoint, and expect the caller to address whichever of their two
+    processes is on the other side of the current sub-game's role, not one
+    fixed door for the whole series. `None` (the default) keeps every
+    existing single-URL opponent's behavior byte-for-byte unchanged -- every
+    sub-game, thief or police, uses the one `transport` already passed in.
+    The final series-consensus exchange uses whichever of the two transports
+    the *last* sub-game's role selected, on the reasoning that the peer
+    process still on the other end of that same window is the one actually
+    listening for it."""
     game_id = derive_game_id(my_group_id, their_group_id)
     game_uid = derive_game_uid(my_terms, my_group_id, their_group_id)
     max_steps = my_terms["max_steps"]
@@ -210,9 +237,10 @@ def play_series(
     for sub_game_number in range(1, my_terms["num_games"] + 1):
         exchange.reset_turns()
         role = role_for_sub_game(NATURAL_ROLE, sub_game_number)
+        active_transport = _transport_for_role(role, transport, transport_when_police)
         started_at = now_iso()
         their_offer = negotiate_sub_game(
-            transport, exchange, my_terms, my_group_id, their_group_id,
+            active_transport, exchange, my_terms, my_group_id, their_group_id,
             role, sub_game_number, identity, resend_interval_sec, negotiate_ceiling_sec,
             counted_games_played=counted_games_played,
         )
@@ -238,19 +266,19 @@ def play_series(
         if role == "thief":
             turn_handler = turn_handler_factory(board, state)
             end_reason, records, peer_commits, my_commits = play_sub_game(
-                turn_handler, board, state, scent, trash_talk, transport, exchange,
+                turn_handler, board, state, scent, trash_talk, active_transport, exchange,
                 max_steps, turn_deadline_sec, on_phase,
                 github_commit=identity.get("github_commit"),
             )
         elif police_relay_transport is not None:
             end_reason, records, peer_commits, my_commits = play_sub_game_as_police_relay(
-                transport, exchange, max_steps, turn_deadline_sec,
+                active_transport, exchange, max_steps, turn_deadline_sec,
                 police_relay_transport, sub_game_number, on_phase,
                 github_commit=cop_github_commit,
             )
         else:
             end_reason, records, peer_commits, my_commits = play_sub_game_as_police(
-                board, state, scent, transport, exchange, max_steps, turn_deadline_sec,
+                board, state, scent, active_transport, exchange, max_steps, turn_deadline_sec,
                 thief_start, on_phase,
                 github_commit=identity.get("github_commit"),
             )
@@ -272,7 +300,7 @@ def play_series(
         # and never a crash.
         try:
             peer_envelope = send_and_await(
-                transport,
+                active_transport,
                 lambda timeout, n=sub_game_number: exchange.wait_for_audit(n, timeout),
                 my_envelope, resend_interval_sec, audit_ceiling_sec,
             )
@@ -356,8 +384,9 @@ def play_series(
     )
 
     final_role = role_for_sub_game(NATURAL_ROLE, my_terms["num_games"])
+    consensus_transport = _transport_for_role(final_role, transport, transport_when_police)
     agreed, peer_digest = _resolve_consensus(
-        transport, exchange, final_role, local_digest,
+        consensus_transport, exchange, final_role, local_digest,
         resend_interval_sec, consensus_ceiling_sec, all_clean, all_results_agreed,
     )
     mutual_agreement = {
