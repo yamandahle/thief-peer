@@ -278,6 +278,18 @@ def test_run_server_in_background_starts_a_reachable_server(unused_tcp_port):
     assert transport.call("ping", {"payload": {"hi": "there"}}) == {"pong": True, "received": {"hi": "there"}}
 
 
+def test_run_server_in_background_accepts_a_non_default_log_level(unused_tcp_port):
+    # najamjad, live: our access log only ever showed a bare status code
+    # for a rejected call, never the reason -- "debug" surfaces the
+    # underlying MCP session-manager's own rejection reason instead.
+    app = build_server(unused_tcp_port, NullPeerContext())
+
+    run_server_in_background(app, unused_tcp_port, log_level="debug")
+
+    transport = McpTransport(f"http://127.0.0.1:{unused_tcp_port}/mcp")
+    assert transport.call("ping", {"payload": {"hi": "there"}}) == {"pong": True, "received": {"hi": "there"}}
+
+
 def test_wait_until_ready_returns_once_something_listens(unused_tcp_port):
     listener = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     listener.bind(("127.0.0.1", unused_tcp_port))

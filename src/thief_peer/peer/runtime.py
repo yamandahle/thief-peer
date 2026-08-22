@@ -130,7 +130,14 @@ class PeerRuntime(PeerContextMixin):
 
     def run(self) -> dict:
         started_at = datetime.now(UTC).isoformat()
-        run_server_in_background(self.server_app, self.port)
+        # "info" (the default) never surfaces *why* a call got rejected --
+        # our own access log shows only a bare status code. "debug", set
+        # per-opponent via network.mcp_log_level, surfaces the underlying
+        # MCP session-manager's own rejection reason instead of leaving us
+        # to infer it from a peer's own self-report (najamjad, live).
+        run_server_in_background(
+            self.server_app, self.port, log_level=self.config.get("network.mcp_log_level", "info")
+        )
         if self.opponent_protocol == "std_v1":
             # std_v1's own match lifecycle (per-sub-game negotiation, a
             # shared step counter, a final series-consensus exchange) does

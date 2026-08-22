@@ -23,6 +23,11 @@ pheromone_decay = 0.1
 
 [network]
 my_port = 8801
+# Our own access log only ever shows a bare status code for a rejected
+# call ("400 Bad Request"), never the reason -- "debug" surfaces the
+# underlying MCP session-manager's own rejection reason instead of us
+# having to infer it from the opponent's own self-report.
+mcp_log_level = "debug"
 # Dialed when we play thief (their cop process).
 opponent_url = "https://cop.4laboratory.com/mcp"
 # Dialed when we play police (their thief process) -- see

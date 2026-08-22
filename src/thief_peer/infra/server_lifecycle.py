@@ -12,16 +12,25 @@ from fastmcp import FastMCP
 from thief_peer.exceptions import TransportError
 
 
-def run_server_in_background(app: FastMCP, port: int) -> threading.Thread:
+def run_server_in_background(app: FastMCP, port: int, log_level: str = "info") -> threading.Thread:
     """Starts `app` on a daemon thread and blocks until it's accepting
     connections -- the exact thread-plus-`wait_until_ready` pattern already
     duplicated across every Stage 2-7 integration test fixture, now shared
-    for `peer/runtime.py`'s production use (PRD_8 §3)."""
+    for `peer/runtime.py`'s production use (PRD_8 §3).
+
+    `log_level` defaults to "info" (existing behavior for every opponent)
+    -- our own access log only ever shows a bare status code for a
+    rejected call (e.g. "400 Bad Request"), never the reason, so a real
+    opponent-reported "your endpoint returns 400" has been genuinely
+    undiagnosable from our own logs alone (najamjad, live). "debug"
+    surfaces the underlying MCP session-manager's own rejection reason
+    (bad/missing session id, malformed JSON-RPC, etc.) instead of leaving
+    us to infer it from a peer's own self-report."""
     def _run() -> None:
         try:
             app.run(
                 transport="http", host="0.0.0.0", port=port,
-                show_banner=False, log_level="info",
+                show_banner=False, log_level=log_level,
             )
         except Exception:
             # Diagnostic only (a live cross-team match found this thread
