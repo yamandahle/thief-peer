@@ -144,6 +144,24 @@ def test_wait_for_audit_skips_a_same_slot_straggler_missing_sub_game_number():
     assert result["sender"] == "thief"
 
 
+def test_wait_for_audit_finds_a_peer_that_declares_sub_game_not_sub_game_number():
+    # najamjad, live: their envelope has no top-level sub_game_number, and
+    # every record's own field is "sub_game" (no "_number" suffix), nested
+    # in payload -- got a clean 200 on arrival and sat unmatched for the
+    # rest of a 60s window because this was the only convention not
+    # checked. Real payload shape (trimmed), not a synthetic example.
+    exchange = StdExchange(poll_interval=0.01)
+    exchange.record_audit({
+        "sender": "thief",
+        "records": [
+            {"payload": {"step": 0, "type": "system_spec", "sub_game": 1}},
+            {"payload": {"step": 1, "role": "thief", "sub_game": 1, "move": "MOVE:E"}},
+        ],
+    })
+    result = exchange.wait_for_audit(1, timeout=0.2)
+    assert result["sender"] == "thief"
+
+
 def test_wait_for_audit_skips_a_straggler_via_our_own_top_level_record_convention():
     exchange = StdExchange(poll_interval=0.01)
     exchange.record_audit({

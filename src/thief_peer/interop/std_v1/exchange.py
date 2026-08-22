@@ -44,18 +44,39 @@ def _as_int_if_numeric(value):
     return value
 
 
+def _record_sub_game_number(record: dict):
+    """A record's own declared sub-game, checked under every field-name
+    convention seen live: this repo's own (`sub_game_number` at the
+    record's top level, replay_log.py::build_records), yanell11's kit
+    (`sub_game_number` nested inside `payload`), and najamjad's kit
+    (`sub_game`, no `_number` suffix, nested inside `payload`) -- a peer's
+    schema is free to differ, and a name mismatch here must never read as
+    "no sub-game declared" when a genuine value is sitting right there
+    under a different key (najamjad, live: their envelope arrived,
+    got a clean 200, and sat unmatched for the rest of a 60s window
+    because this function only ever checked for `sub_game_number`)."""
+    payload = record.get("payload") or {}
+    for value in (
+        record.get("sub_game_number"),
+        payload.get("sub_game_number"),
+        payload.get("sub_game"),
+    ):
+        if value is not None:
+            return _as_int_if_numeric(value)
+    return None
+
+
 def _audit_belongs_to(envelope: dict, sub_game_number: int) -> bool:
     """True if `envelope` can be trusted as belonging to `sub_game_number`
     -- its own declared field if present (explicit disagreement is a
     definite reject, not just inconclusive), else the sub_game_number
-    embedded in its own disclosed records, checked at both the record
-    wrapper's own top level (this repo's own convention, replay_log.py::
-    build_records) and inside `payload` (yanell11's own kit's convention)
-    since a peer's schema is free to differ. `record_audit` now routes a
-    series_consensus envelope into its own dedicated slot before this is
-    ever called, so the explicit reject below should be unreachable in
-    practice -- kept anyway as defense in depth against some other future
-    message type also arriving with no sub_game_number and no records."""
+    embedded in its own disclosed records (see `_record_sub_game_number`
+    for every field-name convention checked) since a peer's schema is
+    free to differ. `record_audit` now routes a series_consensus envelope
+    into its own dedicated slot before this is ever called, so the
+    explicit reject below should be unreachable in practice -- kept
+    anyway as defense in depth against some other future message type
+    also arriving with no sub_game_number and no records."""
     if envelope.get("result_claim") == "series_consensus":
         return False
     declared = _as_int_if_numeric(envelope.get("sub_game_number"))
@@ -64,11 +85,7 @@ def _audit_belongs_to(envelope: dict, sub_game_number: int) -> bool:
     records = envelope.get("records") or []
     if not records:
         return True
-    return any(
-        record.get("sub_game_number") == sub_game_number
-        or (record.get("payload") or {}).get("sub_game_number") == sub_game_number
-        for record in records
-    )
+    return any(_record_sub_game_number(record) == sub_game_number for record in records)
 
 
 class StdExchange:
