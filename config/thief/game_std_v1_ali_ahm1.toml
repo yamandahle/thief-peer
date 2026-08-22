@@ -42,3 +42,8 @@ cop = "https://github.com/Nagham1023/yamanagh-cop"
 [std_v1]
 group_id = "yamanagh"
 members = ["Nagham Manasra", "Yaman Dahle"]
+# ali-ahm1's declared terms.setting is "Haifa", not our current shared
+# default ("New York", set for a different opponent) -- every other one
+# of the 14 fields matches (confirmed live: our own handshake named this
+# as the only differing field on the first attempt).
+terms_path = "config/thief/interop_spec_terms_ali_ahm1.json"
