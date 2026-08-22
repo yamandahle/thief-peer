@@ -56,7 +56,7 @@ from thief_peer.interop.std_v1 import replay_log
 from thief_peer.interop.std_v1.exchange import StdExchange
 from thief_peer.interop.std_v1.identity import build_identity
 from thief_peer.interop.std_v1.scent_model_lock import build_scent_model_lock
-from thief_peer.interop.std_v1.series_runner import play_series
+from thief_peer.interop.std_v1.series_runner import NATURAL_ROLE, play_series
 from thief_peer.interop.std_v1.server_registration import register_std_v1_tools
 from thief_peer.interop.std_v1.terms import DEFAULT_TERMS_PATH, load_terms
 from thief_peer.peer.turn_fsm import TurnFsm
@@ -225,6 +225,15 @@ def run_std_v1_series(runtime) -> dict:
         else None
     )
     negotiate_ceiling_sec = runtime.config.get("network_and_league.negotiate_ceiling_sec", 300.0)
+    # najamjad, live: some opponents are *also* unconditionally thief-first
+    # and refuse to swap, which conflicts with this repo's own default
+    # NATURAL_ROLE ("thief") -- nothing in validate_offer cross-checks a
+    # peer's declared role, so two thief-first sides would silently play a
+    # meaningless series rather than fail loudly. `std_v1.natural_role`,
+    # if set, overrides which role this side opens sub-game 1 as, for this
+    # one opponent's config only; every other opponent's config is unset
+    # and keeps the "thief" default play_series itself already has.
+    natural_role = runtime.config.get("std_v1.natural_role", NATURAL_ROLE)
     try:
         result = play_series(
             runtime.transport,
@@ -247,6 +256,7 @@ def run_std_v1_series(runtime) -> dict:
             cop_github_commit=cop_github_commit,
             is_counted=runtime.is_counted,
             transport_when_police=transport_when_police,
+            natural_role=natural_role,
         )
     finally:
         if police_relay_transport is not None:

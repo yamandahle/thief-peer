@@ -1,0 +1,70 @@
+# Match config for team najamjad -- a separate file so the other
+# opponents' own reserved configs stay completely untouched.
+#
+# najamjad runs two permanent, role-bound endpoints (not one shared door):
+# their cop always answers at cop.4laboratory.com, their thief always at
+# thief.4laboratory.com. So when we play thief, we dial their cop; when we
+# play police, we dial their thief. See network.opponent_url_when_police.
+
+[board_and_agents]
+grid_size = 7
+thief_start = [0, 0]
+
+[world]
+hint_max_words = 15
+
+[movement_and_barriers]
+max_moves = 35
+survival_threshold = 35
+
+[pheromones]
+pheromone_center_intensity = 0.9
+pheromone_decay = 0.1
+
+[network]
+my_port = 8801
+# Dialed when we play thief (their cop process).
+opponent_url = "https://cop.4laboratory.com/mcp"
+# Dialed when we play police (their thief process) -- see
+# std_v1_opponent.py::run_std_v1_series / series_runner.py's
+# _transport_for_role.
+opponent_url_when_police = "https://thief.4laboratory.com/mcp"
+opponent_protocol = "std_v1"
+opponent_group_id = "najamjad"
+public_url = "https://splotchy-bronco-nature.ngrok-free.dev/mcp"
+# Same relay every other opponent already verified locally -- yamanagh-cop's
+# relay process doesn't care which opponent it's serving, no restart needed.
+cop_relay_url = "http://127.0.0.1:8901/mcp"
+
+[network_and_league]
+response_timeout_sec = 180.0
+watchdog_timeout_sec = 180.0
+# najamjad's own window patience is 16.7 minutes of wall clock; they asked
+# us to raise ours to >= 1000s to match rather than risk giving up on a
+# genuinely slow-but-healthy boundary of theirs.
+negotiate_ceiling_sec = 1000.0
+
+[email]
+recipient = "najikayal4@gmail.com"
+token_path = "token.json"
+# najamjad's own stated §7.4 convention: counted reports go to the
+# lecturer, from each team separately -- no opponent CC mentioned, same
+# convention as SMNGRP05/s82kma9e. Only affects counted sends.
+cc_opponent_on_counted_report = false
+
+[repos]
+thief = "https://github.com/yamandahle/thief-peer"
+cop = "https://github.com/Nagham1023/yamanagh-cop"
+
+[std_v1]
+group_id = "yamanagh"
+members = ["Nagham Manasra", "Yaman Dahle"]
+# najamjad's terms.setting is "New York", matching our current shared
+# default -- no per-opponent terms override file needed here.
+# najamjad is also unconditionally thief-first and refuses to swap
+# ("we do not open as cop... we will not swap it"). Our own default
+# NATURAL_ROLE is also "thief" -- nothing on either side cross-checks a
+# peer's declared role, so two thief-first sides would silently play a
+# meaningless series. We accommodate: play police first against this
+# one opponent only.
+natural_role = "police"

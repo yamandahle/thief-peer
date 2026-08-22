@@ -6,6 +6,7 @@ two-sided series would duplicate those without adding real coverage."""
 
 from thief_peer.interop.std_v1.crypto import consensus_digest
 from thief_peer.interop.std_v1.exchange import StdExchange
+from thief_peer.interop.std_v1.roles import role_for_sub_game
 from thief_peer.interop.std_v1.series_runner import (
     _SCORE_TABLE,
     _resolve_consensus,
@@ -84,6 +85,15 @@ def test_transport_for_role_dials_the_second_transport_only_for_police():
     transport_when_police = _StubTransport()
     assert _transport_for_role("thief", transport, transport_when_police) is transport
     assert _transport_for_role("police", transport, transport_when_police) is transport_when_police
+
+
+def test_role_for_sub_game_can_open_police_first_for_an_opponent_that_refuses_to_swap():
+    # najamjad, live: their team is also unconditionally thief-first and
+    # will not swap -- this repo accommodates by overriding natural_role
+    # to "police" for that one opponent's config only.
+    assert role_for_sub_game("police", 1) == "police"
+    assert role_for_sub_game("police", 2) == "thief"
+    assert role_for_sub_game("police", 3) == "police"
 
 
 def test_row_for_capture_scores_20_5_police_thief_split():

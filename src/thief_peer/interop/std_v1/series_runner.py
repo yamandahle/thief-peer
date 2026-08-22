@@ -158,6 +158,7 @@ def play_series(
     cop_github_commit: str | None = None,
     is_counted: bool = False,
     transport_when_police=None,
+    natural_role: str = NATURAL_ROLE,
 ) -> dict:
     """Runs every sub-game (1..`my_terms["num_games"]`) to completion, then
     the final series-consensus exchange. `board_factory()`/`scent_factory()`
@@ -219,7 +220,16 @@ def play_series(
     The final series-consensus exchange uses whichever of the two transports
     the *last* sub-game's role selected, on the reasoning that the peer
     process still on the other end of that same window is the one actually
-    listening for it."""
+    listening for it.
+
+    `natural_role` defaults to this module's own `NATURAL_ROLE` ("thief"),
+    matching every opponent seen so far -- but a real opponent (najamjad)
+    turned out to be *also* unconditionally thief-first and refuses to
+    swap, and nothing in `validate_offer` cross-checks a peer's declared
+    role against ours, so two thief-first sides would silently play a
+    meaningless series (no cop, nothing capturable) rather than fail
+    loudly. The caller passes `"police"` for that one opponent; every other
+    opponent's config is unaffected."""
     game_id = derive_game_id(my_group_id, their_group_id)
     game_uid = derive_game_uid(my_terms, my_group_id, their_group_id)
     max_steps = my_terms["max_steps"]
@@ -236,7 +246,7 @@ def play_series(
 
     for sub_game_number in range(1, my_terms["num_games"] + 1):
         exchange.reset_turns()
-        role = role_for_sub_game(NATURAL_ROLE, sub_game_number)
+        role = role_for_sub_game(natural_role, sub_game_number)
         active_transport = _transport_for_role(role, transport, transport_when_police)
         started_at = now_iso()
         their_offer = negotiate_sub_game(
@@ -383,7 +393,7 @@ def play_series(
         report["peer_result_claim"] == report["end_reason"] for report in sub_game_reports
     )
 
-    final_role = role_for_sub_game(NATURAL_ROLE, my_terms["num_games"])
+    final_role = role_for_sub_game(natural_role, my_terms["num_games"])
     consensus_transport = _transport_for_role(final_role, transport, transport_when_police)
     agreed, peer_digest = _resolve_consensus(
         consensus_transport, exchange, final_role, local_digest,
