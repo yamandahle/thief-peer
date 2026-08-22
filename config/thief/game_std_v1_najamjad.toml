@@ -36,7 +36,7 @@ opponent_url = "https://cop.4laboratory.com/mcp"
 opponent_url_when_police = "https://thief.4laboratory.com/mcp"
 opponent_protocol = "std_v1"
 opponent_group_id = "najamjad"
-public_url = "https://splotchy-bronco-nature.ngrok-free.dev/mcp"
+public_url = "https://terry-friend-owns-letting.trycloudflare.com/mcp"
 # Same relay every other opponent already verified locally -- yamanagh-cop's
 # relay process doesn't care which opponent it's serving, no restart needed.
 cop_relay_url = "http://127.0.0.1:8901/mcp"
