@@ -25,6 +25,8 @@ row-level null-on-tie rule.
 
 from __future__ import annotations
 
+import threading
+
 from thief_peer.exceptions import DeadlineExceededError, SimulationError
 from thief_peer.interop.std_v1.audit import (
     build_audit_envelope,
@@ -70,6 +72,21 @@ def _transport_for_role(role: str, transport, transport_when_police):
     if role == "thief" or transport_when_police is None:
         return transport
     return transport_when_police
+
+
+def _their_final_games_played(their_games_played_including_this: int | None, is_counted: bool) -> int | None:
+    """yanell11, live: the mirror image of a bug they found and fixed on
+    their own side ("adds +1 for our own side but not for the opponent's").
+    `games_played_including_this` (our own side, computed by the caller in
+    std_v1_opponent.py) already gets the +1-for-this-game applied when
+    `is_counted` -- the peer's own declared wire value (their prior count)
+    needs the identical +1 applied here, not filed raw, or a counted game
+    leaves their number one short of what their own report (and the
+    agreed wire convention) says it should read. `None` (peer never
+    declared one) stays `None` -- nothing to add 1 to."""
+    if is_counted and their_games_played_including_this is not None:
+        return their_games_played_including_this + 1
+    return their_games_played_including_this
 
 
 def _row_for(
@@ -129,6 +146,61 @@ def _resolve_consensus(
     return agreed, peer_digest
 
 
+# najamjad/yanell11, live: `_resolve_consensus` above is documented as
+# "NEVER raises" and internally bounded by `consensus_ceiling_sec` -- both
+# true of its own control flow. Confirmed live anyway, a real hang: an
+# outbound `McpTransport.call()` mid-flight when the peer's own consensus
+# envelope arrived inbound within the same few seconds left the whole
+# series stuck for 8+ minutes with zero further log activity, well past
+# both the per-call `response_timeout_sec` (180s) and the outer
+# `consensus_ceiling_sec` (600s) -- neither of `_resolve_consensus`'s own
+# internal bounds ever fired; the process had to be killed by hand. Since
+# the exact underlying cause (something below McpTransport's own
+# documented timeout guarantees) isn't yet pinned down with certainty, this
+# wraps the whole call in a genuine, un-defeatable wall-clock backstop
+# instead of trusting the callee's own bookkeeping a second time -- a
+# thread-join timeout is honored by the OS scheduler regardless of what the
+# watched thread is actually doing, unlike an in-process asyncio/future
+# timeout that depends on the stuck code's own cooperation.
+_WATCHDOG_GRACE_SEC = 15.0
+
+
+def _resolve_consensus_with_watchdog(
+    transport,
+    exchange,
+    final_role: str,
+    local_digest: str,
+    resend_interval_sec: float,
+    consensus_ceiling_sec: float,
+    all_clean: bool,
+    all_results_agreed: bool,
+) -> tuple[bool, str | None]:
+    result: list[tuple[bool, str | None]] = []
+
+    def _run() -> None:
+        result.append(
+            _resolve_consensus(
+                transport, exchange, final_role, local_digest,
+                resend_interval_sec, consensus_ceiling_sec, all_clean, all_results_agreed,
+            )
+        )
+
+    worker = threading.Thread(target=_run, daemon=True)
+    worker.start()
+    worker.join(timeout=consensus_ceiling_sec + _WATCHDOG_GRACE_SEC)
+    if result:
+        return result[0]
+    print(
+        "[consensus] NOT CONFIRMED -- watchdog fired: _resolve_consensus did not "
+        f"return within {consensus_ceiling_sec + _WATCHDOG_GRACE_SEC}s even though its own "
+        f"internal ceiling is {consensus_ceiling_sec}s -- treating as unconfirmed rather than "
+        "blocking the report/email pipeline indefinitely. The orphaned worker thread (daemon) "
+        "keeps running in the background but can no longer affect this series' outcome.",
+        flush=True,
+    )
+    return False, None
+
+
 def play_series(
     transport,
     exchange,
@@ -159,6 +231,7 @@ def play_series(
     is_counted: bool = False,
     transport_when_police=None,
     natural_role: str = NATURAL_ROLE,
+    first_meeting_between_groups: bool = True,
 ) -> dict:
     """Runs every sub-game (1..`my_terms["num_games"]`) to completion, then
     the final series-consensus exchange. `board_factory()`/`scent_factory()`
@@ -395,7 +468,7 @@ def play_series(
 
     final_role = role_for_sub_game(natural_role, my_terms["num_games"])
     consensus_transport = _transport_for_role(final_role, transport, transport_when_police)
-    agreed, peer_digest = _resolve_consensus(
+    agreed, peer_digest = _resolve_consensus_with_watchdog(
         consensus_transport, exchange, final_role, local_digest,
         resend_interval_sec, consensus_ceiling_sec, all_clean, all_results_agreed,
     )
@@ -410,8 +483,11 @@ def play_series(
     report = build_result_report(
         game_id, game_uid, my_group_id, their_group_id, identity, their_identity,
         rows, sub_game_meta, mutual_agreement, game_started_at, game_ended_at,
-        games_played_including_this, their_games_played_including_this,
+        games_played_including_this,
+        _their_final_games_played(their_games_played_including_this, is_counted),
         is_counted=is_counted,
+        first_meeting_between_groups=first_meeting_between_groups,
+        num_sub_games=my_terms["num_games"],
     )
 
     return {
