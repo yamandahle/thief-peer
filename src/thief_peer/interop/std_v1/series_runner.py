@@ -53,6 +53,13 @@ from thief_peer.interop.std_v1.settlement_hash import settlement_hash
 
 NATURAL_ROLE = "thief"
 
+# yanell11, live: exchange.py's own instrumentation caught the peer's
+# consensus envelope landing ~9-10s after send_and_await's own ceiling had
+# already expired, twice, in back-to-back runs. This is a small, bounded,
+# one-time grace check after the main wait gives up -- not a bigger
+# ceiling, which already proved unreliable run-to-run for this opponent.
+_CONSENSUS_GRACE_SEC = 15.0
+
 # Section 6's real point table -- fixed by the rules, never negotiated.
 _SCORE_TABLE = {
     "capture": {"police": 20, "thief": 5},
@@ -134,7 +141,28 @@ def _resolve_consensus(
             resend_interval_sec, consensus_ceiling_sec,
         )
         peer_digest = validate_consensus_envelope(peer_envelope)
-    except (DeadlineExceededError, SimulationError) as exc:
+    except DeadlineExceededError:
+        # yanell11, live: exchange.py's own diagnostics proved this exact
+        # near-miss twice -- the peer's envelope gets stored by
+        # record_audit (the inbound MCP handler, running on its own
+        # thread) mere seconds after send_and_await's own deadline above
+        # already expired and raised. The storage side has no timing gate
+        # at all; only this read-side loop's own ceiling does. One cheap,
+        # bounded, final direct check closes that exact gap -- not a
+        # bigger ceiling (already shown unreliable run-to-run for this
+        # opponent), a genuine last-chance look at whatever's already
+        # sitting in `exchange` by the time we'd otherwise give up.
+        try:
+            peer_envelope = exchange.wait_for_consensus(_CONSENSUS_GRACE_SEC)
+            peer_digest = validate_consensus_envelope(peer_envelope)
+            print(
+                f"[consensus] caught by the {_CONSENSUS_GRACE_SEC}s post-ceiling grace check "
+                "-- the peer's envelope arrived just after our own wait window closed", flush=True,
+            )
+        except (DeadlineExceededError, SimulationError) as exc:
+            print(f"[consensus] NOT CONFIRMED -- peer envelope never arrived or was invalid: {exc}", flush=True)
+            return False, None
+    except SimulationError as exc:
         print(f"[consensus] NOT CONFIRMED -- peer envelope never arrived or was invalid: {exc}", flush=True)
         return False, None
     agreed = confirm_agreement(all_clean, all_results_agreed, local_digest, peer_digest)

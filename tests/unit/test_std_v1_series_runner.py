@@ -4,6 +4,7 @@ play_series itself is an end-to-end orchestration already covered
 indirectly by the round-loop/audit/handshake unit tests -- a full fake
 two-sided series would duplicate those without adding real coverage."""
 
+import threading
 import time
 from unittest.mock import patch
 
@@ -33,6 +34,32 @@ def test_resolve_consensus_confirms_when_the_peer_envelope_matches():
     agreed, peer_digest = _resolve_consensus(
         _StubTransport(), exchange, "thief", digest, 0.01, 1.0, all_clean=True, all_results_agreed=True,
     )
+
+    assert agreed is True
+    assert peer_digest == digest
+
+
+def test_resolve_consensus_catches_a_peer_envelope_that_lands_just_after_the_main_ceiling():
+    # yanell11, live: exchange.py's own diagnostics caught the peer's
+    # envelope being stored (record_audit fires correctly) a few seconds
+    # after send_and_await's own ceiling had already expired -- proving
+    # the storage/matching code was never the bug, just the read-side
+    # loop giving up right at the boundary with no final look afterward.
+    exchange = StdExchange(poll_interval=0.01)
+    digest = consensus_digest({"game_id": "A-vs-B", "game_uid": "u", "sub_games": []})
+
+    def _deliver_late():
+        time.sleep(0.15)  # lands after the 0.05s main ceiling below
+        exchange.record_audit(
+            {"sender": "police", "result_claim": "series_consensus", "records": [], "consensus_sha": digest}
+        )
+
+    threading.Thread(target=_deliver_late, daemon=True).start()
+
+    with patch("thief_peer.interop.std_v1.series_runner._CONSENSUS_GRACE_SEC", 1.0):
+        agreed, peer_digest = _resolve_consensus(
+            _StubTransport(), exchange, "thief", digest, 0.01, 0.05, all_clean=True, all_results_agreed=True,
+        )
 
     assert agreed is True
     assert peer_digest == digest
