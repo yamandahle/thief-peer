@@ -3,8 +3,8 @@
 # used by config/thief/game.toml's own native Thief-vs-Thief path.
 
 [network]
-my_port = 8802
-opponent_url = "https://mail-hire-framework-accordance.trycloudflare.com/mcp"
+my_port = 8801
+opponent_url = "http://127.0.0.1:8802/mcp"
 opponent_protocol = "cop_v1"
 
 [email]
