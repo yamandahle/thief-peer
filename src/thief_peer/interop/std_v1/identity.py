@@ -31,6 +31,17 @@ def build_identity(
     series, not `games_played_including_this`, which only makes sense once
     a counted match has actually run."""
     commit_hash = current_git_commit_hash()
+    spec = dict(sysinfo.collect_spec())
+    if spec.get("gpu") is None:
+        # najamjad, live: their declaration validator requires a string for
+        # gpu_model and rejected our genuinely-absent-GPU `null` outright,
+        # blocking *their* declaration artifact for the whole series (not
+        # ours -- report.py's own group_details never required this).
+        # sysinfo.collect_spec() itself stays untouched (cop_wire.py's own
+        # `gpu_present = spec["gpu"] is not None` still needs the real
+        # None) -- this is a std_v1 wire-format concession, not a change to
+        # what "no GPU" means internally.
+        spec["gpu"] = "none"
     identity = {
         "group_id": group_id,
         "group_name": group_name,
@@ -40,7 +51,7 @@ def build_identity(
         "repos": dict(repos),
         "mcp_servers": dict(mcp_servers),
         "llm_model": llm_model,
-        "spec": sysinfo.collect_spec(),
+        "spec": spec,
     }
     if scent_model_lock is not None:
         identity["scent_model_lock"] = scent_model_lock

@@ -51,12 +51,47 @@ def test_final_result_counts_row_ties_separately_from_series_ties():
     assert result["sub_games_won"] == {"A": 1, "B": 0}
 
 
-def test_final_result_carries_games_played_and_never_claims_a_diversity_bonus():
+def test_final_result_carries_games_played_per_group():
     # Both are per-group objects (rule-38's own count is inherently
     # per-team, since each side tracks its own separate counter).
     rows = [_row("A", 20, 5)]
     result = final_result(rows, "A", "B", games_played_including_this=4, their_games_played_including_this=7)
     assert result["games_played_including_this"] == {"A": 4, "B": 7}
+
+
+def test_final_result_applies_the_diversity_reward_to_the_winner_of_a_first_counted_meeting():
+    # yanell11, live: true for whichever group actually won, but only on a
+    # genuine first meeting between the two groups, and only when the
+    # series is actually counted.
+    rows = [_row("A", 20, 5)]
+    result = final_result(rows, "A", "B", first_meeting_between_groups=True, is_counted=True)
+    assert result["winner_group"] == "A"
+    assert result["diversity_reward_applied"] == {"A": True, "B": False}
+
+
+def test_final_result_never_applies_the_diversity_reward_on_a_friendly():
+    # yanell11, live: a real gap found live -- the first cut of this logic
+    # didn't gate on is_counted at all, so a friendly run still carried a
+    # reward flag it shouldn't. is_counted defaults to False.
+    rows = [_row("A", 20, 5)]
+    result = final_result(rows, "A", "B", first_meeting_between_groups=True)
+    assert result["diversity_reward_applied"] == {"A": False, "B": False}
+
+
+def test_final_result_never_applies_the_diversity_reward_on_a_repeat_meeting():
+    rows = [_row("A", 20, 5)]
+    result = final_result(rows, "A", "B", first_meeting_between_groups=False, is_counted=True)
+    assert result["diversity_reward_applied"] == {"A": False, "B": False}
+
+
+def test_final_result_never_applies_the_diversity_reward_on_a_series_tie():
+    # A series tie means winner_group is None -- no group "won" for the
+    # bonus to attach to, even on a genuine first counted meeting. Totals:
+    # A gets 20+5=25, B gets 5+20=25 -- a genuine tie, not just two rows
+    # with identical scores under different labels.
+    rows = [_row("A", 20, 5), _row("B", 5, 20)]
+    result = final_result(rows, "A", "B", first_meeting_between_groups=True, is_counted=True)
+    assert result["winner_group"] is None
     assert result["diversity_reward_applied"] == {"A": False, "B": False}
 
 
@@ -65,6 +100,18 @@ def test_final_result_defaults_games_played_to_zero_and_peer_to_none():
     rows = [_row("A", 20, 5)]
     result = final_result(rows, "A", "B")
     assert result["games_played_including_this"] == {"A": 0, "B": None}
+
+
+def test_final_result_defaults_first_meeting_between_groups_to_true():
+    rows = [_row("A", 20, 5)]
+    result = final_result(rows, "A", "B")
+    assert result["first_meeting_between_groups"] is True
+
+
+def test_final_result_carries_an_explicit_first_meeting_between_groups_value():
+    rows = [_row("A", 20, 5)]
+    result = final_result(rows, "A", "B", first_meeting_between_groups=False)
+    assert result["first_meeting_between_groups"] is False
 
 
 def test_build_result_report_falls_back_to_the_top_level_identity_commit():
@@ -115,7 +162,7 @@ def test_build_result_report_league_counted_defaults_to_false():
         "A-vs-B", "uid-1", "A", "B", {"github_commit": "a" * 40}, {}, rows, meta,
         {"sha256": "x", "confirmed": True}, "t0", "t1",
     )
-    assert report["league"] == {"counted": False}
+    assert report["league"] == {"counted": False, "reason": "friendly"}
 
 
 def test_build_result_report_league_counted_true_when_the_series_actually_counted():
@@ -128,7 +175,38 @@ def test_build_result_report_league_counted_true_when_the_series_actually_counte
         "A-vs-B", "uid-1", "A", "B", {"github_commit": "a" * 40}, {}, rows, meta,
         {"sha256": "x", "confirmed": True}, "t0", "t1", is_counted=True,
     )
-    assert report["league"] == {"counted": True}
+    assert report["league"] == {"counted": True, "reason": "counted"}
+
+
+def test_build_result_report_threads_first_meeting_between_groups_into_final_result():
+    rows = [_row("A", 20, 5)]
+    meta = [{
+        "their_github_commit": "b" * 40, "steps": 10, "started_at": "x", "ended_at": "y",
+        "audit": {"log_verified": True, "tampered": False, "result_agreed": True},
+    }]
+    report = build_result_report(
+        "A-vs-B", "uid-1", "A", "B", {"github_commit": "a" * 40}, {}, rows, meta,
+        {"sha256": "x", "confirmed": True}, "t0", "t1", first_meeting_between_groups=False,
+    )
+    assert report["final_result"]["first_meeting_between_groups"] is False
+
+
+def test_build_result_report_never_applies_the_diversity_reward_on_a_friendly():
+    # yanell11, live: caught in a real friendly run -- our own filed report
+    # showed league.counted: false alongside diversity_reward_applied:
+    # true, which is exactly the bug this test pins down. is_counted
+    # defaults to False here.
+    rows = [_row("A", 20, 5)]
+    meta = [{
+        "their_github_commit": "b" * 40, "steps": 10, "started_at": "x", "ended_at": "y",
+        "audit": {"log_verified": True, "tampered": False, "result_agreed": True},
+    }]
+    report = build_result_report(
+        "A-vs-B", "uid-1", "A", "B", {"github_commit": "a" * 40}, {}, rows, meta,
+        {"sha256": "x", "confirmed": True}, "t0", "t1", first_meeting_between_groups=True,
+    )
+    assert report["league"]["counted"] is False
+    assert report["final_result"]["diversity_reward_applied"] == {"A": False, "B": False}
 
 
 def test_build_result_report_has_the_full_section_12_top_level_shape():
@@ -147,16 +225,20 @@ def test_build_result_report_has_the_full_section_12_top_level_shape():
         "A-vs-B", "uid-1", "A", "B", my_identity, their_identity, rows, meta,
         {"sha256": "x", "confirmed": True}, "2026-01-01T00:00:00+00:00", "2026-01-01T00:01:00+00:00",
         games_played_including_this=2, their_games_played_including_this=5,
+        num_sub_games=6, is_counted=True,
     )
-    assert report["report_type"] == "std_v1_result"
-    assert report["schema_version"] == "1.0"
+    assert report["report_type"] == "final_game_result"
+    assert report["schema_version"] == "1.1"
+    assert report["num_sub_games"] == 6
     assert report["groups"] == ["A", "B"]
     assert report["sub_games"][0]["tie"] is False
     assert report["sub_games"][0]["github_commit"] == {"A": "a" * 40, "B": "b" * 40}
     assert report["sub_games"][0]["log_files"] == {"A": "log_uid-1.json", "B": "log_uid-1.json"}
     assert report["final_result"]["winner_group"] == "A"
     assert report["final_result"]["games_played_including_this"] == {"A": 2, "B": 5}
-    assert report["final_result"]["diversity_reward_applied"] == {"A": False, "B": False}
+    # first_meeting_between_groups defaults to True, and A won -- the
+    # diversity reward attaches to the winner of a genuine first meeting.
+    assert report["final_result"]["diversity_reward_applied"] == {"A": True, "B": False}
     assert report["mutual_agreement"] == {"sha256": "x", "confirmed": True}
     # `links` names all four series artifacts (declaration/config/log/result
     # -- interop/std_v1_opponent.py::write_std_v1_declaration/write_std_v1_

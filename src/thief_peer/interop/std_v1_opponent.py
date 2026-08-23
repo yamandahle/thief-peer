@@ -105,7 +105,18 @@ def run_std_v1_series(runtime) -> dict:
     # counter for a counted run, and reading it after would silently
     # return the post-increment total instead of what the negotiate
     # greeting is actually supposed to declare.
-    counted_games_played = league_counter.total_games_played()
+    # `std_v1.declared_games_played_override`, per-opponent, opt-in: the
+    # user's own explicit, deliberate call (already cleared with the
+    # lecturer directly) to declare a specific prior-count value for this
+    # opponent rather than the computed league-wide total -- overrides
+    # `total_games_played()` for the wire declaration only; the real
+    # persisted counter below (`record_game`) is completely unaffected, so
+    # every other opponent's own declaration stays exactly the computed
+    # total.
+    declared_override = runtime.config.get("std_v1.declared_games_played_override")
+    counted_games_played = (
+        declared_override if declared_override is not None else league_counter.total_games_played()
+    )
     # Rule 38/52 integrity fix: the counted-game slot must NOT be consumed
     # here, before the series has even started -- a real risk yanell11's
     # own team named explicitly ("if yours is missing, late, or
@@ -122,6 +133,13 @@ def run_std_v1_series(runtime) -> dict:
     games_played = counted_games_played + 1 if runtime.is_counted else counted_games_played
     runtime._league_counter = league_counter
     runtime._their_group_id = their_group_id
+    # yanell11, live: a real schema gap -- this repo had no
+    # first_meeting_between_groups field at all. True when our own
+    # per-opponent counter (the same storage rule 52's one-counted-game-
+    # per-opponent enforcement already tracks) shows 0 games against this
+    # specific opponent before this series -- read before record_game()
+    # runs, for the same reason counted_games_played is read early above.
+    first_meeting_between_groups = league_counter.games_played_against(their_group_id) == 0
     # `network.public_url` is optional -- the localhost address is real and
     # correct for actually running the server, but useless to a peer
     # reading the filed report to see how to reach us (reconciled live
@@ -225,6 +243,16 @@ def run_std_v1_series(runtime) -> dict:
         else None
     )
     negotiate_ceiling_sec = runtime.config.get("network_and_league.negotiate_ceiling_sec", 300.0)
+    # najamjad, live: their own consensus envelope structurally can never
+    # pass validate_consensus_envelope (no consensus_sha field at all, per
+    # their own admission) -- waiting the full default ceiling below is
+    # provably wasted time against this one opponent's current build, not
+    # a timing race that a longer wait could still win. Per-opponent, not
+    # a lowered global default -- yanell11's own kit genuinely does send
+    # its consensus envelope "a few seconds after settlement" (series_
+    # runner.py's own play_series docstring), so every other opponent
+    # keeps the full 400s unless its own config overrides it too.
+    consensus_ceiling_sec = runtime.config.get("network_and_league.consensus_ceiling_sec", 400.0)
     # najamjad, live: some opponents are *also* unconditionally thief-first
     # and refuse to swap, which conflicts with this repo's own default
     # NATURAL_ROLE ("thief") -- nothing in validate_offer cross-checks a
@@ -257,6 +285,8 @@ def run_std_v1_series(runtime) -> dict:
             is_counted=runtime.is_counted,
             transport_when_police=transport_when_police,
             natural_role=natural_role,
+            consensus_ceiling_sec=consensus_ceiling_sec,
+            first_meeting_between_groups=first_meeting_between_groups,
         )
     finally:
         if police_relay_transport is not None:

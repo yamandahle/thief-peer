@@ -39,6 +39,8 @@ def final_result(
     their_group_id: str,
     games_played_including_this: int = 0,
     their_games_played_including_this: int | None = None,
+    first_meeting_between_groups: bool = True,
+    is_counted: bool = False,
 ) -> dict:
     """Section 6's cumulative series aggregate, including the +2 tie
     bonus -- applied once to each side, and only when the raw cumulative
@@ -58,9 +60,29 @@ def final_result(
     declared on the wire (`counted_games_played`, spec Section 3) --
     `None` when they never declared one, not a guessed 0, since an absent
     peer declaration is a real fact worth keeping distinct from an
-    explicitly-declared zero. No diversity-bonus logic exists in this
-    repo, so `diversity_reward_applied` is always `False` for both
-    sides."""
+    explicitly-declared zero.
+
+    `first_meeting_between_groups` (yanell11, live: a real gap -- this
+    repo's schema previously had no such field at all) -- computed by the
+    caller from `LeagueCounter.games_played_against(their_group_id)` being
+    0 *before* this series, the same per-opponent storage rule 52's
+    one-counted-game-per-opponent enforcement already tracks, not a second
+    source of truth.
+
+    `diversity_reward_applied` (yanell11, live: this repo previously
+    always reported `False` for both sides -- a genuine scope gap, not
+    just an unfilled field): `True` for whichever group actually won the
+    series, but only when this is a genuine first meeting between the two
+    groups -- never on a series tie (no group "won"), never on a repeat
+    meeting, and never on a friendly (a real gap found live: the first cut
+    of this logic didn't gate on `is_counted` at all, so a friendly run
+    still carried a reward flag it shouldn't -- the bonus is a counted-
+    league concept, not something a warm-up run earns). This exact rule --
+    diversity reward to the winner of a first, counted meeting -- is per
+    the opponent's own description, not verified against the book's own
+    text directly by this repo; flagged here for that reason rather than
+    presented as independently confirmed the way `first_meeting_between_
+    groups`'s own semantics were."""
     total = {my_group_id: 0, their_group_id: 0}
     won = {my_group_id: 0, their_group_id: 0}
     ties = 0
@@ -79,6 +101,11 @@ def final_result(
     else:
         winner_group = my_group_id if total[my_group_id] > total[their_group_id] else their_group_id
 
+    diversity_reward_applied = {
+        group: is_counted and first_meeting_between_groups and group == winner_group
+        for group in (my_group_id, their_group_id)
+    }
+
     return {
         "total_score": total,
         "sub_games_won": won,
@@ -90,7 +117,8 @@ def final_result(
             my_group_id: games_played_including_this,
             their_group_id: their_games_played_including_this,
         },
-        "diversity_reward_applied": {my_group_id: False, their_group_id: False},
+        "diversity_reward_applied": diversity_reward_applied,
+        "first_meeting_between_groups": first_meeting_between_groups,
     }
 
 
@@ -109,6 +137,8 @@ def build_result_report(
     games_played_including_this: int = 0,
     their_games_played_including_this: int | None = None,
     is_counted: bool = False,
+    first_meeting_between_groups: bool = True,
+    num_sub_games: int = 0,
 ) -> dict:
     """`sub_game_meta[i]` supplies the per-row fields Section 11's own
     canonical row doesn't carry: `their_github_commit`, `steps`,
@@ -151,9 +181,13 @@ def build_result_report(
     return {
         "game_id": game_id,
         "game_uid": game_uid,
-        "report_type": "std_v1_result",
-        "schema_version": "1.0",
+        # yanell11, live: renamed to match their own kit's convention --
+        # "std_v1_result"/"1.0" was this repo's own original naming, not
+        # anything the spec itself mandates one way or the other.
+        "report_type": "final_game_result",
+        "schema_version": "1.1",
         "groups": [my_group_id, their_group_id],
+        "num_sub_games": num_sub_games,
         "sub_games": sub_games,
         # `declaration`/`config`/`log`/`result` name the four artifacts this
         # side actually writes for the whole series (interop/std_v1_opponent.
@@ -180,11 +214,12 @@ def build_result_report(
         "timezone": "UTC",
         "game_started_at": game_started_at,
         "game_ended_at": game_ended_at,
-        "league": {"counted": is_counted},
+        "league": {"counted": is_counted, "reason": "counted" if is_counted else "friendly"},
         "mutual_agreement": mutual_agreement,
         "final_result": final_result(
             rows, my_group_id, their_group_id,
             games_played_including_this, their_games_played_including_this,
+            first_meeting_between_groups, is_counted,
         ),
     }
 

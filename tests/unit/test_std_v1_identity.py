@@ -1,5 +1,7 @@
 """std_v1/identity.py tests."""
 
+from unittest.mock import patch
+
 from thief_peer.interop.std_v1.identity import build_identity
 
 
@@ -36,3 +38,21 @@ def test_build_identity_includes_scent_model_lock_when_given():
         scent_model_lock=lock,
     )
     assert identity["scent_model_lock"] == lock
+
+
+def test_build_identity_sends_a_string_for_gpu_when_none_detected():
+    with patch(
+        "thief_peer.interop.std_v1.identity.sysinfo.collect_spec",
+        return_value={"os": "Windows", "cpu": "x", "cpu_cores": 1, "ram_gb": 1.0, "gpu": None, "vram_gb": None},
+    ):
+        identity = build_identity(group_id="g", group_name="G", members=[], repos={}, mcp_servers={}, llm_model="m")
+    assert identity["spec"]["gpu"] == "none"
+
+
+def test_build_identity_leaves_a_real_gpu_name_untouched():
+    with patch(
+        "thief_peer.interop.std_v1.identity.sysinfo.collect_spec",
+        return_value={"os": "Windows", "cpu": "x", "cpu_cores": 1, "ram_gb": 1.0, "gpu": "RTX 4090", "vram_gb": 24.0},
+    ):
+        identity = build_identity(group_id="g", group_name="G", members=[], repos={}, mcp_servers={}, llm_model="m")
+    assert identity["spec"]["gpu"] == "RTX 4090"
