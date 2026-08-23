@@ -25,3 +25,6 @@ Thumbs.db
 # Match artifacts (regenerated per run)
 logs/
 results/
+
+# NotebookLM source dump (convenience index, not a graded artifact)
+notebooklm_sources/

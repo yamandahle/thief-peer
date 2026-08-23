@@ -5,6 +5,22 @@
 pursuit-game agent with no shared code or state with the Cop peer, per the
 project's mandatory "full environment separation" rule.
 
+## Companion (cop) repo
+
+[Nagham1023/yamanagh-cop](https://github.com/Nagham1023/yamanagh-cop) — the
+Cop role for this match (rule 49's four cross-links). `config/thief/game.toml`'s
+`[repos]` block already declares this same URL as the negotiated pointer used
+by the report bundle; this line is the human-readable copy the README itself
+is required to carry.
+
+## Project notebook
+
+[Game-P2P-Thief-Chase Repository Chat](https://notebook.google.com/notebook/fd9ef012-acc0-449e-b644-b9785a4f8c18)
+— a NotebookLM notebook loaded from this repo's docs, PRDs, and source
+(grouped into algorithm/infrastructure bundles under `notebooklm_sources/`,
+itself git-ignored — a convenience index for exploring the project, not a
+graded submission artifact).
+
 ## Status
 
 All 8 stages (`docs/PRD_1`…`docs/PRD_8`) plus Stage 9's Cop-repo interop
@@ -39,8 +55,11 @@ model: see `docs/PRD.md`.
 
 Start with `docs/PRD.md` (requirements) → `docs/PLAN.md` (architecture,
 module layout, ADRs, API contracts) → `docs/TODO.md` (build order index).
-Each of the 7 build stages has its own `docs/PRD_<n>_<name>.md` (design) and
-`docs/TODO_<n>_<name>.md` (task checklist):
+The original plan had 7 build stages; two more were added after real-world
+gaps surfaced post-shipment (Stage 8) and once the companion Cop repo became
+available to interop against (Stages 9–10). Each stage has its own
+`docs/PRD_<n>_<name>.md` (design) and `docs/TODO_<n>_<name>.md` (task
+checklist):
 
 1. Base logic (grid, movement, capture/survival rules)
 2. FastMCP infrastructure (localhost)
@@ -51,6 +70,12 @@ Each of the 7 build stages has its own `docs/PRD_<n>_<name>.md` (design) and
 7. Reporting shell (Gmail+OAuth, live GUI, replay simulator)
 8. `PeerRuntime` + the live-match MCP tools (`docs/PRD_8_peer_runtime.md` —
    a gap found after Stage 7 shipped, not part of the original 7-stage plan)
+9. Cop-repo interop adapter (`docs/PRD_9_cop_interop.md` — a unilateral
+   translation layer against the independently-built Cop repo's own wire
+   protocol; see "Cop repo interop status" below)
+10. Cop-parity + cloud-readiness hardening (`docs/PRD_10_cop_parity_hardening.md`
+    — independent verification of the Cop team's own "advanced extension"
+    claims, plus a public-internet readiness audit)
 
 ## Running it
 
@@ -121,86 +146,284 @@ provider, and only through `talk_providers.py`'s pluggable adapters
 (template / ollama / claude_api / claude_cli), themselves only reachable
 through `shared/gatekeeper.py`'s rate-limited `ApiGatekeeper` (ADR-4).
 
-## Academic sections (Ch.9 §9.4.2)
+---
 
-**Dec-POMDP model.** Each peer is a partially-observable Markov decision
-process participant: the true joint state (both agents' positions) is never
-fully known to either side (`gui/window.py`'s `PeerView` dataclass
-structurally has no opponent-position field — ADR-8, enforced at the type
-level, not by GUI-drawing convention). Observations arrive only as scent
-intensity readings the opponent's movement leaves behind
-(`domain/scent.py`'s 5×5 diffusion-and-decay kernel, book Fig. 4 exactly:
-center 0.90, orthogonal 0.62, diagonal 0.42, range-two orthogonal 0.20,
-range-two diagonal 0.14, corners 0.04, applied via
-`τij(t+1) = max(0, (1−ρ)·τij(t) + Δτij)`). `domain/belief.py`'s `BeliefGrid`
-turns that into a probability distribution over the opponent's position
-(Bayesian update + per-turn diffusion for the fact that they moved since the
-last observation), and the strategy in `strategy/fleeing_brain.py` acts on
-the *full distribution* (expected distance, weighted by belief probability),
-never a `most_likely()`-only shortcut.
+# Academic README — six mandatory sections
 
-**FastMCP orchestration challenges.** Running two independently-built,
-mutually-distrusting peers over FastMCP surfaced two concrete problems this
-repo had to design around: (1) tool payloads must be wrapped as a single
-`{"payload": {...}}` argument, not passed as loose keyword arguments — every
-MCP tool in `infra/mcp_server.py` follows this shape uniformly; (2) real
-network failures are slower than they look in a unit test — a genuinely
-unreachable `Client` connection attempt took several seconds of internal
-retry before failing, which meant test deadlines tuned against a mocked
-transport were too tight against the real one (`infra/mcp_client.py`'s
-`DeadlineExceededError` vs. `TransportError` distinction exists specifically
-because of this).
+Each section below traces its claims to a real module, PRD, or test in this
+repo — no invented numbers. Where a fact is time-sensitive (a match result,
+a status flag), the current, honest one is given, including the story of
+what changed and why, per this project's own house discipline of recording
+what was found wrong, not just what shipped.
 
-**Gatekeeper / Orchestrator design.** `shared/gatekeeper.py`'s
-`ApiGatekeeper` is the single doorway every outbound Gmail or LLM call must
-pass through (ADR-4) — never called directly from `infra/email_sender.py` or
-`infra/llm_provider.py`. It chains a `DosDetector` (a circuit breaker that
-hard-locks on anomalous call volume, protecting the account *before* the
-provider notices, not after), a `TokenBucket` (lazy-refilled
-`tokens ← min(C, tokens + r·Δt)`), and a bounded `RequestQueue` (overflow
-requests queue rather than silently drop), with real retry/backoff on 429s
-and every attempt logged regardless of outcome.
+## 1. The Chosen Dec-POMDP Model (מודל ה-Dec-POMDP הנבחר)
 
-**Academic freedom: `TECHNICAL_LOSS` reachability.** Ch.8.3's descriptive
-text ("every state has an emergency exit") and its own mandatory
-`GamePhaseMachine` code table disagree: the code table only maps
-`TECHNICAL_LOSS` as a legal destination from `COMPUTING_MOVE` and
-`AWAITING_REVEAL`, not from every state. Per the book's own "Academic
-Freedom in Case of Contradiction" clause, this repo's `TurnFsm`
-(`peer/turn_fsm.py`) implements the narrower, code-table reading —
-`TECHNICAL_LOSS` is reachable only from `COMPUTING_MOVE` and
-`AWAITING_REVEAL`, matching the literal `TRANSITIONS` dict in Ch.8.3 —
-because those are the only two states representing an active wait on a
-pending peer response; `WAITING_FOR_OPPONENT`/`VERIFYING` don't, so they'd
-have nothing to time out on. The independently-built Cop repo's own state
-machine reached the same reading.
+### Scientific description
 
-**Academic freedom: `technical_loss` in the `result` report field.** The
-book's reference `result` schema (Appendix ו, per the book's own
-sample-code repo) documents `result` as exactly one of `capture | survival
-| timeout | tamper_forfeit` — there is no slot for this repo's own
-`technical_loss` end reason (an illegal FSM transition, a strategy-compute
-timeout, or a lockstep-wait timeout; never a proven rules violation). This
-repo maps `technical_loss` → `"timeout"` (`peer/match_end.py`'s
-`_RESULT_VALUE`): every technical-loss path here is itself a
-deadline/protocol-timing failure, so `"timeout"` is the closest honest fit
-in the book's own enum — `"tamper_forfeit"` is reserved for when the
-mutual audit (rules 19/36) actually catches a hash mismatch, a distinct
+This project models the pursuit as a two-agent, decentralized, partially
+observable Markov decision process: `⟨I, S, {A_thief, A_cop}, T, {Ω}, O, R⟩`.
+`I = {thief, cop}` — exactly two agents, each its own OS process, its own
+repo, with **zero shared code or live state** (the project's mandatory
+"full environment separation" rule; this repo contains only the Thief role).
+Neither agent ever observes the true joint state `S`; each acts on its own
+local, partial observation `Ω`, updated turn by turn via `O`, exactly the
+Dec-POMDP formalism from Ch.9 of the course book rather than a single-agent
+POMDP (there is no shared belief, no communication channel that reveals
+ground truth, and no central referee resolving the joint state — integrity
+instead comes from the Commit-Reveal/SHA-256 protocol, see §2).
+
+### Mathematical components
+
+- **State space `S`** — both agents' true grid positions plus the declared
+  barrier layout (`domain/board.py`), the round counter, and per-agent
+  `TurnFsm` phase (`peer/turn_fsm.py`). The true joint state is never fully
+  knowable to either side by construction: `gui/window.py`'s `PeerView`
+  dataclass structurally has no opponent-position field (ADR-8, enforced at
+  the type level, not by GUI-drawing convention), so the objective board can
+  never leak into a render call or a strategy decision.
+- **Observation space `Ω`** — two independent channels per turn:
+  1. *Spatial (scent).* `domain/scent.py`'s 5×5 diffusion-and-decay kernel
+     (book Fig. 4 exactly: center 0.90, orthogonal 0.62, diagonal 0.42,
+     range-two orthogonal 0.20, range-two diagonal 0.14, corners 0.04),
+     applied every turn via `τij(t+1) = max(0, (1−ρ)·τij(t) + Δτij)`. This is
+     the *only* ground-truth-adjacent signal, and it is unfakeable — the
+     opponent cannot lie about where they physically walked.
+  2. *Verbal (hint/verdict).* A free natural-language message the opponent
+     may compose (`strategy/trash_talk.py` + `talk_providers.py`) — never
+     coordinates, never guaranteed true. This channel is a claim to be
+     weighed against the scent evidence, never trusted on its own.
+- **Transitions `T`** — `domain/rules.py`'s movement/capture/survival rules:
+  legal orthogonal moves, barrier collision, and the two terminal
+  conditions (capture on same-cell, survival past the step ceiling).
+- **Observation function `O`** — `domain/belief.py`'s `BeliefGrid`: a
+  Bayesian update against the scent reading plus per-turn diffusion (to
+  account for the fact that the opponent moved since the last observation),
+  producing a full probability distribution over the opponent's position,
+  never a single point estimate.
+- **Nature of spatial uncertainty** — strictly probabilistic and
+  monotonically decaying without fresh evidence (the scent field's own
+  `ρ` decay term); the strategy in `strategy/fleeing_brain.py` and
+  `strategy/adaptive_thief_brain.py` acts on the *full distribution*
+  (belief-weighted expected distance), never a `most_likely()`-only
+  shortcut, since collapsing to a point estimate would throw away exactly
+  the uncertainty the Dec-POMDP formalism is meant to capture.
+- **Nature of verbal uncertainty** — adversarial, not stochastic: the
+  opponent's hint/verdict is generated by a strategic agent (possibly an
+  LLM) that may deliberately bias it toward deception (see §3). The belief
+  update therefore never folds a hint directly into the probability
+  distribution as if it were sensor noise — it is tested against the
+  scent-derived belief instead (a hint that flatly contradicts strong scent
+  evidence is weighted down, not blindly trusted).
+
+## 2. FastMCP Orchestration Dilemmas (דילמות התזמור של FastMCP)
+
+### P2P coordination trade-offs
+
+Running two independently-built, mutually-distrusting peers over FastMCP —
+with no central broker, each peer simultaneously a server and a client
+(`docs/PRD_2_mcp_infra.md`) — surfaced concrete engineering dilemmas no
+single-process design would ever hit:
+
+- **Payload shape.** Every MCP tool in `infra/mcp_server.py` wraps its
+  argument as one `{"payload": {...}}` object rather than loose keyword
+  arguments — the two independently-built peers had to agree on a single
+  wire convention up front, since there is no shared schema-generation step
+  between two separate codebases.
+- **Real vs. mocked latency.** A genuinely unreachable `Client` connection
+  took several seconds of internal retry before failing — far slower than a
+  mocked transport in a unit test — so deadlines tuned against mocks were
+  too tight against the real network. `infra/mcp_client.py` now
+  distinguishes `DeadlineExceededError` (our own budget ran out) from
+  `TransportError` (the connection itself failed) specifically because of
+  this gap between test and reality.
+- **Real production incident (round 26/27, `docs/todoFIXMCP.md`).** A live,
+  cross-machine league match against a real opponent hit repeated
+  connection failures mid-series, root-caused (via ngrok's own
+  `/api/tunnels` metrics API) to request-rate-triggered degradation on
+  ngrok's free tier (p99 latency over 50 seconds after only ~230
+  connections on a freshly-restarted tunnel) — not a wear-over-hours issue
+  as first suspected. This forced two real fixes: unsafe retry-on-any-
+  exception logic that could double-increment round state non-idempotently
+  was narrowed to only retry genuinely retryable failures, and the whole
+  public-facing side of every subsequent match was migrated from ngrok to
+  Cloudflare Quick Tunnels (`cloudflared tunnel --url ...`), a decision
+  confirmed by real health-probe testing, not guesswork.
+
+### Robustness & roles
+
+Three modules divide the orchestration responsibility, deliberately kept
+separate rather than folded into one god-object (referencing the course
+book's Ch.2 orchestration patterns and Ch.8 turn-taking model):
+
+- **Orchestrator — `peer/runtime.py`'s `PeerRuntime`.** The single live-match
+  driver: wires handshake → per-round commit/reveal exchange → end-of-match
+  mutual audit → Gmail report, end to end. `cli.py run` does nothing but
+  construct and hand off to this object. Proven end-to-end in
+  `tests/integration/test_live_match.py` with two real `PeerRuntime`
+  instances, each with its own live FastMCP server, playing a full match to
+  completion over real localhost sockets — not mocked.
+- **Gatekeeper — `shared/gatekeeper.py`'s `ApiGatekeeper` (ADR-4).** The
+  single doorway every outbound Gmail or LLM call must pass through, never
+  called directly from `infra/email_sender.py` or `infra/llm_provider.py`.
+  It chains a `DosDetector` (a circuit breaker that hard-locks on anomalous
+  call volume, protecting the account *before* the provider notices, not
+  after), a `TokenBucket` (lazily refilled,
+  `tokens ← min(C, tokens + r·Δt)`), and a bounded `RequestQueue` (overflow
+  requests queue rather than silently drop), with retry/backoff on 429s and
+  every attempt logged regardless of outcome.
+- **Watchdog — `shared/watchdog.py` + `peer/strategy_deadline.py`.** Two
+  distinct supervisory layers, deliberately not merged: a per-request
+  Deadline Tracker (`strategy_deadline.py`, bounds one strategy-compute step
+  or one round's wait) versus a whole-system heartbeat/freeze detector
+  (`watchdog.py`, catches the process itself hanging, not just one slow
+  call) — `docs/PRD_5_cloud_tunnel.md`'s rationale for keeping these
+  separate: a hung local decision must never be confused with a genuinely
+  dead peer process.
+
+Turn transitions are governed by an explicit `TurnFsm` (`peer/turn_fsm.py`,
+the literal book turn-FSM transition table from Ch.8 p.63) that rejects
+illegal transitions rather than silently absorbing them — deadlock
+prevention by construction. Real bugs found and fixed after initial
+shipment (`docs/PRD_8_peer_runtime.md` addenda) under this same
+hostile-network lens: the mutual audit was originally one-directional only
+(fixed to be symmetric); barrier-capture detection had zero call sites
+wired in (fixed); `python -m thief_peer` never actually worked because
+`main.py` should have been `__main__.py` (found only when a human ran the
+documented command); the watchdog's heartbeat producer was never wired into
+the live match loop (fixed).
+
+## 3. Implemented Strategies (האסטרטגיות שמומשו)
+
+### Decision brain
+
+`strategy/brain_base.py`'s `resolve_brain(config)` loads a `BrainBase`
+subclass via a dotted-path selector in `game.toml`, defaulting to the
+shipped `ThiefBrain` (`strategy/fleeing_brain.py`). A structural rule
+(ADR-1) keeps the LLM out of the actual move decision entirely — only the
+verbal hint/verdict layer ever calls one.
+
+### Heuristics & search (Manhattan distance / shortest paths / minimax)
+
+`ThiefBrain` is a hand-tuned weighted-sum policy over the full belief
+distribution, not a single-point heuristic:
+
+- **Expected distance** (weight 1.0) — Manhattan distance from each
+  candidate move to every cell in the belief grid, weighted by that cell's
+  belief probability, not just the single most-likely opponent position.
+- **1-ply mobility** (weight 1.5) — the number of legal moves available
+  from the candidate cell, the signal that actually keeps the Thief out of
+  dead-end pockets; tuned empirically against a constructed corner-trap
+  board where distance-only scoring walked straight into a dead end.
+- **1-ply minimax lookahead** (weight 0.1) — a shallow search: for each
+  candidate move, evaluate the Cop's best response from its most-likely
+  believed position, and discount moves that let the Cop close the gap
+  fastest under that one-step adversarial model.
+- **Least-recently-visited tie-break** — avoids predictable back-and-forth
+  trails between otherwise-equal-scoring moves.
+
+The Stage-7 **`AdaptiveThiefBrain`** (`strategy/adaptive_thief_brain.py`,
+`docs/PLAN.md` §7, added after real league losses exposed a Cop-side
+belief-staleness exploit and a Thief-side scoring-weight bug) extends this
+with pessimistic lookahead, per-opponent style profiling
+(`strategy/opponent_profile.py`), and softmax-sampled move selection instead
+of always taking the single top-scoring move — still pure heuristic/search,
+not reinforcement learning (see §4).
+
+### Verbal deception — prompt engineering and hint decoding
+
+`strategy/trash_talk.py` composes the hint/verdict message; `talk_providers.py`
+supplies four pluggable LLM backends (`template` — zero-token, book-default,
+zero latency; `ollama`; `claude_api`; `claude_cli`), selected via
+`[trash_talk] provider` in the private `game.toml`, throttled by
+`every_n_steps`, and hard-falling-back to the template provider on any LLM
+error or timeout — the strategy layer can never be blocked or crashed by an
+unreliable LLM call. All LLM calls route through the Gatekeeper (§2), never
+directly. A hard word-cap is enforced in code, not left to prompting alone,
+since an LLM cannot be trusted to self-limit its own output.
+
+The **deceptive verdict bias** is the actual bluffing logic: whether to tell
+the truth or lie about the opponent's own guess is decided by reusing the
+same `_expected_distance` belief-quality signal the movement brain already
+computes — lie more often when the Thief's own belief about the Cop is
+already accurate (there's less to lose by misdirecting), tell the truth more
+when the belief is already far off (a lie adds little value and risks a
+credibility cost against an opponent tracking consistency across turns). A
+known, documented limitation: `observe_scent()`'s cumulative-snapshot
+reweighting degrades belief tracking after roughly 3 turns on long trails —
+an open item, not silently hidden.
+
+## 4. Learning Curves (עקומות למידה)
+
+**No reinforcement learning was trained for this repo's Thief strategy.**
+`docs/PRD_3_strategy.md` §4 evaluates the book's three sanctioned strategy
+tracks — (1) pure heuristics, (2) a custom algorithm, (3) Q-Learning — and
+explicitly documents the decision to build track 2 (the heuristic +
+1-ply-minimax hybrid described in §3 above) instead of track 3: *"RL
+requires a training loop, an epsilon-greedy exploration schedule, and a
+Q-table... real engineering cost for a book-acknowledged non-requirement."*
+The rejection is recorded as deliberate and reversible, not as a gap — the
+Bellman update `Q(s,a) ← Q(s,a) + α[r + γ·max_a' Q(s',a') − Q(s,a)]` and an
+epsilon-greedy action-selection scheme are documented in that same PRD as a
+drop-in `BrainBase` subclass this repo *could* add later via the existing
+`resolve_brain()` extension point, without changing any other module.
+
+No training run, Q-table, or learning curve exists anywhere in this repo's
+history — the only quantitative evidence available is real match outcomes
+(the league record in §"League play" below) and unit/integration-test
+coverage, not RL convergence data. (A separate, unrelated course exercise —
+an HW6 Q-Table Advisor built while auditing a classmate's different combined
+cop+thief assignment — trained tabular Q-learning over 10,000 self-play
+episodes; that work belongs to that other repo, not to this Thief agent's
+own decision logic, and is not a claim made here.)
+
+## 5. Screenshotted Evidence — Absolute Requirement (צילומי מסך - חובה מוחלטת)
+
+**Status: captured.** Both mandatory screenshots below were taken from a real
+live session on a visible desktop, not mocked or staged.
+
+**Live GUI — belief heatmap actively tracking the Cop:**
+
+![Live GUI belief heatmap, LOCKED scent model, red cells marking the highest-probability cells for the Cop's position](docs/screenshots/live_gui_verified.png)
+
+Captured from `uv run python -m thief_peer run --group-name "Your-Team-Name" --gui --config config/thief/game.toml --shared-config config/thief/game.json` — the Tkinter window (`gui/live_session.py` + `gui/window.py`) rendering `BeliefGrid`'s probability cloud (red = highest belief) with the scent model shown `LOCKED`, never the objective board (ADR-8).
+
+**Replay App — Commit-Reveal audit, "Verified OK":**
+
+![Replay Viewer showing per-step and overall Verified OK, plus the terminal log confirming every one of 24+ steps verified](docs/screenshots/replay_verified_ok.png)
+
+Captured from `uv run python -m thief_peer replay --log results/log_yamandahle-thief-vs-yamanagh_g01.json --gui` — the terminal shows every step (0 through 24+) plus the match `overall: Verified OK`, and the GUI (`gui/replay_view.py`) shows the same **green "Verified OK"** stamp per step, confirming the Commit-Reveal audit engine found no tampering in the recorded log.
+
+## 6. Link to the Companion Repository (קישור למאגר הנלווה)
+
+**[Nagham1023/yamanagh-cop](https://github.com/Nagham1023/yamanagh-cop)**
+
+## Documented contradictions (Academic Freedom clause)
+
+Two real disagreements between the book's descriptive text and its own
+mandatory code tables were found during development and resolved per the
+book's own "Academic Freedom in Case of Contradiction" clause:
+
+**`TECHNICAL_LOSS` reachability.** Ch.8.3's descriptive text ("every state
+has an emergency exit") and its own mandatory `GamePhaseMachine` code table
+disagree: the code table only maps `TECHNICAL_LOSS` as a legal destination
+from `COMPUTING_MOVE` and `AWAITING_REVEAL`, not from every state. This
+repo's `TurnFsm` (`peer/turn_fsm.py`) implements the narrower, code-table
+reading — because those are the only two states representing an active wait
+on a pending peer response; `WAITING_FOR_OPPONENT`/`VERIFYING` don't, so
+they'd have nothing to time out on. The independently-built Cop repo's own
+state machine reached the same reading.
+
+**`technical_loss` in the `result` report field.** The book's reference
+`result` schema (Appendix ו) documents `result` as exactly one of
+`capture | survival | timeout | tamper_forfeit` — no slot for this repo's
+own `technical_loss` end reason (an illegal FSM transition, a
+strategy-compute timeout, or a lockstep-wait timeout; never a proven rules
+violation). This repo maps `technical_loss` → `"timeout"`
+(`peer/match_end.py`'s `_RESULT_VALUE`): every technical-loss path here is
+itself a deadline/protocol-timing failure, so `"timeout"` is the closest
+honest fit in the book's own enum — `"tamper_forfeit"` is reserved for when
+the mutual audit (rules 19/36) actually catches a hash mismatch, a distinct
 and stronger claim this repo only makes when that audit genuinely fires.
-
-**Strategy used.** `ThiefBrain` is a hand-tuned weighted-sum policy, not
-reinforcement learning: full-distribution expected distance from the belief
-map (weight 1.0), 1-ply mobility at the candidate cell (weight 1.5 — the
-signal that actually keeps it out of dead-end pockets, tuned empirically
-against a constructed corner-trap board), a 1-ply minimax lookahead against
-the Cop's best response from its most-likely position (weight 0.1), and a
-least-recently-visited tie-break to avoid predictable back-and-forth
-trails. See `strategy/fleeing_brain.py` for the exact scoring.
-
-**Screenshots (mandatory).** _Not included — capturing these requires a live
-desktop session and is a manual step; see below._
-
-**Cop repo.** `https://github.com/Nagham1023/yamanagh-cop`
 
 ## Cop repo interop status
 
@@ -431,9 +654,6 @@ digest comparisons) before being fixed.
   Neither can be produced or verified from here. A real sent-email
   verification (confirming a report actually lands in the inbox) is the
   same kind of manual check.
-- **The two mandatory submission screenshots** (Live GUI belief heatmap,
-  Replay "Verified OK" stamp) — the Tkinter GUI's rendered appearance can
-  only be confirmed by actually running it on a visible desktop.
 - **Playing a real match against the teammate's independently-built Cop
   repo** — `PeerRuntime` is built and proven against a second real instance
   of itself (see "Known limitation" above), but a genuine cross-repo match
