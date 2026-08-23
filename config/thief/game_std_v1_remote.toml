@@ -22,10 +22,21 @@ pheromone_decay = 0.1
 
 [network]
 my_port = 8801
+# Enabled specifically to get direct visibility into whether/when a
+# series_consensus-shaped submit_audit actually lands on our server --
+# yanell11's own claim (a genuine {'ok': True} reply during our active
+# wait window) needs debug-level proof either way, not more guessing.
+mcp_log_level = "debug"
+# yanell11 runs split doors, confirmed live -- dialed when we play thief
+# (their cop process).
 opponent_url = "https://counting-truce-childcare.ngrok-free.dev/mcp"
+# Dialed when we play police (their thief process) -- see
+# std_v1_opponent.py::run_std_v1_series / series_runner.py's
+# _transport_for_role.
+opponent_url_when_police = "https://unviable-tubeless-sevenfold.ngrok-free.dev/mcp"
 opponent_protocol = "std_v1"
 opponent_group_id = "yanell11"
-public_url = "https://splotchy-bronco-nature.ngrok-free.dev/mcp"
+public_url = "https://arise-political-applies-detection.trycloudflare.com/mcp"
 # Rule 1/2 fix: real Police-role decisions come from the separately-running
 # yamanagh-cop repo's own loopback relay ("uv run python -m cop relay",
 # yamanagh-cop\src\cop\std_v1\relay_server.py) instead of this repo's
@@ -37,10 +48,22 @@ cop_relay_url = "http://127.0.0.1:8901/mcp"
 [network_and_league]
 response_timeout_sec = 180.0
 watchdog_timeout_sec = 180.0
+# Raised from 60s to 90s: new exchange.py instrumentation caught a real,
+# empirically-confirmed near-miss live -- their consensus envelope was
+# genuinely stored (record_audit fired correctly) about 10s after our 60s
+# window had already closed, proving the storage/matching code itself is
+# correct and this is purely a timing margin issue for this opponent. The
+# watchdog (_resolve_consensus_with_watchdog) still bounds the worst case
+# regardless, so raising this is safe -- it can no longer risk an
+# *unbounded* wait, only how long the bounded one is.
+consensus_ceiling_sec = 90.0
 
 [email]
 recipient = "yanalserhan3@gmail.com"
 token_path = "token.json"
+# yanell11's own explicit request: counted send goes to the lecturer
+# address alone, no opponent CC. Only affects counted sends.
+cc_opponent_on_counted_report = false
 
 [repos]
 thief = "https://github.com/yamandahle/thief-peer"
@@ -49,3 +72,26 @@ cop = "https://github.com/Nagham1023/yamanagh-cop"
 [std_v1]
 group_id = "yamanagh"
 members = ["Nagham Manasra", "Yaman Dahle"]
+# yanell11's declared terms.setting is "Haifa", not our shared default
+# ("New York", set for a different opponent) -- confirmed live via their
+# own TermsRejectedError on every negotiate attempt.
+terms_path = "config/thief/interop_spec_terms_yanell11.json"
+# User's explicit, deliberate decision -- cleared with the lecturer
+# directly -- to declare 0 for this opponent's wire negotiate/report
+# (so the counted report reads 1, including this game), not the computed
+# league-wide total. Applies to both friendly and counted runs.
+declared_games_played_override = 0
+# Same safe, tested override built for najamjad: an explicit, deliberate
+# user decision to treat a genuinely matching, results_agreed settlement
+# as sufficient for the counted-vs-friendly decision even when the live
+# wire confirmation (still unresolved against this opponent specifically,
+# despite 4+ consecutive byte-identical-hash clean runs) never completes.
+# mutual_agreement.confirmed itself is never rewritten -- stays honestly
+# whatever the wire produced; only the counted/lecturer decision changes.
+trust_documented_consensus = true
+# yanell11, live: they now declare opening sub-game 1 as thief (a change
+# from the original matches, where they opened police and we opened thief
+# with no conflict). Our own default NATURAL_ROLE is also "thief" -- left
+# unset, both sides would silently try to open as thief. Play police first
+# against this opponent to avoid that.
+natural_role = "police"
