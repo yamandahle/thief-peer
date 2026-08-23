@@ -40,10 +40,11 @@ class _FakeGmailService:
         return {"id": "fake-message-id"}
 
 
-def _std_v1_runtime(tmp_path, monkeypatch, port=8905):
+def _std_v1_runtime(tmp_path, monkeypatch, port=8905, extra_toml=""):
     toml_path = tmp_path / "thief.toml"
     toml_path.write_text(
-        f"[network]\nmy_port = {port}\nopponent_protocol = \"std_v1\"\nopponent_group_id = \"Cop-Team\"\n",
+        f"[network]\nmy_port = {port}\nopponent_protocol = \"std_v1\"\nopponent_group_id = \"Cop-Team\"\n"
+        + extra_toml,
         encoding="utf-8",
     )
     json_path = tmp_path / "thief.json"
@@ -213,6 +214,87 @@ def test_run_does_cc_the_lecturer_and_persist_the_league_slot_when_confirmed(tmp
 
     assert spy_counter.recorded == ["opponent-team"]
     assert emailed["is_counted"] is True
+
+
+def test_run_treats_a_documented_consensus_override_as_counted_when_results_agreed(tmp_path, monkeypatch):
+    # najamjad, live: their build never sends consensus_sha on the wire, so
+    # `confirmed` can never become True against them -- `std_v1.
+    # trust_documented_consensus` is the opt-in, per-opponent way an
+    # explicit written agreement (both sides comparing their own emailed
+    # settlement hash by hand) stands in for the live confirmation.
+    runtime = _std_v1_runtime(
+        tmp_path, monkeypatch, port=8910,
+        extra_toml='\n[std_v1]\ntrust_documented_consensus = true\n',
+    )
+    runtime.is_counted = True
+    spy_counter = _SpyLeagueCounter()
+
+    def fake_series(self):
+        self._league_counter = spy_counter
+        self._their_group_id = "najamjad"
+        return {
+            "game_id": "us-vs-them",
+            "report": {
+                "report_type": "std_v1_result",
+                "mutual_agreement": {"confirmed": False, "results_agreed": True},
+                "league": {"counted": True},
+            },
+        }
+
+    monkeypatch.setattr("thief_peer.peer.runtime.run_std_v1_series", fake_series)
+    monkeypatch.setattr("thief_peer.peer.runtime.write_std_v1_result", lambda result, results_dir: None)
+    emailed = {}
+    monkeypatch.setattr(
+        "thief_peer.peer.runtime.send_std_v1_report_email",
+        lambda result, runtime, *, is_counted: emailed.update(is_counted=is_counted),
+    )
+
+    result = runtime.run()
+
+    assert spy_counter.recorded == ["najamjad"]
+    assert emailed["is_counted"] is True
+    assert result["report"]["league"]["counted"] is True
+    # The wire-level confirmed flag is never rewritten -- the report still
+    # tells the honest truth about what the wire exchange actually produced.
+    assert result["report"]["mutual_agreement"]["confirmed"] is False
+
+
+def test_run_ignores_the_documented_consensus_override_when_results_did_not_agree(tmp_path, monkeypatch):
+    # Not a blanket bypass: a tamper/disagreement signal on an otherwise-
+    # unconfirmed series must still block the counted slot even with the
+    # override enabled.
+    runtime = _std_v1_runtime(
+        tmp_path, monkeypatch, port=8911,
+        extra_toml='\n[std_v1]\ntrust_documented_consensus = true\n',
+    )
+    runtime.is_counted = True
+    spy_counter = _SpyLeagueCounter()
+
+    def fake_series(self):
+        self._league_counter = spy_counter
+        self._their_group_id = "najamjad"
+        return {
+            "game_id": "us-vs-them",
+            "report": {
+                "report_type": "std_v1_result",
+                "mutual_agreement": {"confirmed": False, "results_agreed": False},
+                "league": {"counted": True},
+            },
+        }
+
+    monkeypatch.setattr("thief_peer.peer.runtime.run_std_v1_series", fake_series)
+    monkeypatch.setattr("thief_peer.peer.runtime.write_std_v1_result", lambda result, results_dir: None)
+    emailed = {}
+    monkeypatch.setattr(
+        "thief_peer.peer.runtime.send_std_v1_report_email",
+        lambda result, runtime, *, is_counted: emailed.update(is_counted=is_counted),
+    )
+
+    result = runtime.run()
+
+    assert spy_counter.recorded == []
+    assert emailed["is_counted"] is False
+    assert result["report"]["league"]["counted"] is False
 
 
 def test_run_closes_the_transport_after_a_std_v1_series_even_though_finalize_match_is_skipped(

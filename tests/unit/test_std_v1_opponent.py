@@ -133,6 +133,203 @@ def test_run_std_v1_series_threads_runtimes_own_collaborators_into_play_series(m
     assert (runtime.results_dir / "config_us-vs-them-uid.json").exists()
 
 
+def test_run_std_v1_series_uses_the_default_consensus_ceiling_when_unconfigured(monkeypatch, tmp_path):
+    terms_path = tmp_path / "terms.json"
+    terms_path.write_text(json.dumps({
+        "board_size": 7, "smell_grid_size": 5, "decay_per_step": 0.1, "emit_intensity": 0.9,
+        "min_center_intensity": 0.5, "max_steps": 35, "barriers_max": 14, "setting": "Haifa",
+        "hint_max_words": 15, "axis_origin_corner": "top-left", "axis_start_index": 0,
+        "thief_start": [3, 3], "cop_start": [0, 0], "num_games": 1,
+    }), encoding="utf-8")
+
+    captured = {}
+
+    def fake_play_series(transport, exchange, terms, my_group_id, their_group_id, identity,
+                          board_factory, state_factory, turn_handler_factory, scent_factory,
+                          trash_talk, turn_deadline_sec=10.0, **kwargs):
+        captured["consensus_ceiling_sec"] = kwargs.get("consensus_ceiling_sec")
+        return {
+            "game_id": "us-vs-them", "game_uid": "us-vs-them-uid", "records": [],
+            "report": {"groups": ["us", "them"], "final_result": {}},
+        }
+
+    monkeypatch.setattr("thief_peer.interop.std_v1_opponent.play_series", fake_play_series)
+
+    runtime = _FakeRuntime("std_v1", {
+        "std_v1.terms_path": str(terms_path),
+        "std_v1.group_id": "us",
+        "network.opponent_group_id": "them",
+    })
+    runtime._std_v1_exchange = StdExchange()
+    runtime.results_dir = tmp_path / "results"
+
+    run_std_v1_series(runtime)
+
+    assert captured["consensus_ceiling_sec"] == 400.0
+
+
+def test_run_std_v1_series_honors_a_per_opponent_consensus_ceiling_override(monkeypatch, tmp_path):
+    # najamjad, live: their consensus envelope can never pass validation
+    # right now (no consensus_sha field at all), so waiting the full
+    # default ceiling against them specifically is pure dead time.
+    terms_path = tmp_path / "terms.json"
+    terms_path.write_text(json.dumps({
+        "board_size": 7, "smell_grid_size": 5, "decay_per_step": 0.1, "emit_intensity": 0.9,
+        "min_center_intensity": 0.5, "max_steps": 35, "barriers_max": 14, "setting": "Haifa",
+        "hint_max_words": 15, "axis_origin_corner": "top-left", "axis_start_index": 0,
+        "thief_start": [3, 3], "cop_start": [0, 0], "num_games": 1,
+    }), encoding="utf-8")
+
+    captured = {}
+
+    def fake_play_series(transport, exchange, terms, my_group_id, their_group_id, identity,
+                          board_factory, state_factory, turn_handler_factory, scent_factory,
+                          trash_talk, turn_deadline_sec=10.0, **kwargs):
+        captured["consensus_ceiling_sec"] = kwargs.get("consensus_ceiling_sec")
+        return {
+            "game_id": "us-vs-them", "game_uid": "us-vs-them-uid", "records": [],
+            "report": {"groups": ["us", "them"], "final_result": {}},
+        }
+
+    monkeypatch.setattr("thief_peer.interop.std_v1_opponent.play_series", fake_play_series)
+
+    runtime = _FakeRuntime("std_v1", {
+        "std_v1.terms_path": str(terms_path),
+        "std_v1.group_id": "us",
+        "network.opponent_group_id": "them",
+        "network_and_league.consensus_ceiling_sec": 30.0,
+    })
+    runtime._std_v1_exchange = StdExchange()
+    runtime.results_dir = tmp_path / "results"
+
+    run_std_v1_series(runtime)
+
+    assert captured["consensus_ceiling_sec"] == 30.0
+
+
+def test_run_std_v1_series_declares_first_meeting_true_for_a_never_played_opponent(monkeypatch, tmp_path):
+    terms_path = tmp_path / "terms.json"
+    terms_path.write_text(json.dumps({
+        "board_size": 7, "smell_grid_size": 5, "decay_per_step": 0.1, "emit_intensity": 0.9,
+        "min_center_intensity": 0.5, "max_steps": 35, "barriers_max": 14, "setting": "Haifa",
+        "hint_max_words": 15, "axis_origin_corner": "top-left", "axis_start_index": 0,
+        "thief_start": [3, 3], "cop_start": [0, 0], "num_games": 6,
+    }), encoding="utf-8")
+
+    captured = {}
+
+    def fake_play_series(transport, exchange, terms, my_group_id, their_group_id, identity,
+                          board_factory, state_factory, turn_handler_factory, scent_factory,
+                          trash_talk, turn_deadline_sec=10.0, **kwargs):
+        captured["first_meeting_between_groups"] = kwargs.get("first_meeting_between_groups")
+        return {
+            "game_id": "us-vs-them", "game_uid": "us-vs-them-uid", "records": [],
+            "report": {"groups": ["us", "them"], "final_result": {}},
+        }
+
+    monkeypatch.setattr("thief_peer.interop.std_v1_opponent.play_series", fake_play_series)
+
+    league_path = tmp_path / "results" / "league_counter.json"
+    league_path.parent.mkdir(parents=True, exist_ok=True)
+    league_path.write_text(json.dumps({"moamteam": 1}), encoding="utf-8")
+
+    runtime = _FakeRuntime("std_v1", {
+        "std_v1.terms_path": str(terms_path),
+        "std_v1.group_id": "us",
+        "network.opponent_group_id": "brand-new-opponent",
+    })
+    runtime._std_v1_exchange = StdExchange()
+    runtime.results_dir = tmp_path / "results"
+
+    run_std_v1_series(runtime)
+
+    assert captured["first_meeting_between_groups"] is True
+
+
+def test_run_std_v1_series_declares_first_meeting_false_for_an_already_played_opponent(monkeypatch, tmp_path):
+    terms_path = tmp_path / "terms.json"
+    terms_path.write_text(json.dumps({
+        "board_size": 7, "smell_grid_size": 5, "decay_per_step": 0.1, "emit_intensity": 0.9,
+        "min_center_intensity": 0.5, "max_steps": 35, "barriers_max": 14, "setting": "Haifa",
+        "hint_max_words": 15, "axis_origin_corner": "top-left", "axis_start_index": 0,
+        "thief_start": [3, 3], "cop_start": [0, 0], "num_games": 6,
+    }), encoding="utf-8")
+
+    captured = {}
+
+    def fake_play_series(transport, exchange, terms, my_group_id, their_group_id, identity,
+                          board_factory, state_factory, turn_handler_factory, scent_factory,
+                          trash_talk, turn_deadline_sec=10.0, **kwargs):
+        captured["first_meeting_between_groups"] = kwargs.get("first_meeting_between_groups")
+        return {
+            "game_id": "us-vs-them", "game_uid": "us-vs-them-uid", "records": [],
+            "report": {"groups": ["us", "them"], "final_result": {}},
+        }
+
+    monkeypatch.setattr("thief_peer.interop.std_v1_opponent.play_series", fake_play_series)
+
+    league_path = tmp_path / "results" / "league_counter.json"
+    league_path.parent.mkdir(parents=True, exist_ok=True)
+    league_path.write_text(json.dumps({"already-played": 1}), encoding="utf-8")
+
+    runtime = _FakeRuntime("std_v1", {
+        "std_v1.terms_path": str(terms_path),
+        "std_v1.group_id": "us",
+        "network.opponent_group_id": "already-played",
+    })
+    runtime._std_v1_exchange = StdExchange()
+    runtime.results_dir = tmp_path / "results"
+
+    run_std_v1_series(runtime)
+
+    assert captured["first_meeting_between_groups"] is False
+
+
+def test_run_std_v1_series_honors_a_declared_games_played_override(monkeypatch, tmp_path):
+    # User's own explicit, deliberate call for one opponent -- overrides
+    # the computed league-wide total for the wire declaration only.
+    terms_path = tmp_path / "terms.json"
+    terms_path.write_text(json.dumps({
+        "board_size": 7, "smell_grid_size": 5, "decay_per_step": 0.1, "emit_intensity": 0.9,
+        "min_center_intensity": 0.5, "max_steps": 35, "barriers_max": 14, "setting": "Haifa",
+        "hint_max_words": 15, "axis_origin_corner": "top-left", "axis_start_index": 0,
+        "thief_start": [3, 3], "cop_start": [0, 0], "num_games": 6,
+    }), encoding="utf-8")
+
+    captured = {}
+
+    def fake_play_series(transport, exchange, terms, my_group_id, their_group_id, identity,
+                          board_factory, state_factory, turn_handler_factory, scent_factory,
+                          trash_talk, turn_deadline_sec=10.0, **kwargs):
+        captured["games_played_including_this"] = kwargs.get("games_played_including_this")
+        captured["counted_games_played"] = kwargs.get("counted_games_played")
+        return {
+            "game_id": "us-vs-them", "game_uid": "us-vs-them-uid", "records": [],
+            "report": {"groups": ["us", "them"], "final_result": {}},
+        }
+
+    monkeypatch.setattr("thief_peer.interop.std_v1_opponent.play_series", fake_play_series)
+
+    league_path = tmp_path / "results" / "league_counter.json"
+    league_path.parent.mkdir(parents=True, exist_ok=True)
+    league_path.write_text(json.dumps({"moamteam": 1, "s82kma9e": 1, "ali-ahm1": 1, "najamjad": 1}), encoding="utf-8")
+
+    runtime = _FakeRuntime("std_v1", {
+        "std_v1.terms_path": str(terms_path),
+        "std_v1.group_id": "us",
+        "network.opponent_group_id": "yanell11",
+        "std_v1.declared_games_played_override": 1,
+    })
+    runtime.is_counted = True
+    runtime._std_v1_exchange = StdExchange()
+    runtime.results_dir = tmp_path / "results"
+
+    run_std_v1_series(runtime)
+
+    assert captured["counted_games_played"] == 1
+    assert captured["games_played_including_this"] == 2  # override(1) + 1, not the real total(4) + 1
+
+
 def test_run_std_v1_series_leaves_police_relay_transport_none_by_default(monkeypatch, tmp_path):
     # rule 1/2 rollback safety: with no `network.cop_relay_url` configured,
     # play_series must not receive a relay transport -- every even

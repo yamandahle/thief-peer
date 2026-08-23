@@ -157,9 +157,33 @@ class PeerRuntime(PeerContextMixin):
             # side: no lecturer CC, no counted-game slot spent, so a
             # broken opponent process never burns our one shot at them.
             confirmed = result["report"]["mutual_agreement"]["confirmed"]
-            effective_is_counted = self.is_counted and confirmed
+            # najamjad, live: their own build never transmits `consensus_sha`
+            # on the wire at all (confirmed via their own admission and via
+            # our own debug log showing zero series_consensus-shaped
+            # payloads received across four separate matches) -- the live
+            # channel can therefore never confirm against them until they
+            # ship their own fix, no matter how many times this repo's
+            # digest matches theirs. `std_v1.trust_documented_consensus`,
+            # opt-in per-opponent, lets an explicit written agreement (both
+            # sides independently comparing their own emailed result
+            # documents and confirming a byte-identical settlement hash)
+            # stand in for the live wire confirmation for this one purpose
+            # only -- `mutual_agreement.confirmed` itself is left exactly as
+            # the wire genuinely produced it (still `false` here), never
+            # silently rewritten, so the filed report always tells the
+            # honest wire-level truth; only the counted/lecturer decision
+            # below is affected. `results_agreed` (every sub-game audit
+            # mutually clean, no tamper/disagreement signal) is required
+            # alongside the override -- this is not a blanket bypass, it
+            # only ever applies to an otherwise-legitimately-settled series.
+            trust_documented_consensus = self.config.get(
+                "std_v1.trust_documented_consensus", False
+            )
+            results_agreed = result["report"]["mutual_agreement"].get("results_agreed", False)
+            effectively_confirmed = confirmed or (trust_documented_consensus and results_agreed)
+            effective_is_counted = self.is_counted and effectively_confirmed
             result["report"]["league"]["counted"] = effective_is_counted
-            if self.is_counted and not confirmed:
+            if self.is_counted and not effectively_confirmed:
                 print(
                     "[league] series ended unconfirmed -- NOT persisting the counted-game "
                     f"slot for {getattr(self, '_their_group_id', '?')!r}, not CC'ing the lecturer",
