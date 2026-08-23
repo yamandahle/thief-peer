@@ -146,6 +146,16 @@ class StdExchange:
         with self._lock:
             if message.get("result_claim") == "series_consensus":
                 self._consensus = message
+                # yanell11, live: the MCP-level {'ok': True} only proves the
+                # tool call returned without raising -- it does NOT prove
+                # this application-level store actually happened, which is
+                # exactly the gap between "arrives" and "registers" this
+                # opponent kept reporting across 6+ runs. Empirical proof
+                # instead of re-reading the code a seventh time: this print
+                # fires the instant the store completes, so the next run's
+                # log settles definitively whether record_audit itself is
+                # the problem.
+                print(f"[exchange] consensus envelope STORED: {message}", flush=True)
             else:
                 self._audits[_as_int_if_numeric(message.get("sub_game_number"))] = message
 
@@ -193,12 +203,30 @@ class StdExchange:
         filtered at read time. The `result_claim` check stays as defense
         in depth against a malformed write somehow landing here anyway."""
         deadline = time.monotonic() + timeout
+        already_seen_but_unmatched = False
         while time.monotonic() < deadline:
             with self._lock:
                 candidate = self._consensus
                 if candidate is not None and candidate.get("result_claim") == "series_consensus":
+                    print(f"[exchange] consensus envelope MATCHED by wait_for_consensus: {candidate}", flush=True)
                     return candidate
+                # yanell11, live: distinguishes "genuinely never arrived by
+                # the time this deadline expired" (self._consensus is still
+                # None every single poll) from "arrived, present in
+                # self._consensus, but somehow didn't satisfy this specific
+                # check" (a real, different bug class -- e.g. record_audit
+                # firing on a wholly separate StdExchange instance than the
+                # one this loop is polling). Printed once, not every 0.05s
+                # cycle, since only the transition matters.
+                if candidate is not None and not already_seen_but_unmatched:
+                    already_seen_but_unmatched = True
+                    print(
+                        f"[exchange] wait_for_consensus sees self._consensus is set but it "
+                        f"didn't match: {candidate!r}", flush=True,
+                    )
             time.sleep(self._poll_interval)
+        if not already_seen_but_unmatched:
+            print("[exchange] wait_for_consensus: self._consensus was never set at all during this wait", flush=True)
         raise DeadlineExceededError(f"No consensus envelope received within {timeout}s")
 
     # --- control messages (receive_control) ---
