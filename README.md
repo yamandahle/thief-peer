@@ -268,6 +268,157 @@ manual runbook that replaces that automation:
    `Verified OK`/`TAMPERED` verdict (rule 20) — add `--gui` for the visual
    step-navigable window.
 
+## League play: real matches against 5 opponent teams
+
+This repo's `interop/std_v1/` adapter is what actually played real, countable
+matches against other teams' independently-built repos over the public
+internet. Five counted matches were completed and filed; one further
+opponent was attempted and paused without a countable result — listed below
+for completeness, not omitted.
+
+### Match record (counted)
+
+| Date (Israel local) | Opponent | Score (yamanagh) | Score (opponent) | Result |
+|---|---|---|---|---|
+| 2026-08-19, 21:16–21:19 | moamteam | 30 | 90 | Loss |
+| 2026-08-19→20, 21:42–00:45 | yanell11 | 30 | 90 | Loss* |
+| 2026-08-21, 20:09–20:12 | s82kma9e | 90 | 30 | Win |
+| 2026-08-22, 19:59–20:03 | ali-ahm1 | 75 | 35 | Win |
+| 2026-08-22→23, 23:59–00:03 | najamjad | 30 | 90 | Loss** |
+
+\*yanell11 is filed as counted, but `mutual_agreement.confirmed` is `false`
+in our own `result_yamanagh-vs-yanell11.json` — the peer's `series_consensus`
+envelope never actually arrived over the wire, even though both sides'
+independently-computed digests are byte-identical
+(`35e4d731e92b49a7153a815757ea6bbb9993141772dcfb29e27e2f1daeb68b21`). A
+known, unresolved wire-confirmation asymmetry predating this round of
+interop fixes; the score itself was never in dispute.
+
+\*\*najamjad's own build never transmits a `consensus_sha` on the wire at
+all (confirmed both by their own admission and by grepping our own
+debug-level server log across five separate matches against them — zero
+`series_consensus`-shaped payloads ever received), so `mutual_agreement.
+confirmed` stays honestly `false` here too, by design, forever, until they
+ship their own fix. Filed as counted anyway via `std_v1.
+trust_documented_consensus` — see item 9 below — after five consecutive
+runs all produced the exact same byte-identical settlement hash
+(`6fc49383e9412f7326a756d3518087635471cd6c3a53cafd88fa4bedf27bfc30`) and an
+explicit written agreement with the opponent (email thread, 2026-08-22) to
+treat that as sufficient in place of the live handshake.
+
+Paused without a countable result: **SMNGRP05** (consensus never arrived at
+all — not even an independently-matching digest — paused rather than
+forced).
+
+### What five real opponents surfaced, and how the adapter changed
+
+Every item below came from an actual failure against an actual opponent's
+independently-built implementation, not from re-reading the spec in
+isolation — this is the real value of playing multiple teams instead of
+one:
+
+1. **Configurable starting role** (`std_v1.natural_role`, default
+   `"thief"`) — `series_runner.py::play_series` used to hardcode
+   `NATURAL_ROLE = "thief"`. najamjad is also unconditionally thief-first
+   and refuses to swap; two thief-first sides talking past each other would
+   silently play a meaningless series. Fixed by making the starting role a
+   per-opponent config value instead of a module constant.
+
+2. **Role-bound dual endpoints** (`network.opponent_url_when_police`,
+   `series_runner.py::_transport_for_role`) — most opponents run one shared
+   MCP door for both roles. najamjad runs two permanent, separately-hosted
+   processes (`cop.4laboratory.com` / `thief.4laboratory.com`) with no
+   shared door at all. Fixed by adding a second, optional transport,
+   selected by which role we're currently playing.
+
+3. **Numeric-string `sub_game_number`/`step`**
+   (`exchange.py::_as_int_if_numeric`) — our lookup tables are keyed by
+   `int`. At least one opponent's wire payloads carried these as JSON
+   strings (`"1"`, not `1`), silently missing every int-keyed lookup. Fixed
+   with a coercion helper applied at every storage/lookup site.
+
+4. **A peer's own field-naming convention**
+   (`exchange.py::_record_sub_game_number`) — najamjad's `submit_audit`
+   payload nests the sub-game number as `payload.sub_game` (no `_number`
+   suffix), not the `sub_game_number` convention our own kit and every other
+   opponent so far used. Root-caused via new debug logging: the audit was
+   arriving fine (`200 OK`, stored correctly) but `wait_for_audit`'s
+   matching fallback only ever checked one field name. Fixed by generalizing
+   the check to recognize both conventions.
+
+5. **Debug-level MCP logging** (`network.mcp_log_level`,
+   `infra/server_lifecycle.py::run_server_in_background`) — our access log
+   only ever showed a bare `400 Bad Request` for a rejected call, never why.
+   Added a config-driven log level so FastMCP's own session-manager
+   rejection reason surfaces directly, used live while debugging najamjad's
+   connection drops.
+
+6. **ngrok → Cloudflare Tunnel migration** — najamjad reported intermittent
+   "TLS-dead" connections; live health-probe testing against a real role
+   flip ruled out their first theory (a role flip killing the tunnel). Root
+   cause, confirmed via ngrok's own `/api/tunnels` metrics API: p99 latency
+   over 50 seconds after only ~230 connections on a freshly-restarted
+   tunnel — request-rate-triggered degradation on ngrok's free tier, not a
+   wear-over-hours issue. Migrated the whole public-facing side of every
+   match to Cloudflare Quick Tunnels (`cloudflared tunnel --url ...`)
+   instead.
+
+7. **Per-opponent terms override** (`std_v1.terms_path`) — ali-ahm1's very
+   first handshake attempt failed rule 3
+   (`peer's terms differ from ours`): their declared `setting` was
+   `"Haifa"`, ours defaulted to `"New York"` (set for a different opponent).
+   Rather than hardcode one setting for everyone, added a config-selectable
+   terms file per opponent.
+
+8. **Per-opponent counted-report recipients**
+   (`email.cc_opponent_on_counted_report`) — different opponents declared
+   different conventions for who gets CC'd on the final counted-match
+   report (lecturer-only vs. lecturer + both teams). Made this a per-opponent
+   config flag instead of one hardcoded policy, after ali-ahm1 explicitly
+   asked for lecturer-only despite their own default proposal being
+   CC-both.
+
+9. **Per-opponent consensus-wait ceiling**
+   (`network_and_league.consensus_ceiling_sec`,
+   `interop/std_v1_opponent.py`) — the final consensus wait was hardcoded at
+   400s for every opponent, no config hook at all. Against najamjad, whose
+   build can structurally never send a valid consensus envelope (see item
+   11), that 400s was pure dead time on every single run. Exposed as a
+   per-opponent override (still 400s everywhere else, since another
+   opponent's kit genuinely does send its envelope a few seconds late) and
+   set to 30s for najamjad — cut the gap between the two sides' emailed
+   reports from ~6.5 minutes to ~10 seconds.
+
+10. **A peer's own validator rejecting a genuinely-absent value**
+    (`interop/std_v1/identity.py::build_identity`) — `sysinfo.collect_spec()`
+    honestly reports `gpu: None` when no GPU is detected; najamjad's own
+    declaration validator required a string and rejected the `null`
+    outright, blocking their declaration artifact for the whole series.
+    Fixed by sending `"none"` (a string) for this one wire-facing field
+    only — the shared detection code and the native/cop_v1 path that relies
+    on real `None` semantics elsewhere are both untouched.
+
+11. **A peer's build with no live confirmation channel at all**
+    (`peer/runtime.py::run`, `std_v1.trust_documented_consensus`) —
+    najamjad's own consensus envelope never carries a `consensus_sha` field
+    (their own admission), so `mutual_agreement.confirmed` can never become
+    `true` against them no matter how many times the underlying digest
+    matches. Rather than silently rewrite the honest wire-level `confirmed`
+    flag, added a narrow, opt-in, per-opponent override: an explicit written
+    agreement that both sides' independently-emailed settlement hashes
+    match stands in for the live confirmation for the *counted-vs-friendly*
+    decision only, gated additionally on `results_agreed` (no
+    tamper/disagreement signal) so it's not a blanket bypass of rules
+    19/34/35's intent — just a narrower path to the same trust the live
+    channel exists to establish, for the one opponent whose current build
+    structurally can't produce it.
+
+None of these were spec ambiguities resolved by reading the book more
+carefully — each is a concrete interoperability mismatch between two
+independently-built implementations, found by actually running a real match
+and root-caused with real evidence (debug logs, tunnel metrics, byte-for-byte
+digest comparisons) before being fixed.
+
 ## Manual steps this repo cannot perform for you
 
 - **Creating `credentials.json` and completing the one-time browser consent.**
