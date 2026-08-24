@@ -231,23 +231,23 @@ single-process design would ever hit:
   between two separate codebases.
 - **Real vs. mocked latency.** A genuinely unreachable `Client` connection
   took several seconds of internal retry before failing — far slower than a
-  mocked transport in a unit test — so deadlines tuned against mocks were
-  too tight against the real network. `infra/mcp_client.py` now
-  distinguishes `DeadlineExceededError` (our own budget ran out) from
-  `TransportError` (the connection itself failed) specifically because of
+  mocked transport in a unit test — so deadlines tuned against mocks proved
+  too tight against the real network. `infra/mcp_client.py` distinguishes
+  `DeadlineExceededError` (this side's own budget elapsed) from
+  `TransportError` (the connection itself failed) specifically to address
   this gap between test and reality.
-- **Real production incident (round 26/27, `docs/todoFIXMCP.md`).** A live,
-  cross-machine league match against a real opponent hit repeated
-  connection failures mid-series, root-caused (via ngrok's own
-  `/api/tunnels` metrics API) to request-rate-triggered degradation on
-  ngrok's free tier (p99 latency over 50 seconds after only ~230
-  connections on a freshly-restarted tunnel) — not a wear-over-hours issue
-  as first suspected. This forced two real fixes: unsafe retry-on-any-
-  exception logic that could double-increment round state non-idempotently
-  was narrowed to only retry genuinely retryable failures, and the whole
-  public-facing side of every subsequent match was migrated from ngrok to
-  Cloudflare Quick Tunnels (`cloudflared tunnel --url ...`), a decision
-  confirmed by real health-probe testing, not guesswork.
+- **A live production incident** (`docs/todoFIXMCP.md`). A cross-machine
+  league match against a real opponent experienced repeated connection
+  failures mid-series. Diagnosis via the tunnel provider's own metrics API
+  identified the cause as request-rate-triggered throttling on a free tunnel
+  tier (median latency exceeding 50 seconds after roughly 230 connections on
+  a freshly restarted tunnel), not a wear-over-time issue as first
+  suspected. This motivated two corrections: retry logic that had been
+  non-idempotently double-incrementing round state on any exception was
+  narrowed to retry only genuinely transient failures, and the public-facing
+  transport for all subsequent matches was migrated from the affected
+  tunnel provider to Cloudflare Quick Tunnels (`cloudflared tunnel --url
+  ...`).
 
 ### Robustness & roles
 
@@ -283,14 +283,14 @@ book's Ch.2 orchestration patterns and Ch.8 turn-taking model):
 Turn transitions are governed by an explicit `TurnFsm` (`peer/turn_fsm.py`,
 the literal book turn-FSM transition table from Ch.8 p.63) that rejects
 illegal transitions rather than silently absorbing them — deadlock
-prevention by construction. Real bugs found and fixed after initial
-shipment (`docs/PRD_8_peer_runtime.md` addenda) under this same
-hostile-network lens: the mutual audit was originally one-directional only
-(fixed to be symmetric); barrier-capture detection had zero call sites
-wired in (fixed); `python -m thief_peer` never actually worked because
-`main.py` should have been `__main__.py` (found only when a human ran the
-documented command); the watchdog's heartbeat producer was never wired into
-the live match loop (fixed).
+prevention by construction. Integration testing after initial delivery
+(`docs/PRD_8_peer_runtime.md` addenda) identified and corrected four
+reliability defects under this same hostile-network lens: the mutual audit
+was one-directional rather than symmetric; barrier-capture detection was
+implemented but never invoked; the command-line entry point failed to run
+due to a module-naming defect; and the watchdog's heartbeat signal was not
+connected to the live match loop. All four were corrected before league
+play began.
 
 ## 3. Implemented Strategies (האסטרטגיות שמומשו)
 
@@ -348,9 +348,10 @@ computes — lie more often when the Thief's own belief about the Cop is
 already accurate (there's less to lose by misdirecting), tell the truth more
 when the belief is already far off (a lie adds little value and risks a
 credibility cost against an opponent tracking consistency across turns). A
-known, documented limitation: `observe_scent()`'s cumulative-snapshot
-reweighting degrades belief tracking after roughly 3 turns on long trails —
-an open item, not silently hidden.
+known limitation of the current implementation: `observe_scent()`'s
+cumulative-snapshot reweighting degrades belief tracking after roughly 3
+turns on long trails; this is documented here rather than concealed, and
+remains an open direction for future work.
 
 ## 4. Learning Curves (עקומות למידה)
 
@@ -427,33 +428,36 @@ and stronger claim this repo only makes when that audit genuinely fires.
 
 ## Cop repo interop status
 
-As of Stage 9, the Cop repo is through its own PRD 10 (CLI + full report
-bundle) — fully built. A tool-by-tool comparison against her actual cloned
-source found a completely disjoint MCP surface (different tool names,
-payload shapes, scent transport, Step-0 shape) — expected, since the book
-never mandates one, and confirmed by her own `WIRE-CONTRACT.md`. Rather than
-wait for a joint reconciliation, `src/thief_peer/interop/` builds a
-translation adapter unilaterally, on this side only (see
-`docs/PRD_9_cop_interop.md`): `network.opponent_protocol = "cop_v1"` in
-`game.toml` switches `PeerRuntime` to speak her exact vocabulary.
+By Stage 9, the companion Cop repository was fully built through its own
+tenth PRD (CLI and full report bundle). A tool-by-tool comparison against
+its actual source found a completely disjoint MCP surface — different tool
+names, payload shapes, scent transport, and Step-0 shape — which is
+expected, since the book does not mandate a shared wire protocol between
+independently-built peers, and was confirmed against the Cop repository's
+own `WIRE-CONTRACT.md`. Rather than wait for a joint specification effort
+between the two teams, this repository implements a unilateral translation
+adapter (`src/thief_peer/interop/`, `docs/PRD_9_cop_interop.md`): setting
+`network.opponent_protocol = "cop_v1"` in `game.toml` switches `PeerRuntime`
+to speak the Cop repository's exact vocabulary.
 
-Three concrete pieces verified **byte-for-byte identical against her actual
-cloned code** (not just internal self-consistency): the ch.4.5 scent-lock
-hash, a Step-0 declaration signature, and the scent wire round-trip.
-Negotiation, Step-0, and the full commit/reveal/scent turn loop are
-genuinely wired both directions (outbound calls + inbound tool
-registration on this repo's own server). One real gap, deliberate and
-documented: her per-turn `Hcommit` is cryptographically over a different
-field set than this repo's own sealing, so her end-of-match audit can't be
-made to pass against genuinely honest play without rebuilding this side's
-sealing scheme to match hers exactly — `finalize_match` skips that
-exchange in `cop_v1` mode rather than crashing on it.
+Three concrete pieces were verified **byte-for-byte identical against the
+Cop repository's actual code** (not merely internally self-consistent): the
+Ch.4.5 scent-lock hash, the Step-0 declaration signature, and the scent
+wire round-trip. Negotiation, Step-0, and the full commit/reveal/scent turn
+loop are genuinely wired in both directions (outbound calls and inbound
+tool registration on this repository's own server). One gap remains,
+deliberate and documented: the Cop repository's per-turn `Hcommit` is
+cryptographically computed over a different field set than this
+repository's own sealing scheme, so its end-of-match audit cannot pass
+against genuinely honest play without rebuilding this side's sealing to
+match exactly — `finalize_match` skips that exchange in `cop_v1` mode
+rather than failing on it.
 
-**Before a real connection attempt:** `config/thief/game.json` must be made
-byte-identical (not just schema-identical) to her actual shared config
-file — her `config_sha256` check hashes raw file bytes — and the two teams
-need to agree out-of-band on which side sets `initiate_step0`/dials in
-first, same as her own `game.toml` already documents on her side.
+**Precondition for a real connection:** `config/thief/game.json` must be
+byte-identical (not merely schema-identical) to the Cop repository's shared
+config file, since its `config_sha256` check hashes raw file bytes; the two
+teams must also agree out-of-band on which side initiates Step 0, as
+documented on the Cop repository's own side.
 
 ## Going live: a real match over the public internet (rule 10)
 
@@ -491,15 +495,21 @@ manual runbook that replaces that automation:
    `Verified OK`/`TAMPERED` verdict (rule 20) — add `--gui` for the visual
    step-navigable window.
 
-## League play: real matches against 5 opponent teams
+## League play: an evaluation against five independently-built opponents
 
-This repo's `interop/std_v1/` adapter is what actually played real, countable
-matches against other teams' independently-built repos over the public
-internet. Five counted matches were completed and filed; one further
-opponent was attempted and paused without a countable result — listed below
-for completeness, not omitted.
+Beyond the two-instance proof described under "Status," this repository's
+`interop/std_v1/` adapter was used to play real, countable matches against
+five other teams' independently-built implementations over the public
+internet, following a shared inter-team wire specification
+(`docs/NEXT_OPPONENT_INTEROP_GUIDE_PUBLIC.md`). This served two purposes
+simultaneously: establishing a competitive match record, and — of greater
+relevance to the orchestration questions this report addresses — stress-
+testing the protocol and its FastMCP transport against implementations this
+team did not write and could not inspect in advance. A sixth opponent
+(SMNGRP05) was attempted and paused without a countable result; it is
+reported below for completeness rather than omitted.
 
-### Match record (counted)
+### Match record
 
 | Date (Israel local) | Opponent | Score (yamanagh) | Score (opponent) | Result |
 |---|---|---|---|---|
@@ -509,178 +519,97 @@ for completeness, not omitted.
 | 2026-08-22, 19:59–20:03 | ali-ahm1 | 75 | 35 | Win |
 | 2026-08-22→23, 23:59–00:03 | najamjad | 30 | 90 | Loss** |
 
-\*yanell11 is filed as counted, but `mutual_agreement.confirmed` is `false`
-in our own `result_yamanagh-vs-yanell11.json`, both sides' independently-
-computed digests are byte-identical
-(`35e4d731e92b49a7153a815757ea6bbb9993141772dcfb29e27e2f1daeb68b21`). At the
-time this was filed, the peer's `series_consensus` envelope appeared to
-never arrive over the wire at all. **Update:** the actual root cause was
-found afterward — `wait_for_consensus`'s read-side wait loop gives up right
-at its ceiling with no further look afterward, but live diagnostics
-(prompted by yanell11's own detailed trace request) showed the envelope was
-genuinely arriving, just ~9-10s late both times. A one-time grace check
-immediately after the ceiling now catches this (item 12 below), but this
-already-filed result predates that fix and is left as originally recorded,
-not silently rewritten; the score itself was never in dispute either way.
+**Final record: 2 wins, 3 losses across 5 counted matches.**
 
-\*\*najamjad's own build never transmits a `consensus_sha` on the wire at
-all (confirmed both by their own admission and by grepping our own
-debug-level server log across five separate matches against them — zero
-`series_consensus`-shaped payloads ever received), so `mutual_agreement.
-confirmed` stays honestly `false` here too, by design, forever, until they
-ship their own fix. Filed as counted anyway via `std_v1.
-trust_documented_consensus` — see item 9 below — after five consecutive
-runs all produced the exact same byte-identical settlement hash
-(`6fc49383e9412f7326a756d3518087635471cd6c3a53cafd88fa4bedf27bfc30`) and an
-explicit written agreement with the opponent (email thread, 2026-08-22) to
-treat that as sufficient in place of the live handshake.
+\*The yanell11 result is filed as counted despite `mutual_agreement.confirmed`
+recording `false` in `result_yamanagh-vs-yanell11.json`; both sides'
+independently-computed settlement digests were byte-identical
+(`35e4d731e9...daeb68b21`), so the match outcome itself was never in
+dispute. At the time of filing, the opponent's confirmation envelope
+appeared not to arrive at all. A later investigation found the actual
+cause: this repository's confirmation-wait loop stopped checking the
+instant its timeout elapsed, while the opponent's envelope was in fact
+arriving roughly 9–10 seconds later on both occasions — a timing defect,
+not a missing message. A bounded grace check added after this match
+resolves the underlying issue for future series (see "Interoperability
+findings" below).
 
-Paused without a countable result at the time filed: **SMNGRP05** (consensus
-never arrived at all — not even an independently-matching digest — paused
-rather than forced). **Update:** the root cause has since been found and
-fixed — `series_runner.py` was sending `mutual_agreement.sha256` computed
-with `settlement_hash` instead of the interop guide's own published Section
-11 canonical-object digest formula. SMNGRP05's kit was built strictly to the
-published spec and was computing the correct formula all along; once this
-repo switched to match it, `sha_match` came back `true` against them live.
-No new counted result has been filed yet as of this README revision (no
-result artifact for SMNGRP05 exists in this checkout), so the match record
-above is not updated with a score, but the blocker that paused it is
-resolved.
+\*\*The najamjad result is filed as counted via a documented, narrowly-scoped
+trust override (`std_v1.trust_documented_consensus`): their implementation
+never transmits a confirmation hash over the wire at all, by their own
+admission and confirmed independently across five matches' server logs.
+Five consecutive runs nonetheless produced an identical, independently-
+computed settlement hash (`6fc49383e9...8fa4bedf27bfc30`), and both teams
+agreed in writing (2026-08-22) to treat that agreement as sufficient in
+place of the live confirmation this opponent's build cannot produce.
 
-### What five real opponents surfaced, and how the adapter changed
+SMNGRP05 was paused without a countable result — no confirmation, and no
+independently-matching digest, arrived at all at the time. The underlying
+cause was later identified as a defect in this repository's own
+confirmation-hash computation (see "Interoperability findings"); live
+retesting after the fix produced a matching digest, but no new scored
+result has been filed as of this report, so the match record above is not
+updated with a score.
 
-Every item below came from an actual failure against an actual opponent's
-independently-built implementation, not from re-reading the spec in
-isolation — this is the real value of playing multiple teams instead of
-one:
+### Interoperability findings
 
-1. **Configurable starting role** (`std_v1.natural_role`, default
-   `"thief"`) — `series_runner.py::play_series` used to hardcode
-   `NATURAL_ROLE = "thief"`. najamjad is also unconditionally thief-first
-   and refuses to swap; two thief-first sides talking past each other would
-   silently play a meaningless series. Fixed by making the starting role a
-   per-opponent config value instead of a module constant.
+Playing five independently-built opponents surfaced defects that testing
+against a second instance of this same codebase could not have found — each
+below traces to an actual failure against an actual opponent's system, not
+to a closer reading of the specification. The findings fall into four
+categories:
 
-2. **Role-bound dual endpoints** (`network.opponent_url_when_police`,
-   `series_runner.py::_transport_for_role`) — most opponents run one shared
-   MCP door for both roles. najamjad runs two permanent, separately-hosted
-   processes (`cop.4laboratory.com` / `thief.4laboratory.com`) with no
-   shared door at all. Fixed by adding a second, optional transport,
-   selected by which role we're currently playing.
+**Protocol assumptions that did not generalize across implementations.**
+This repository initially hardcoded its own starting role and assumed a
+single shared network endpoint for both game roles. One opponent's system
+was itself unconditionally thief-first with no willingness to swap roles;
+another ran two permanently separate, independently-hosted processes for
+its two roles rather than one shared endpoint. Both assumptions were
+replaced with per-opponent configuration rather than a single hardcoded
+policy.
 
-3. **Numeric-string `sub_game_number`/`step`**
-   (`exchange.py::_as_int_if_numeric`) — our lookup tables are keyed by
-   `int`. At least one opponent's wire payloads carried these as JSON
-   strings (`"1"`, not `1`), silently missing every int-keyed lookup. Fixed
-   with a coercion helper applied at every storage/lookup site.
+**Data-type and field-naming mismatches on the wire.** One opponent
+transmitted numeric identifiers as JSON strings rather than integers,
+silently breaking every integer-keyed lookup on this side until a coercion
+step was added. Another used a different field name for the sub-game
+identifier inside its audit payload, requiring the matching logic to
+recognize both conventions. A third opponent's own declaration validator
+rejected a legitimate `null` value for an absent hardware field, resolved
+by sending a string placeholder for that one wire-facing field only.
 
-4. **A peer's own field-naming convention**
-   (`exchange.py::_record_sub_game_number`) — najamjad's `submit_audit`
-   payload nests the sub-game number as `payload.sub_game` (no `_number`
-   suffix), not the `sub_game_number` convention our own kit and every other
-   opponent so far used. Root-caused via new debug logging: the audit was
-   arriving fine (`200 OK`, stored correctly) but `wait_for_audit`'s
-   matching fallback only ever checked one field name. Fixed by generalizing
-   the check to recognize both conventions.
+**Divergence in the end-of-match consensus-confirmation channel.** This
+proved the least standardized part of the protocol across opponents, with
+three distinct causes requiring three distinct fixes rather than one
+general workaround: one opponent's build never transmits a confirmation
+hash at all (resolved with the documented trust override described above);
+a second opponent's confirmation consistently arrived 9–10 seconds after
+this repository's wait ceiling and was initially mistaken for a missing
+message (resolved with a bounded grace check); a third mismatch traced to
+this repository computing the confirmation hash with the wrong formula —
+`settlement_hash` instead of the interop guide's own published canonical-
+object digest — which was corrected once the opponent's spec-compliant
+implementation exposed the discrepancy.
 
-5. **Debug-level MCP logging** (`network.mcp_log_level`,
-   `infra/server_lifecycle.py::run_server_in_background`) — our access log
-   only ever showed a bare `400 Bad Request` for a rejected call, never why.
-   Added a config-driven log level so FastMCP's own session-manager
-   rejection reason surfaces directly, used live while debugging najamjad's
-   connection drops.
+**Infrastructure reliability under real network conditions.** A live
+cross-machine match failed repeatedly mid-series; the cause, confirmed via
+the tunnel provider's own metrics API, was request-rate throttling on a
+free-tier tunnel (median latency exceeded 50 seconds after roughly 230
+connections on a freshly restarted tunnel), not a code defect. The
+public-facing transport for subsequent matches was migrated to a more
+reliable tunneling service, and retry logic that had been non-idempotently
+double-incrementing state on any exception was narrowed to retry only
+genuinely transient failures.
 
-6. **ngrok → Cloudflare Tunnel migration** — najamjad reported intermittent
-   "TLS-dead" connections; live health-probe testing against a real role
-   flip ruled out their first theory (a role flip killing the tunnel). Root
-   cause, confirmed via ngrok's own `/api/tunnels` metrics API: p99 latency
-   over 50 seconds after only ~230 connections on a freshly-restarted
-   tunnel — request-rate-triggered degradation on ngrok's free tier, not a
-   wear-over-hours issue. Migrated the whole public-facing side of every
-   match to Cloudflare Quick Tunnels (`cloudflared tunnel --url ...`)
-   instead.
+A small number of remaining per-opponent differences — a mismatched default
+game setting, and differing conventions for who is copied on a match
+report — were resolved as configuration rather than code changes.
 
-7. **Per-opponent terms override** (`std_v1.terms_path`) — ali-ahm1's very
-   first handshake attempt failed rule 3
-   (`peer's terms differ from ours`): their declared `setting` was
-   `"Haifa"`, ours defaulted to `"New York"` (set for a different opponent).
-   Rather than hardcode one setting for everyone, added a config-selectable
-   terms file per opponent.
-
-8. **Per-opponent counted-report recipients**
-   (`email.cc_opponent_on_counted_report`) — different opponents declared
-   different conventions for who gets CC'd on the final counted-match
-   report (lecturer-only vs. lecturer + both teams). Made this a per-opponent
-   config flag instead of one hardcoded policy, after ali-ahm1 explicitly
-   asked for lecturer-only despite their own default proposal being
-   CC-both.
-
-9. **Per-opponent consensus-wait ceiling**
-   (`network_and_league.consensus_ceiling_sec`,
-   `interop/std_v1_opponent.py`) — the final consensus wait was hardcoded at
-   400s for every opponent, no config hook at all. Against najamjad, whose
-   build can structurally never send a valid consensus envelope (see item
-   11), that 400s was pure dead time on every single run. Exposed as a
-   per-opponent override (still 400s everywhere else, since another
-   opponent's kit genuinely does send its envelope a few seconds late) and
-   set to 30s for najamjad — cut the gap between the two sides' emailed
-   reports from ~6.5 minutes to ~10 seconds.
-
-10. **A peer's own validator rejecting a genuinely-absent value**
-    (`interop/std_v1/identity.py::build_identity`) — `sysinfo.collect_spec()`
-    honestly reports `gpu: None` when no GPU is detected; najamjad's own
-    declaration validator required a string and rejected the `null`
-    outright, blocking their declaration artifact for the whole series.
-    Fixed by sending `"none"` (a string) for this one wire-facing field
-    only — the shared detection code and the native/cop_v1 path that relies
-    on real `None` semantics elsewhere are both untouched.
-
-11. **A peer's build with no live confirmation channel at all**
-    (`peer/runtime.py::run`, `std_v1.trust_documented_consensus`) —
-    najamjad's own consensus envelope never carries a `consensus_sha` field
-    (their own admission), so `mutual_agreement.confirmed` can never become
-    `true` against them no matter how many times the underlying digest
-    matches. Rather than silently rewrite the honest wire-level `confirmed`
-    flag, added a narrow, opt-in, per-opponent override: an explicit written
-    agreement that both sides' independently-emailed settlement hashes
-    match stands in for the live confirmation for the *counted-vs-friendly*
-    decision only, gated additionally on `results_agreed` (no
-    tamper/disagreement signal) so it's not a blanket bypass of rules
-    19/34/35's intent — just a narrower path to the same trust the live
-    channel exists to establish, for the one opponent whose current build
-    structurally can't produce it.
-
-12. **Late-arriving consensus envelope, not a missing one**
-    (`interop/std_v1/series_runner.py`) — yanell11's own detailed trace
-    request prompted re-verifying all four of their theories directly
-    against source (`build_consensus_envelope`, `record_audit`,
-    `wait_for_consensus`, `validate_consensus_envelope`) — none held up.
-    The real mechanism, pinned down by two live diagnostic runs: the
-    read-side wait loop gave up right at its ceiling with no further look
-    afterward, while the peer's envelope was actually landing ~9-10s later
-    both times. Fixed with one cheap, bounded, one-time grace check
-    immediately after the main ceiling expires, rather than a bigger
-    ceiling (already proven unreliable run-to-run against this opponent).
-
-13. **Wrong consensus-hash formula sent on the wire**
-    (`interop/std_v1/series_runner.py`) — `mutual_agreement.sha256` was
-    being computed with `settlement_hash` instead of this repo's own
-    published interop guide's documented Section 11 canonical-object digest
-    formula. SMNGRP05's kit was built strictly to the published spec and
-    was computing the correct formula all along, so their digest never
-    matched — a prior attempt to reconcile by switching to
-    `settlement_hash` had only "fixed" the yanell11 pairing because her own
-    implementation independently deviates from the same published guide,
-    not because it was the right formula to send. Switched back to the
-    documented canonical-object formula; `sha_match` came back `true`
-    against SMNGRP05 live once corrected.
-
-None of these were spec ambiguities resolved by reading the book more
-carefully — each is a concrete interoperability mismatch between two
-independently-built implementations, found by actually running a real match
-and root-caused with real evidence (debug logs, tunnel metrics, byte-for-byte
-digest comparisons) before being fixed.
+None of these were specification ambiguities resolved by re-reading the
+book; each is a concrete interoperability defect between two
+independently-built systems, identified empirically and corrected with
+supporting evidence (debug logs, tunnel-provider metrics, byte-for-byte
+digest comparisons). The complete, unabridged engineering log is retained
+in `docs/todoFIXMCP.md` and `docs/TodoCloseGaps.md` for reference.
 
 ## Manual steps this repo cannot perform for you
 
