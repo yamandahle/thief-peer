@@ -53,6 +53,13 @@ from thief_peer.interop.std_v1.settlement_hash import settlement_hash
 
 NATURAL_ROLE = "thief"
 
+# yanell11, live: exchange.py's own instrumentation caught the peer's
+# consensus envelope landing ~9-10s after send_and_await's own ceiling had
+# already expired, twice, in back-to-back runs. This is a small, bounded,
+# one-time grace check after the main wait gives up -- not a bigger
+# ceiling, which already proved unreliable run-to-run for this opponent.
+_CONSENSUS_GRACE_SEC = 15.0
+
 # Section 6's real point table -- fixed by the rules, never negotiated.
 _SCORE_TABLE = {
     "capture": {"police": 20, "thief": 5},
@@ -134,7 +141,28 @@ def _resolve_consensus(
             resend_interval_sec, consensus_ceiling_sec,
         )
         peer_digest = validate_consensus_envelope(peer_envelope)
-    except (DeadlineExceededError, SimulationError) as exc:
+    except DeadlineExceededError:
+        # yanell11, live: exchange.py's own diagnostics proved this exact
+        # near-miss twice -- the peer's envelope gets stored by
+        # record_audit (the inbound MCP handler, running on its own
+        # thread) mere seconds after send_and_await's own deadline above
+        # already expired and raised. The storage side has no timing gate
+        # at all; only this read-side loop's own ceiling does. One cheap,
+        # bounded, final direct check closes that exact gap -- not a
+        # bigger ceiling (already shown unreliable run-to-run for this
+        # opponent), a genuine last-chance look at whatever's already
+        # sitting in `exchange` by the time we'd otherwise give up.
+        try:
+            peer_envelope = exchange.wait_for_consensus(_CONSENSUS_GRACE_SEC)
+            peer_digest = validate_consensus_envelope(peer_envelope)
+            print(
+                f"[consensus] caught by the {_CONSENSUS_GRACE_SEC}s post-ceiling grace check "
+                "-- the peer's envelope arrived just after our own wait window closed", flush=True,
+            )
+        except (DeadlineExceededError, SimulationError) as exc:
+            print(f"[consensus] NOT CONFIRMED -- peer envelope never arrived or was invalid: {exc}", flush=True)
+            return False, None
+    except SimulationError as exc:
         print(f"[consensus] NOT CONFIRMED -- peer envelope never arrived or was invalid: {exc}", flush=True)
         return False, None
     agreed = confirm_agreement(all_clean, all_results_agreed, local_digest, peer_digest)
@@ -439,29 +467,22 @@ def play_series(
 
     game_ended_at = now_iso()
     consensus_object = build_consensus_object(game_id, game_uid, rows)
-    # Section 11's own doc-formula digest ({game_id, game_uid, sub_games},
-    # compact separators) -- this repo's own earlier published guide
-    # (docs/NEXT_OPPONENT_INTEROP_GUIDE_PUBLIC.md #405-407,424) documented
-    # this as *the* mutual_agreement.sha256 formula. Kept only as a
-    # diagnostic cross-check now; see book_formula_sha256 below.
-    book_formula_digest = consensus_digest(consensus_object)
     final_result_obj = build_final_result(rows, my_group_id, their_group_id, games_played_including_this)
-    # Rule 9.3.3 / rule 35's actual settlement scope: {game_id, aggregate,
-    # sub_games trimmed to sub_game_number/roles/result/winner_group/score},
-    # spaced separators -- this, not the doc-formula digest above, is what
-    # both the live wire consensus exchange and the filed report's own
-    # mutual_agreement.sha256 must carry. Reconciled live against yanell11
-    # after the doc-formula digest never matched: rule 35 is judged on the
-    # two filed reports' mutual_agreement.sha256 fields agreeing, read by a
-    # grader as a single named field -- a second, differently-named field
-    # holding the "real" value doesn't help if the primary one disagrees.
-    # Confirmed correct, not just asserted: her own wire consensus_sha and
-    # her report's own sha256 are the identical value, and independently
-    # recomputing this exact formula from her real emailed result
-    # reproduces her stated hash bit-for-bit (twice, against two different
-    # match outcomes). Computed once, before the wire step, so the same
-    # value is what's sent on the wire and what's filed in the report.
-    local_digest = settlement_hash(game_id, final_result_obj, rows)
+    # Section 11's own canonical-object digest ({game_id, game_uid,
+    # sub_games}, compact separators, sort_keys=True) -- this repo's own
+    # published guide (docs/NEXT_OPPONENT_INTEROP_GUIDE_PUBLIC.md #354-391)
+    # documents this as *the* mutual_agreement.sha256 formula, and it's
+    # what a spec-compliant opponent actually computes (proven live:
+    # SMNGRP05's wire consensus_sha landed on this exact value, not the
+    # settlement_hash formula this file used to send). A prior attempt to
+    # reconcile against yanell11 by switching to settlement_hash instead
+    # only "fixed" that one pairing because her own implementation also
+    # deviates from the published guide -- it's not this repo's spec to
+    # match a peer's deviation; it's the peer's bug if their digest doesn't
+    # land on the documented formula. Diagnostic settlement_hash value kept
+    # below for cross-checking, not sent on the wire.
+    local_digest = consensus_digest(consensus_object)
+    settlement_formula_digest = settlement_hash(game_id, final_result_obj, rows)
     all_results_agreed = all(
         report["peer_result_claim"] == report["end_reason"] for report in sub_game_reports
     )
@@ -478,7 +499,7 @@ def play_series(
         "sha_match": local_digest == peer_digest,
         "results_agreed": all_results_agreed,
         "confirmed": agreed,
-        "book_formula_sha256": book_formula_digest,
+        "settlement_formula_sha256": settlement_formula_digest,
     }
     report = build_result_report(
         game_id, game_uid, my_group_id, their_group_id, identity, their_identity,
