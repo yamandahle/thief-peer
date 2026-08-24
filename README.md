@@ -510,12 +510,18 @@ for completeness, not omitted.
 | 2026-08-22→23, 23:59–00:03 | najamjad | 30 | 90 | Loss** |
 
 \*yanell11 is filed as counted, but `mutual_agreement.confirmed` is `false`
-in our own `result_yamanagh-vs-yanell11.json` — the peer's `series_consensus`
-envelope never actually arrived over the wire, even though both sides'
-independently-computed digests are byte-identical
-(`35e4d731e92b49a7153a815757ea6bbb9993141772dcfb29e27e2f1daeb68b21`). A
-known, unresolved wire-confirmation asymmetry predating this round of
-interop fixes; the score itself was never in dispute.
+in our own `result_yamanagh-vs-yanell11.json`, both sides' independently-
+computed digests are byte-identical
+(`35e4d731e92b49a7153a815757ea6bbb9993141772dcfb29e27e2f1daeb68b21`). At the
+time this was filed, the peer's `series_consensus` envelope appeared to
+never arrive over the wire at all. **Update:** the actual root cause was
+found afterward — `wait_for_consensus`'s read-side wait loop gives up right
+at its ceiling with no further look afterward, but live diagnostics
+(prompted by yanell11's own detailed trace request) showed the envelope was
+genuinely arriving, just ~9-10s late both times. A one-time grace check
+immediately after the ceiling now catches this (item 12 below), but this
+already-filed result predates that fix and is left as originally recorded,
+not silently rewritten; the score itself was never in dispute either way.
 
 \*\*najamjad's own build never transmits a `consensus_sha` on the wire at
 all (confirmed both by their own admission and by grepping our own
@@ -529,9 +535,18 @@ runs all produced the exact same byte-identical settlement hash
 explicit written agreement with the opponent (email thread, 2026-08-22) to
 treat that as sufficient in place of the live handshake.
 
-Paused without a countable result: **SMNGRP05** (consensus never arrived at
-all — not even an independently-matching digest — paused rather than
-forced).
+Paused without a countable result at the time filed: **SMNGRP05** (consensus
+never arrived at all — not even an independently-matching digest — paused
+rather than forced). **Update:** the root cause has since been found and
+fixed — `series_runner.py` was sending `mutual_agreement.sha256` computed
+with `settlement_hash` instead of the interop guide's own published Section
+11 canonical-object digest formula. SMNGRP05's kit was built strictly to the
+published spec and was computing the correct formula all along; once this
+repo switched to match it, `sha_match` came back `true` against them live.
+No new counted result has been filed yet as of this README revision (no
+result artifact for SMNGRP05 exists in this checkout), so the match record
+above is not updated with a score, but the blocker that paused it is
+resolved.
 
 ### What five real opponents surfaced, and how the adapter changed
 
@@ -635,6 +650,31 @@ one:
     19/34/35's intent — just a narrower path to the same trust the live
     channel exists to establish, for the one opponent whose current build
     structurally can't produce it.
+
+12. **Late-arriving consensus envelope, not a missing one**
+    (`interop/std_v1/series_runner.py`) — yanell11's own detailed trace
+    request prompted re-verifying all four of their theories directly
+    against source (`build_consensus_envelope`, `record_audit`,
+    `wait_for_consensus`, `validate_consensus_envelope`) — none held up.
+    The real mechanism, pinned down by two live diagnostic runs: the
+    read-side wait loop gave up right at its ceiling with no further look
+    afterward, while the peer's envelope was actually landing ~9-10s later
+    both times. Fixed with one cheap, bounded, one-time grace check
+    immediately after the main ceiling expires, rather than a bigger
+    ceiling (already proven unreliable run-to-run against this opponent).
+
+13. **Wrong consensus-hash formula sent on the wire**
+    (`interop/std_v1/series_runner.py`) — `mutual_agreement.sha256` was
+    being computed with `settlement_hash` instead of this repo's own
+    published interop guide's documented Section 11 canonical-object digest
+    formula. SMNGRP05's kit was built strictly to the published spec and
+    was computing the correct formula all along, so their digest never
+    matched — a prior attempt to reconcile by switching to
+    `settlement_hash` had only "fixed" the yanell11 pairing because her own
+    implementation independently deviates from the same published guide,
+    not because it was the right formula to send. Switched back to the
+    documented canonical-object formula; `sha_match` came back `true`
+    against SMNGRP05 live once corrected.
 
 None of these were spec ambiguities resolved by reading the book more
 carefully — each is a concrete interoperability mismatch between two
