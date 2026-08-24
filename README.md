@@ -495,46 +495,42 @@ manual runbook that replaces that automation:
    `Verified OK`/`TAMPERED` verdict (rule 20) — add `--gui` for the visual
    step-navigable window.
 
-## League play: an evaluation against five independently-built opponents
+## League play: an evaluation against six independently-built opponents
 
 Beyond the two-instance proof described under "Status," this repository's
 `interop/std_v1/` adapter was used to play real, countable matches against
-five other teams' independently-built implementations over the public
+six other teams' independently-built implementations over the public
 internet, following a shared inter-team wire specification
 (`docs/NEXT_OPPONENT_INTEROP_GUIDE_PUBLIC.md`). This served two purposes
 simultaneously: establishing a competitive match record, and — of greater
 relevance to the orchestration questions this report addresses — stress-
 testing the protocol and its FastMCP transport against implementations this
-team did not write and could not inspect in advance. A sixth opponent
-(SMNGRP05) was attempted and paused without a countable result; it is
-reported below for completeness rather than omitted.
+team did not write and could not inspect in advance.
 
 ### Match record
 
 | Date (Israel local) | Opponent | Score (yamanagh) | Score (opponent) | Result |
 |---|---|---|---|---|
-| 2026-08-19, 21:16–21:19 | moamteam | 30 | 90 | Loss |
-| 2026-08-19→20, 21:42–00:45 | yanell11 | 30 | 90 | Loss* |
+| 2026-08-19, 21:11–21:19 | moamteam | 30 | 90 | Loss |
+| 2026-08-23, 19:35–19:37 | yanell11 | 30 | 90 | Loss |
 | 2026-08-21, 20:09–20:12 | s82kma9e | 90 | 30 | Win |
 | 2026-08-22, 19:59–20:03 | ali-ahm1 | 75 | 35 | Win |
-| 2026-08-22→23, 23:59–00:03 | najamjad | 30 | 90 | Loss** |
+| 2026-08-22→23, 23:59–00:03 | najamjad | 30 | 90 | Loss* |
+| 2026-08-24, 1:43–1:44 | SMNGRP05 | 47 | 47 | Tie** |
 
-**Final record: 2 wins, 3 losses across 5 counted matches.**
+**Final record: 2 wins, 3 losses, 1 tie across 6 counted matches.**
 
-\*The yanell11 result is filed as counted despite `mutual_agreement.confirmed`
-recording `false` in `result_yamanagh-vs-yanell11.json`; both sides'
-independently-computed settlement digests were byte-identical
-(`35e4d731e9...daeb68b21`), so the match outcome itself was never in
-dispute. At the time of filing, the opponent's confirmation envelope
-appeared not to arrive at all. A later investigation found the actual
-cause: this repository's confirmation-wait loop stopped checking the
-instant its timeout elapsed, while the opponent's envelope was in fact
-arriving roughly 9–10 seconds later on both occasions — a timing defect,
-not a missing message. A bounded grace check added after this match
-resolves the underlying issue for future series (see "Interoperability
-findings" below).
+The yanell11 result above reflects a second, later match against this
+opponent (2026-08-23), which supersedes an earlier attempt on
+2026-08-19→20 that experienced a confirmation-envelope timing defect: this
+repository's confirmation-wait loop stopped checking the instant its
+timeout elapsed, while the opponent's envelope was in fact arriving roughly
+9–10 seconds later — a timing issue, not a missing message (see
+"Interoperability findings" below for the fix). The score was identical in
+both attempts (30–90); confirmation status for this later, superseding
+match is not available in this checkout's local records.
 
-\*\*The najamjad result is filed as counted via a documented, narrowly-scoped
+\*The najamjad result is filed as counted via a documented, narrowly-scoped
 trust override (`std_v1.trust_documented_consensus`): their implementation
 never transmits a confirmation hash over the wire at all, by their own
 admission and confirmed independently across five matches' server logs.
@@ -543,17 +539,19 @@ computed settlement hash (`6fc49383e9...8fa4bedf27bfc30`), and both teams
 agreed in writing (2026-08-22) to treat that agreement as sufficient in
 place of the live confirmation this opponent's build cannot produce.
 
-SMNGRP05 was paused without a countable result — no confirmation, and no
-independently-matching digest, arrived at all at the time. The underlying
-cause was later identified as a defect in this repository's own
-confirmation-hash computation (see "Interoperability findings"); live
-retesting after the fix produced a matching digest, but no new scored
-result has been filed as of this report, so the match record above is not
-updated with a score.
+\*\*The SMNGRP05 series is a genuine, spec-compliant tie: all six sub-games
+ended in `survival`, so each side scored `3×5` (as Cop) `+ 3×10` (as Thief)
+`= 45` from the fixed scoring table, and the `+2` series-tie bonus for
+equal cumulative totals (`docs/NEXT_OPPONENT_INTEROP_GUIDE_PUBLIC.md` §6)
+brought both sides to 47. This result was only reachable once the
+consensus-hash defect described under "Interoperability findings" below was
+corrected — SMNGRP05's implementation was spec-compliant throughout, and
+this repository's own confirmation hash had been computed with the wrong
+formula until the fix.
 
 ### Interoperability findings
 
-Playing five independently-built opponents surfaced defects that testing
+Playing six independently-built opponents surfaced defects that testing
 against a second instance of this same codebase could not have found — each
 below traces to an actual failure against an actual opponent's system, not
 to a closer reading of the specification. The findings fall into four
